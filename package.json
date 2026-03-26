@@ -1,0 +1,21 @@
+{
+  "name": "bilibili-sponsorblock-userscript",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "GPL-3.0-only",
+  "description": "Tampermonkey userscript port of the core BilibiliSponsorBlock experience.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/FilfTeen/bilibili-sponsorblock-userscript.git"
+  },
+  "scripts": {
+    "build": "node ./scripts/build.mjs",
+    "check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "esbuild": "^0.25.10",
+    "typescript": "^5.9.2"
+  }
+}

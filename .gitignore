@@ -1,0 +1,5 @@
+node_modules
+dist/*
+!dist/bilibili-sponsorblock.user.js
+coverage
+.DS_Store
