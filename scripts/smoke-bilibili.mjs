@@ -13,8 +13,16 @@ function assert(condition, message) {
   }
 }
 
-async function installGmShims(page) {
+async function installGmShims(page, options = {}) {
+  const { failSegmentRequests = false } = options;
   await page.exposeFunction("__bsbNodeRequest", async (details) => {
+    if (failSegmentRequests && details.url.includes("/api/skipSegments/")) {
+      return {
+        status: 500,
+        responseText: "{\"error\":\"forced-smoke-failure\"}"
+      };
+    }
+
     const response = await fetch(details.url, {
       method: details.method ?? "GET",
       headers: details.headers ?? {}
@@ -225,6 +233,33 @@ async function verifyVideoPage(page) {
   assert(result.replyBadgeCount > 0, "Comment filter did not process injected sponsored reply.");
 }
 
+async function verifyFailureHandling(browser) {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await installGmShims(page, { failSegmentRequests: true });
+
+  try {
+    await page.goto("https://www.bilibili.com/video/BV1hyQoBgEGs", { waitUntil: "domcontentloaded" });
+    const userscript = await readFile(scriptPath, "utf8");
+    await injectUserscript(page, userscript);
+    await page.waitForSelector("video", { timeout: 15000 });
+    await page.waitForTimeout(1200);
+
+    const result = await page.evaluate(() => ({
+      noticeTitles: Array.from(document.querySelectorAll(".bsb-tm-notice-title")).map((node) => node.textContent ?? ""),
+      noticeMessages: Array.from(document.querySelectorAll(".bsb-tm-notice-message")).map((node) => node.textContent ?? "")
+    }));
+
+    assert(result.noticeTitles.includes("片段读取失败"), "Failure path did not surface a user-facing error title.");
+    assert(
+      result.noticeMessages.some((message) => message.includes("SponsorBlock API returned 500")),
+      "Failure path did not surface the API error details."
+    );
+  } finally {
+    await context.close();
+  }
+}
+
 async function main() {
   const browser = await chromium.launch({
     executablePath: browserPath,
@@ -237,6 +272,8 @@ async function main() {
     await installGmShims(page);
     await verifyHomePage(page);
     await verifyVideoPage(page);
+    await context.close();
+    await verifyFailureHandling(browser);
     console.log("Bilibili smoke test passed.");
   } finally {
     await browser.close();

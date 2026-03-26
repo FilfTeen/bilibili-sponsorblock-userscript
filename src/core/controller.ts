@@ -195,11 +195,24 @@ export class ScriptController {
         return;
       }
 
-      const snapshot = await requestPageSnapshot();
+      const snapshot = (await requestPageSnapshot()) ?? {
+        url: window.location.href,
+        initialState: null,
+        playerManifest: null,
+        playInfo: null
+      };
       const context = resolveVideoContext(snapshot);
       const video = findVideoElement();
 
       if (!context || !video) {
+        if (video && supportsVideoFeatures(window.location.href)) {
+          this.notices.show({
+            id: "bsb-context-pending",
+            title: "等待页面信息",
+            message: "暂时无法识别当前视频，脚本会继续自动重试。",
+            durationMs: 2600
+          });
+        }
         this.clearRuntimeState();
         return;
       }
@@ -222,7 +235,7 @@ export class ScriptController {
       }
 
       const segments = await this.client.getSegments(context, this.currentConfig);
-      this.currentSegments = normalizeSegments(segments, this.currentConfig);
+      this.currentSegments = normalizeSegments(segments, this.currentConfig, context.cid);
       this.panel.setFullVideoLabels(this.currentSegments.filter((segment) => segment.actionType === "full"));
       debugLog("Loaded segments", {
         signature,

@@ -177,7 +177,11 @@ export class DynamicSponsorController {
     }
 
     for (const element of document.querySelectorAll<HTMLElement>(".bili-dyn-item")) {
-      this.processDynamicItem(element);
+      try {
+        this.processDynamicItem(element);
+      } catch (error) {
+        debugLog("Failed to process dynamic item", error);
+      }
     }
   }
 

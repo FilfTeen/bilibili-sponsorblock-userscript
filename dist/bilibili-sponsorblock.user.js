@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili SponsorBlock Core
 // @namespace    https://github.com/FilfTeen/bilibili-sponsorblock-userscript
-// @version      0.3.0
+// @version      0.3.1
 // @description  Tampermonkey core script for skipping sponsor segments on Bilibili.
 // @author       FilfTeen
 // @license      GPL-3.0-only
@@ -623,7 +623,7 @@
   };
 
   // src/core/segment-filter.ts
-  function normalizeSegments(segments, config) {
+  function normalizeSegments(segments, config, currentCid = null) {
     const seen = /* @__PURE__ */ new Set();
     const normalized = [];
     for (const segment of segments) {
@@ -638,6 +638,10 @@
       const start = segment.segment[0];
       const end = segment.segment.length > 1 ? segment.segment[1] ?? null : null;
       const duration = typeof end === "number" ? Math.max(0, end - start) : null;
+      const segmentCid = typeof segment.cid === "string" && segment.cid.length > 0 ? segment.cid : null;
+      if (currentCid && segmentCid && segmentCid !== currentCid) {
+        continue;
+      }
       if (segment.actionType !== "poi" && segment.actionType !== "full" && duration !== null && duration < config.minDurationSec) {
         continue;
       }
@@ -1547,10 +1551,23 @@
           this.clearRuntimeState();
           return;
         }
-        const snapshot = await requestPageSnapshot();
+        const snapshot = await requestPageSnapshot() ?? {
+          url: window.location.href,
+          initialState: null,
+          playerManifest: null,
+          playInfo: null
+        };
         const context = resolveVideoContext(snapshot);
         const video = findVideoElement();
         if (!context || !video) {
+          if (video && supportsVideoFeatures(window.location.href)) {
+            this.notices.show({
+              id: "bsb-context-pending",
+              title: "\u7B49\u5F85\u9875\u9762\u4FE1\u606F",
+              message: "\u6682\u65F6\u65E0\u6CD5\u8BC6\u522B\u5F53\u524D\u89C6\u9891\uFF0C\u811A\u672C\u4F1A\u7EE7\u7EED\u81EA\u52A8\u91CD\u8BD5\u3002",
+              durationMs: 2600
+            });
+          }
           this.clearRuntimeState();
           return;
         }
@@ -1568,7 +1585,7 @@
           return;
         }
         const segments = await this.client.getSegments(context, this.currentConfig);
-        this.currentSegments = normalizeSegments(segments, this.currentConfig);
+        this.currentSegments = normalizeSegments(segments, this.currentConfig, context.cid);
         this.panel.setFullVideoLabels(this.currentSegments.filter((segment) => segment.actionType === "full"));
         debugLog("Loaded segments", {
           signature,
@@ -2046,7 +2063,11 @@
         return;
       }
       for (const element of document.querySelectorAll(".bili-dyn-item")) {
-        this.processDynamicItem(element);
+        try {
+          this.processDynamicItem(element);
+        } catch (error) {
+          debugLog("Failed to process dynamic item", error);
+        }
       }
     }
     processDynamicItem(element) {
@@ -2307,7 +2328,11 @@
       const roots = Array.from(document.querySelectorAll("bili-comments"));
       this.syncRootObservers(roots);
       for (const root of roots) {
-        this.scanCommentRoot(root);
+        try {
+          this.scanCommentRoot(root);
+        } catch (error) {
+          debugLog("Failed to process comment root", error);
+        }
       }
     }
     syncRootObservers(roots) {

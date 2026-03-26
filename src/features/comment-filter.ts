@@ -287,7 +287,11 @@ export class CommentSponsorController {
     const roots = Array.from(document.querySelectorAll<HTMLElement>("bili-comments"));
     this.syncRootObservers(roots);
     for (const root of roots) {
-      this.scanCommentRoot(root);
+      try {
+        this.scanCommentRoot(root);
+      } catch (error) {
+        debugLog("Failed to process comment root", error);
+      }
     }
   }
 
