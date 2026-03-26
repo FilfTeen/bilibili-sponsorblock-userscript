@@ -2,6 +2,7 @@ import type { DynamicSponsorMatch, StoredConfig } from "../types";
 import { ConfigStore } from "../core/config-store";
 import { collectPatternMatches, regexFromStoredPattern } from "../utils/pattern";
 import { debugLog } from "../utils/dom";
+import { observeUrlChanges } from "../utils/navigation";
 import { supportsDynamicFilters } from "../utils/page";
 
 const PROCESSED_ATTR = "data-bsb-dynamic-processed";
@@ -102,10 +103,9 @@ function setDynamicHidden(body: HTMLElement, button: HTMLButtonElement, hidden: 
 
 export class DynamicSponsorController {
   private currentConfig: StoredConfig;
-  private locationIntervalId: number | null = null;
   private domObserver: MutationObserver | null = null;
   private refreshTimerId: number | null = null;
-  private href = window.location.href;
+  private stopObservingUrl: (() => void) | null = null;
 
   constructor(private readonly configStore: ConfigStore) {
     this.currentConfig = this.configStore.getSnapshot();
@@ -119,13 +119,10 @@ export class DynamicSponsorController {
   start(): void {
     this.scheduleRefresh();
 
-    this.locationIntervalId = window.setInterval(() => {
-      if (this.href !== window.location.href) {
-        this.href = window.location.href;
-        this.resetProcessedItems();
-        this.scheduleRefresh();
-      }
-    }, 700);
+    this.stopObservingUrl = observeUrlChanges(() => {
+      this.resetProcessedItems();
+      this.scheduleRefresh();
+    });
 
     this.domObserver = new MutationObserver(() => {
       this.scheduleRefresh();
@@ -145,9 +142,9 @@ export class DynamicSponsorController {
   }
 
   stop(): void {
-    if (this.locationIntervalId !== null) {
-      window.clearInterval(this.locationIntervalId);
-      this.locationIntervalId = null;
+    if (this.stopObservingUrl) {
+      this.stopObservingUrl();
+      this.stopObservingUrl = null;
     }
     if (this.refreshTimerId !== null) {
       window.clearTimeout(this.refreshTimerId);

@@ -1,4 +1,5 @@
 import type { PageType } from "../types";
+import { extractAidFromUrl, extractBvidFromUrl } from "./video-context";
 
 const SUPPORTED_HOSTS = new Set([
   "www.bilibili.com",
@@ -29,7 +30,7 @@ export function detectPageType(url: string): PageType {
     if (parsed.pathname.startsWith("/video/")) {
       return "video";
     }
-    if (parsed.pathname.startsWith("/list/")) {
+    if (parsed.pathname.startsWith("/list/") || parsed.pathname.startsWith("/medialist/play/")) {
       return "list";
     }
     if (parsed.pathname.startsWith("/festival/")) {
@@ -55,7 +56,15 @@ export function isSupportedLocation(url: string): boolean {
 
 export function supportsVideoFeatures(url: string): boolean {
   const pageType = detectPageType(url);
-  return pageType === "video" || pageType === "list" || pageType === "festival" || pageType === "anime";
+  return (
+    pageType === "video" ||
+    pageType === "list" ||
+    pageType === "festival" ||
+    pageType === "anime" ||
+    pageType === "opus" ||
+    extractBvidFromUrl(url) !== null ||
+    extractAidFromUrl(url) !== null
+  );
 }
 
 export function supportsDynamicFilters(url: string): boolean {

@@ -33,7 +33,7 @@
 - `poi_highlight` 高光点提示与跳转
 - `full` 整视频标签 banner
 - 首页、动态页和空间页的可疑带货动态识别
-- 评论区商品卡广告和可疑广告评论识别
+- 评论区商品卡广告、可疑广告评论和可疑广告回复识别
 - 主页浮动入口按钮 + 视频页就近入口按钮
 - 页内设置按钮与设置面板
 - 本地配置、统计和 TTL 缓存
@@ -75,8 +75,16 @@
 
 - `https://www.bilibili.com/video/*`
 - `https://www.bilibili.com/list/*`
+- `https://www.bilibili.com/medialist/play/*`
 - `https://www.bilibili.com/bangumi/*` `best effort`
 - `https://www.bilibili.com/festival/*` `best effort`
+- `https://www.bilibili.com/opus/*` `best effort`
+
+URL 解析额外兼容:
+
+- `BV` 直链
+- `av` 直链
+- `list / medialist` 场景下的 `bvid / aid / cid` 查询参数
 
 ## 配置项
 
@@ -113,8 +121,17 @@
 ## 过滤说明
 
 - 评论区过滤目前支持两类信号: 商品卡链接，以及基于关键词/正则的可疑广告文案。
+- 当 Bilibili 当前评论组件结构允许时，回复楼层也会沿用同样的识别与隐藏逻辑。
 - 动态过滤同样基于商品卡和可疑广告文案两类信号。
 - 这部分是启发式过滤，不保证零误判；建议先用 `仅标记` 模式观察，再决定是否启用 `隐藏并标记`。
+
+## 工程说明
+
+- URL 变化监听同时使用 `history` patch、`popstate/hashchange`、`Navigation API` 和低频 fallback，尽量兼容 Bilibili 的 SPA 路由。
+- 评论区和回复区大量使用 `shadow DOM`，脚本内部对 `bili-comments` 根节点做增量监听和周期补扫，避免漏处理延迟渲染内容。
+- CI 默认跑 `tsc + vitest + build`，真实页面 smoke test 保留为本地回归命令。
+
+更完整的开发/测试约定见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
 ## 本地构建
 

@@ -136,6 +136,9 @@ async function verifyVideoPage(page) {
       content.textContent = "点评论区置顶领取优惠券";
       const richText = document.createElement("bili-rich-text");
       const richTextShadow = richText.shadowRoot ?? richText.attachShadow({ mode: "open" });
+      const promoText = document.createElement("span");
+      promoText.textContent = "点评论区置顶领取优惠券";
+      richTextShadow.appendChild(promoText);
       const goodsLink = document.createElement("a");
       goodsLink.setAttribute("data-type", "goods");
       goodsLink.textContent = "商品卡";
@@ -153,6 +156,40 @@ async function verifyVideoPage(page) {
 
       rendererShadow.append(userInfo, richText, content, main);
       threadShadow.appendChild(renderer);
+
+      const repliesRenderer = document.createElement("bili-comment-replies-renderer");
+      const repliesRoot = repliesRenderer.shadowRoot ?? repliesRenderer.attachShadow({ mode: "open" });
+      const replyRenderer = document.createElement("bili-comment-reply-renderer");
+      const replyRendererRoot = replyRenderer.shadowRoot ?? replyRenderer.attachShadow({ mode: "open" });
+      const replyComment = document.createElement("bili-comment-renderer");
+      const replyCommentRoot = replyComment.shadowRoot ?? replyComment.attachShadow({ mode: "open" });
+      const replyUserInfo = document.createElement("bili-comment-user-info");
+      const replyUserInfoRoot = replyUserInfo.shadowRoot ?? replyUserInfo.attachShadow({ mode: "open" });
+      const replyLevel = document.createElement("span");
+      replyLevel.id = "user-level";
+      replyLevel.textContent = "LV6";
+      replyUserInfoRoot.appendChild(replyLevel);
+      const replyRichText = document.createElement("bili-rich-text");
+      const replyRichTextRoot = replyRichText.shadowRoot ?? replyRichText.attachShadow({ mode: "open" });
+      const replyPromo = document.createElement("span");
+      replyPromo.textContent = "立即购买同款";
+      replyRichTextRoot.appendChild(replyPromo);
+      const replyContent = document.createElement("div");
+      replyContent.id = "content";
+      replyContent.textContent = "立即购买同款";
+      const replyMain = document.createElement("div");
+      replyMain.id = "main";
+      const replyActions = document.createElement("bili-comment-action-buttons-renderer");
+      const replyActionsRoot = replyActions.shadowRoot ?? replyActions.attachShadow({ mode: "open" });
+      const replyButton = document.createElement("button");
+      replyButton.id = "reply";
+      replyButton.textContent = "回复";
+      replyActionsRoot.appendChild(replyButton);
+      replyMain.appendChild(replyActions);
+      replyCommentRoot.append(replyUserInfo, replyRichText, replyContent, replyMain);
+      replyRendererRoot.appendChild(replyComment);
+      repliesRoot.appendChild(replyRenderer);
+      threadShadow.appendChild(repliesRenderer);
       rootShadow.appendChild(thread);
     }, 260);
   });
@@ -171,7 +208,13 @@ async function verifyVideoPage(page) {
         ?.shadowRoot?.querySelector("bili-comment-renderer")
         ?.shadowRoot?.querySelector("#main")
         ?.querySelector("bili-comment-action-buttons-renderer")
-        ?.shadowRoot?.querySelectorAll("[data-bsb-comment-toggle='true']").length ?? 0
+        ?.shadowRoot?.querySelectorAll("[data-bsb-comment-toggle='true']").length ?? 0,
+    replyBadgeCount:
+      document
+        .querySelector("#bsb-smoke-comments")
+        ?.shadowRoot?.querySelector("bili-comment-thread-renderer")
+        ?.shadowRoot?.querySelector("bili-comment-replies-renderer")
+        ?.shadowRoot?.querySelectorAll("[data-bsb-comment-reply-processed='true']").length ?? 0
   }));
 
   assert(result.hasInlineButton, "Video page did not render the BSB button.");
@@ -179,6 +222,7 @@ async function verifyVideoPage(page) {
   assert(result.requestCount > 0, "Video page did not request SponsorBlock segments.");
   assert(result.commentBadgeCount > 0, "Comment filter did not process injected sponsored comment.");
   assert(result.commentToggleCount > 0, "Comment filter did not add a sponsored-comment toggle.");
+  assert(result.replyBadgeCount > 0, "Comment filter did not process injected sponsored reply.");
 }
 
 async function main() {

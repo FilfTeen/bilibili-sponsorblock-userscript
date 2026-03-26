@@ -2,9 +2,11 @@ import type { StoredConfig } from "../types";
 import { ConfigStore } from "../core/config-store";
 import { collectPatternMatches, regexFromStoredPattern } from "../utils/pattern";
 import { debugLog } from "../utils/dom";
+import { observeUrlChanges } from "../utils/navigation";
 import { supportsCommentFilters } from "../utils/page";
 
 const THREAD_PROCESSED_ATTR = "data-bsb-comment-processed";
+const REPLY_PROCESSED_ATTR = "data-bsb-comment-reply-processed";
 const BADGE_ATTR = "data-bsb-comment-badge";
 const TOGGLE_ATTR = "data-bsb-comment-toggle";
 const HIDDEN_ATTR = "data-bsb-comment-hidden";
@@ -15,6 +17,13 @@ type CommentRenderer = HTMLElement & { shadowRoot: ShadowRoot };
 type CommentSponsorMatch =
   | { reason: "goods"; matches: [] }
   | { reason: "suspicion"; matches: string[] };
+type CommentTarget = {
+  host: HTMLElement;
+  renderer: CommentRenderer;
+  processedAttr: string;
+  thread: HTMLElement;
+  kind: "comment" | "reply";
+};
 
 export function hasSponsoredGoodsLink(commentRenderer: CommentRenderer): boolean {
   const links = commentRenderer.shadowRoot
@@ -24,8 +33,12 @@ export function hasSponsoredGoodsLink(commentRenderer: CommentRenderer): boolean
 }
 
 export function extractCommentText(commentRenderer: CommentRenderer): string {
+  const richTextNodes = [
+    ...(commentRenderer.shadowRoot?.querySelector("bili-rich-text")?.shadowRoot?.querySelectorAll("span, a") ?? [])
+  ];
   const nodes = [
-    ...(commentRenderer.shadowRoot?.querySelectorAll("bili-rich-text span, #content, .reply-content") ?? [])
+    ...richTextNodes,
+    ...(commentRenderer.shadowRoot?.querySelectorAll("#content, .reply-content") ?? [])
   ];
   return nodes
     .map((node) => node.textContent?.trim() ?? "")
@@ -87,6 +100,31 @@ function createToggleButton(onClick: () => void): HTMLButtonElement {
 function getMainCommentRenderer(thread: HTMLElement): CommentRenderer | null {
   const renderer = thread.shadowRoot?.querySelector("bili-comment-renderer");
   return renderer instanceof HTMLElement && renderer.shadowRoot ? (renderer as CommentRenderer) : null;
+}
+
+function getReplyTargets(thread: HTMLElement): CommentTarget[] {
+  const repliesRenderer = thread.shadowRoot?.querySelector("bili-comment-replies-renderer");
+  const repliesRoot = repliesRenderer?.shadowRoot;
+  if (!repliesRoot) {
+    return [];
+  }
+
+  const targets: CommentTarget[] = [];
+  for (const reply of repliesRoot.querySelectorAll<HTMLElement>("bili-comment-reply-renderer")) {
+    const renderer = reply.shadowRoot?.querySelector("bili-comment-renderer");
+    if (!(renderer instanceof HTMLElement) || !renderer.shadowRoot) {
+      continue;
+    }
+
+    targets.push({
+      host: reply,
+      renderer: renderer as CommentRenderer,
+      processedAttr: REPLY_PROCESSED_ATTR,
+      thread,
+      kind: "reply"
+    });
+  }
+  return targets;
 }
 
 function getBadgeAnchor(commentRenderer: CommentRenderer): HTMLElement | null {
@@ -161,11 +199,10 @@ function restoreReplies(thread: HTMLElement): void {
 
 export class CommentSponsorController {
   private currentConfig: StoredConfig;
-  private locationIntervalId: number | null = null;
   private rootSweepIntervalId: number | null = null;
   private documentObserver: MutationObserver | null = null;
   private refreshTimerId: number | null = null;
-  private href = window.location.href;
+  private stopObservingUrl: (() => void) | null = null;
   private readonly rootObservers = new Map<HTMLElement, MutationObserver>();
 
   constructor(private readonly configStore: ConfigStore) {
@@ -180,13 +217,10 @@ export class CommentSponsorController {
   start(): void {
     this.scheduleRefresh();
 
-    this.locationIntervalId = window.setInterval(() => {
-      if (this.href !== window.location.href) {
-        this.href = window.location.href;
-        this.resetProcessedThreads();
-        this.scheduleRefresh();
-      }
-    }, 700);
+    this.stopObservingUrl = observeUrlChanges(() => {
+      this.resetProcessedThreads();
+      this.scheduleRefresh();
+    });
 
     this.rootSweepIntervalId = window.setInterval(() => {
       this.refresh();
@@ -210,9 +244,9 @@ export class CommentSponsorController {
   }
 
   stop(): void {
-    if (this.locationIntervalId !== null) {
-      window.clearInterval(this.locationIntervalId);
-      this.locationIntervalId = null;
+    if (this.stopObservingUrl) {
+      this.stopObservingUrl();
+      this.stopObservingUrl = null;
     }
     if (this.rootSweepIntervalId !== null) {
       window.clearInterval(this.rootSweepIntervalId);
@@ -298,33 +332,41 @@ export class CommentSponsorController {
     }
 
     for (const thread of feedRoot.querySelectorAll<HTMLElement>("bili-comment-thread-renderer")) {
-      this.processThread(thread);
+      const mainRenderer = getMainCommentRenderer(thread);
+      if (mainRenderer) {
+        this.processTarget({
+          host: thread,
+          renderer: mainRenderer,
+          processedAttr: THREAD_PROCESSED_ATTR,
+          thread,
+          kind: "comment"
+        });
+      }
+
+      for (const replyTarget of getReplyTargets(thread)) {
+        this.processTarget(replyTarget);
+      }
     }
   }
 
-  private processThread(thread: HTMLElement): void {
-    if (thread.getAttribute(THREAD_PROCESSED_ATTR) === "true") {
+  private processTarget(target: CommentTarget): void {
+    if (target.host.getAttribute(target.processedAttr) === "true") {
       return;
     }
 
-    const commentRenderer = getMainCommentRenderer(thread);
-    if (!commentRenderer) {
-      return;
-    }
-
-    const match = classifyCommentRenderer(commentRenderer, this.currentConfig);
+    const match = classifyCommentRenderer(target.renderer, this.currentConfig);
     if (!match) {
       return;
     }
 
-    const badgeAnchor = getBadgeAnchor(commentRenderer);
+    const badgeAnchor = getBadgeAnchor(target.renderer);
     if (!badgeAnchor) {
       return;
     }
 
-    thread.setAttribute(THREAD_PROCESSED_ATTR, "true");
+    target.host.setAttribute(target.processedAttr, "true");
     if (!insertAfter(badgeAnchor, createBadge(getBadgeText(match)))) {
-      thread.removeAttribute(THREAD_PROCESSED_ATTR);
+      target.host.removeAttribute(target.processedAttr);
       return;
     }
 
@@ -332,8 +374,8 @@ export class CommentSponsorController {
       return;
     }
 
-    const content = getContentBody(commentRenderer);
-    const actionAnchor = getActionAnchor(commentRenderer);
+    const content = getContentBody(target.renderer);
+    const actionAnchor = getActionAnchor(target.renderer);
     if (!content || !actionAnchor) {
       return;
     }
@@ -341,11 +383,11 @@ export class CommentSponsorController {
     const toggle = createToggleButton(() => {
       const hidden = content.style.display === "none";
       setCommentHidden(content, toggle, !hidden);
-      if (this.currentConfig.commentHideReplies) {
+      if (target.kind === "comment" && this.currentConfig.commentHideReplies) {
         if (hidden) {
-          restoreReplies(thread);
+          restoreReplies(target.thread);
         } else {
-          hideReplies(thread);
+          hideReplies(target.thread);
         }
       }
     });
@@ -355,8 +397,8 @@ export class CommentSponsorController {
       return;
     }
 
-    if (this.currentConfig.commentHideReplies) {
-      hideReplies(thread);
+    if (target.kind === "comment" && this.currentConfig.commentHideReplies) {
+      hideReplies(target.thread);
     }
   }
 
@@ -367,17 +409,32 @@ export class CommentSponsorController {
         continue;
       }
 
-      for (const thread of feedRoot.querySelectorAll<HTMLElement>(`bili-comment-thread-renderer[${THREAD_PROCESSED_ATTR}='true']`)) {
-        thread.removeAttribute(THREAD_PROCESSED_ATTR);
-        const commentRenderer = getMainCommentRenderer(thread);
-        if (commentRenderer) {
-          removeInjectedDecorations(commentRenderer);
-          const content = getContentBody(commentRenderer);
+      for (const thread of feedRoot.querySelectorAll<HTMLElement>("bili-comment-thread-renderer")) {
+        const mainRenderer = getMainCommentRenderer(thread);
+        if (thread.getAttribute(THREAD_PROCESSED_ATTR) === "true" && mainRenderer) {
+          thread.removeAttribute(THREAD_PROCESSED_ATTR);
+          removeInjectedDecorations(mainRenderer);
+          const content = getContentBody(mainRenderer);
           if (content) {
             content.style.display = "";
             content.removeAttribute(HIDDEN_ATTR);
           }
         }
+
+        for (const replyTarget of getReplyTargets(thread)) {
+          if (replyTarget.host.getAttribute(REPLY_PROCESSED_ATTR) !== "true") {
+            continue;
+          }
+
+          replyTarget.host.removeAttribute(REPLY_PROCESSED_ATTR);
+          removeInjectedDecorations(replyTarget.renderer);
+          const content = getContentBody(replyTarget.renderer);
+          if (content) {
+            content.style.display = "";
+            content.removeAttribute(HIDDEN_ATTR);
+          }
+        }
+
         restoreReplies(thread);
       }
     }

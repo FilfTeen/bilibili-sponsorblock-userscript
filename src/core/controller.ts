@@ -2,8 +2,7 @@ import {
   CATEGORY_LABELS,
   POI_NOTICE_LEAD_SEC,
   SEGMENT_REWIND_RESET_SEC,
-  TICK_INTERVAL_MS,
-  VIDEO_SCAN_INTERVAL_MS
+  TICK_INTERVAL_MS
 } from "../constants";
 import { ConfigStore, StatsStore } from "./config-store";
 import { PersistentCache } from "./cache";
@@ -16,6 +15,7 @@ import type { Category, CategoryMode, FetchResponse, SegmentRecord, StoredConfig
 import { roundMinutes } from "../utils/number";
 import { resolveVideoContext } from "../utils/video-context";
 import { debugLog, findVideoElement, formatDurationLabel, resolvePlayerHost } from "../utils/dom";
+import { observeUrlChanges } from "../utils/navigation";
 import { supportsVideoFeatures } from "../utils/page";
 
 type RuntimeSegmentState = {
@@ -35,10 +35,9 @@ export class ScriptController {
   private readonly cache = new PersistentCache<FetchResponse>();
   private readonly client = new SponsorBlockClient(this.cache);
   private readonly panel: SettingsPanel;
-  private locationIntervalId: number | null = null;
   private tickIntervalId: number | null = null;
   private domObserver: MutationObserver | null = null;
-  private href = window.location.href;
+  private stopObservingUrl: (() => void) | null = null;
   private currentContext: VideoContext | null = null;
   private currentVideo: HTMLVideoElement | null = null;
   private currentSignature = "";
@@ -103,12 +102,9 @@ export class ScriptController {
     this.panel.mount();
     await this.refreshCurrentVideo(true);
 
-    this.locationIntervalId = window.setInterval(() => {
-      if (this.href !== window.location.href) {
-        this.href = window.location.href;
-        void this.refreshCurrentVideo(true);
-      }
-    }, VIDEO_SCAN_INTERVAL_MS);
+    this.stopObservingUrl = observeUrlChanges(() => {
+      void this.refreshCurrentVideo(true);
+    });
 
     this.tickIntervalId = window.setInterval(() => {
       this.tick();
@@ -147,9 +143,9 @@ export class ScriptController {
   }
 
   stop(): void {
-    if (this.locationIntervalId !== null) {
-      window.clearInterval(this.locationIntervalId);
-      this.locationIntervalId = null;
+    if (this.stopObservingUrl) {
+      this.stopObservingUrl();
+      this.stopObservingUrl = null;
     }
     if (this.tickIntervalId !== null) {
       window.clearInterval(this.tickIntervalId);

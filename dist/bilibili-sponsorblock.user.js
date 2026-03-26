@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili SponsorBlock Core
 // @namespace    https://github.com/FilfTeen/bilibili-sponsorblock-userscript
-// @version      0.2.0
+// @version      0.3.0
 // @description  Tampermonkey core script for skipping sponsor segments on Bilibili.
 // @author       FilfTeen
 // @license      GPL-3.0-only
@@ -81,7 +81,6 @@
   var CACHE_TTL_MS = 60 * 60 * 1e3;
   var CACHE_MAX_ENTRIES = 1e3;
   var CACHE_MAX_SIZE_BYTES = 500 * 1024;
-  var VIDEO_SCAN_INTERVAL_MS = 700;
   var TICK_INTERVAL_MS = 200;
   var POI_NOTICE_LEAD_SEC = 6;
   var SEGMENT_REWIND_RESET_SEC = 0.5;
@@ -1012,12 +1011,41 @@
     }
   };
 
+  // src/utils/bvid.ts
+  var XOR_CODE = BigInt("23442827791579");
+  var MASK_CODE = BigInt("2251799813685247");
+  var MAX_AVID = BigInt(1) << BigInt(51);
+  var BASE = BigInt(58);
+  var ALPHABET = "FcwAPNKTMug3GV5Lj7EJnHpWsx4tb8haYeviqBz6rkCy12mUSDQX9RdoZf";
+  var BVID_REGEX = /^BV1[a-zA-Z0-9]{9}$/u;
+  function isBvid(value) {
+    return typeof value === "string" && BVID_REGEX.test(value);
+  }
+  function avidToBvid(avid) {
+    const parsedAvid = typeof avid === "string" ? Number.parseInt(avid.replace(/^av/iu, ""), 10) : Number.isFinite(avid) ? avid : Number.NaN;
+    if (!Number.isInteger(parsedAvid) || parsedAvid <= 0) {
+      return null;
+    }
+    const buffer = ["B", "V", "1", "0", "0", "0", "0", "0", "0", "0", "0", "0"];
+    let index = buffer.length - 1;
+    let value = (MAX_AVID | BigInt(parsedAvid)) ^ XOR_CODE;
+    while (value > 0n && index >= 0) {
+      buffer[index] = ALPHABET[Number(value % BASE)];
+      value /= BASE;
+      index -= 1;
+    }
+    [buffer[3], buffer[9]] = [buffer[9], buffer[3]];
+    [buffer[4], buffer[7]] = [buffer[7], buffer[4]];
+    const bvid = buffer.join("");
+    return isBvid(bvid) ? bvid : null;
+  }
+
   // src/utils/video-context.ts
   function asRecord(value) {
     return typeof value === "object" && value !== null ? value : null;
   }
   function readString(value) {
-    return typeof value === "string" && value.length > 0 ? value : null;
+    return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
   }
   function readIdentifier(value) {
     if (typeof value === "string" && value.length > 0) {
@@ -1031,15 +1059,59 @@
   function readNumber(value) {
     return typeof value === "number" && Number.isFinite(value) ? value : null;
   }
+  function readAid(value) {
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+      return Math.floor(value);
+    }
+    if (typeof value === "string") {
+      const normalized = value.replace(/^av/iu, "");
+      const parsed = Number.parseInt(normalized, 10);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    }
+    return null;
+  }
+  function readBvid(value) {
+    const bvid = readString(value);
+    return bvid && isBvid(bvid) ? bvid : null;
+  }
+  function firstNonNull(...values) {
+    for (const value of values) {
+      if (value !== null) {
+        return value;
+      }
+    }
+    return null;
+  }
+  function resolvePages(initialState) {
+    const videoData = asRecord(initialState?.videoData);
+    const videoInfo = asRecord(initialState?.videoInfo);
+    const rawPages = videoData?.pages ?? videoInfo?.pages;
+    if (!Array.isArray(rawPages)) {
+      return [];
+    }
+    return rawPages.map((entry) => asRecord(entry)).filter((entry) => Boolean(entry));
+  }
   function extractBvidFromUrl(url) {
     try {
       const parsed = new URL(url);
       const pathMatch = parsed.pathname.match(/BV1[a-zA-Z0-9]{9}/u);
-      if (pathMatch?.[0]) {
+      if (pathMatch?.[0] && isBvid(pathMatch[0])) {
         return pathMatch[0];
       }
       const searchParam = parsed.searchParams.get("bvid");
-      return searchParam?.match(/^BV1[a-zA-Z0-9]{9}$/u)?.[0] ?? null;
+      return readBvid(searchParam);
+    } catch {
+      return null;
+    }
+  }
+  function extractAidFromUrl(url) {
+    try {
+      const parsed = new URL(url);
+      const pathMatch = parsed.pathname.match(/(?:^|\/)av(\d+)(?:\/|$)/iu);
+      if (pathMatch?.[1]) {
+        return readAid(pathMatch[1]);
+      }
+      return firstNonNull(readAid(parsed.searchParams.get("aid")), readAid(parsed.searchParams.get("avid")));
     } catch {
       return null;
     }
@@ -1053,14 +1125,13 @@
       return 1;
     }
   }
-  function resolvePages(initialState) {
-    const videoData = asRecord(initialState?.videoData);
-    const videoInfo = asRecord(initialState?.videoInfo);
-    const rawPages = videoData?.pages ?? videoInfo?.pages;
-    if (!Array.isArray(rawPages)) {
-      return [];
+  function extractCidFromUrl(url) {
+    try {
+      const parsed = new URL(url);
+      return readIdentifier(parsed.searchParams.get("cid"));
+    } catch {
+      return null;
     }
-    return rawPages.map((entry) => asRecord(entry)).filter((entry) => Boolean(entry));
   }
   function resolveCidFromPages(initialState, page) {
     for (const entry of resolvePages(initialState)) {
@@ -1073,22 +1144,75 @@
     return null;
   }
   function resolveTitle(initialState) {
-    return readString(initialState?.h1Title) || readString(asRecord(initialState?.videoData)?.title) || readString(asRecord(initialState?.videoInfo)?.title) || readString(asRecord(initialState?.epInfo)?.title);
+    return firstNonNull(
+      readString(initialState?.h1Title),
+      readString(asRecord(initialState?.videoData)?.title),
+      readString(asRecord(initialState?.videoInfo)?.title),
+      readString(asRecord(initialState?.epInfo)?.title),
+      readString(asRecord(initialState?.epInfo)?.longTitle),
+      readString(asRecord(initialState?.mediaInfo)?.title)
+    );
+  }
+  function resolvePage(snapshot, initialState) {
+    const fromUrl = extractPageFromUrl(snapshot.url);
+    if (fromUrl > 1) {
+      return fromUrl;
+    }
+    return firstNonNull(
+      readNumber(snapshot.playerManifest?.p),
+      readNumber(asRecord(initialState?.videoData)?.p),
+      readNumber(asRecord(initialState?.videoInfo)?.p),
+      1
+    );
+  }
+  function resolveBvid(snapshot, initialState) {
+    const directBvid = firstNonNull(
+      readBvid(initialState?.bvid),
+      readBvid(asRecord(initialState?.videoData)?.bvid),
+      readBvid(asRecord(initialState?.videoInfo)?.bvid),
+      readBvid(asRecord(initialState?.epInfo)?.bvid),
+      readBvid(snapshot.playerManifest?.bvid),
+      extractBvidFromUrl(snapshot.url)
+    );
+    if (directBvid) {
+      return directBvid;
+    }
+    const aid = firstNonNull(
+      readAid(initialState?.aid),
+      readAid(asRecord(initialState?.videoData)?.aid),
+      readAid(asRecord(initialState?.videoInfo)?.aid),
+      readAid(asRecord(initialState?.epInfo)?.aid),
+      readAid(snapshot.playerManifest?.aid),
+      readAid(asRecord(snapshot.playInfo)?.aid),
+      readAid(asRecord(asRecord(snapshot.playInfo)?.data)?.aid),
+      extractAidFromUrl(snapshot.url)
+    );
+    return aid ? avidToBvid(aid) : null;
+  }
+  function resolveCid(snapshot, initialState, page) {
+    return firstNonNull(
+      readIdentifier(initialState?.cid),
+      readIdentifier(asRecord(initialState?.videoData)?.cid),
+      readIdentifier(asRecord(initialState?.videoInfo)?.cid),
+      readIdentifier(asRecord(initialState?.epInfo)?.cid),
+      readIdentifier(snapshot.playerManifest?.cid),
+      extractCidFromUrl(snapshot.url),
+      resolveCidFromPages(initialState, page)
+    );
   }
   function resolveVideoContext(snapshot) {
     if (!snapshot) {
       return null;
     }
     const initialState = asRecord(snapshot.initialState);
-    const page = extractPageFromUrl(snapshot.url);
-    const bvid = readString(initialState?.bvid) || readString(asRecord(initialState?.videoData)?.bvid) || readString(asRecord(initialState?.videoInfo)?.bvid) || readString(asRecord(initialState?.epInfo)?.bvid) || readString(snapshot.playerManifest?.bvid) || extractBvidFromUrl(snapshot.url);
+    const page = resolvePage(snapshot, initialState);
+    const bvid = resolveBvid(snapshot, initialState);
     if (!bvid) {
       return null;
     }
-    const cid = readIdentifier(initialState?.cid) || readIdentifier(asRecord(initialState?.videoData)?.cid) || readIdentifier(asRecord(initialState?.videoInfo)?.cid) || readIdentifier(snapshot.playerManifest?.cid) || resolveCidFromPages(initialState, page);
     return {
       bvid,
-      cid,
+      cid: resolveCid(snapshot, initialState, page),
       page,
       title: resolveTitle(initialState),
       href: snapshot.url
@@ -1120,7 +1244,7 @@
       if (parsed.pathname.startsWith("/video/")) {
         return "video";
       }
-      if (parsed.pathname.startsWith("/list/")) {
+      if (parsed.pathname.startsWith("/list/") || parsed.pathname.startsWith("/medialist/play/")) {
         return "list";
       }
       if (parsed.pathname.startsWith("/festival/")) {
@@ -1143,7 +1267,7 @@
   }
   function supportsVideoFeatures(url) {
     const pageType = detectPageType(url);
-    return pageType === "video" || pageType === "list" || pageType === "festival" || pageType === "anime";
+    return pageType === "video" || pageType === "list" || pageType === "festival" || pageType === "anime" || pageType === "opus" || extractBvidFromUrl(url) !== null || extractAidFromUrl(url) !== null;
   }
   function supportsDynamicFilters(url) {
     const pageType = detectPageType(url);
@@ -1188,6 +1312,89 @@
   }
   function debugLog(message, ...extra) {
     console.debug(`[${SCRIPT_NAME}] ${message}`, ...extra);
+  }
+
+  // src/utils/navigation.ts
+  var listeners = /* @__PURE__ */ new Set();
+  var originalHistoryMethods = /* @__PURE__ */ new Map();
+  var currentHref = window.location.href;
+  var fallbackIntervalId = null;
+  var navigationListener = null;
+  function emitUrlChange() {
+    const nextHref = window.location.href;
+    if (nextHref === currentHref) {
+      return;
+    }
+    const previousHref = currentHref;
+    currentHref = nextHref;
+    for (const listener of listeners) {
+      listener(nextHref, previousHref);
+    }
+  }
+  function patchHistoryMethod(name) {
+    if (originalHistoryMethods.has(name)) {
+      return;
+    }
+    const original = history[name];
+    originalHistoryMethods.set(name, original);
+    history[name] = function patchedHistoryMethod(...args) {
+      const result = original.apply(this, args);
+      queueMicrotask(() => {
+        emitUrlChange();
+      });
+      return result;
+    };
+  }
+  function restoreHistoryMethods() {
+    for (const [name, original] of originalHistoryMethods) {
+      history[name] = original;
+    }
+    originalHistoryMethods.clear();
+  }
+  function ensureStarted() {
+    if (listeners.size !== 1) {
+      return;
+    }
+    currentHref = window.location.href;
+    patchHistoryMethod("pushState");
+    patchHistoryMethod("replaceState");
+    window.addEventListener("popstate", emitUrlChange);
+    window.addEventListener("hashchange", emitUrlChange);
+    if ("navigation" in window) {
+      navigationListener = () => {
+        queueMicrotask(() => {
+          emitUrlChange();
+        });
+      };
+      window.navigation.addEventListener("navigate", navigationListener);
+    }
+    fallbackIntervalId = window.setInterval(() => {
+      emitUrlChange();
+    }, 1200);
+  }
+  function maybeStop() {
+    if (listeners.size > 0) {
+      return;
+    }
+    if (fallbackIntervalId !== null) {
+      window.clearInterval(fallbackIntervalId);
+      fallbackIntervalId = null;
+    }
+    window.removeEventListener("popstate", emitUrlChange);
+    window.removeEventListener("hashchange", emitUrlChange);
+    if ("navigation" in window && navigationListener) {
+      window.navigation.removeEventListener("navigate", navigationListener);
+      navigationListener = null;
+    }
+    restoreHistoryMethods();
+  }
+  function observeUrlChanges(listener) {
+    listeners.add(listener);
+    ensureStarted();
+    return () => {
+      listeners.delete(listener);
+      maybeStop();
+    };
   }
 
   // src/core/controller.ts
@@ -1242,10 +1449,9 @@
     cache = new PersistentCache();
     client = new SponsorBlockClient(this.cache);
     panel;
-    locationIntervalId = null;
     tickIntervalId = null;
     domObserver = null;
-    href = window.location.href;
+    stopObservingUrl = null;
     currentContext = null;
     currentVideo = null;
     currentSignature = "";
@@ -1261,12 +1467,9 @@
       await this.cache.load();
       this.panel.mount();
       await this.refreshCurrentVideo(true);
-      this.locationIntervalId = window.setInterval(() => {
-        if (this.href !== window.location.href) {
-          this.href = window.location.href;
-          void this.refreshCurrentVideo(true);
-        }
-      }, VIDEO_SCAN_INTERVAL_MS);
+      this.stopObservingUrl = observeUrlChanges(() => {
+        void this.refreshCurrentVideo(true);
+      });
       this.tickIntervalId = window.setInterval(() => {
         this.tick();
       }, TICK_INTERVAL_MS);
@@ -1299,9 +1502,9 @@
       await this.refreshCurrentVideo(true);
     }
     stop() {
-      if (this.locationIntervalId !== null) {
-        window.clearInterval(this.locationIntervalId);
-        this.locationIntervalId = null;
+      if (this.stopObservingUrl) {
+        this.stopObservingUrl();
+        this.stopObservingUrl = null;
       }
       if (this.tickIntervalId !== null) {
         window.clearInterval(this.tickIntervalId);
@@ -1791,19 +1994,15 @@
       });
     }
     currentConfig;
-    locationIntervalId = null;
     domObserver = null;
     refreshTimerId = null;
-    href = window.location.href;
+    stopObservingUrl = null;
     start() {
       this.scheduleRefresh();
-      this.locationIntervalId = window.setInterval(() => {
-        if (this.href !== window.location.href) {
-          this.href = window.location.href;
-          this.resetProcessedItems();
-          this.scheduleRefresh();
-        }
-      }, 700);
+      this.stopObservingUrl = observeUrlChanges(() => {
+        this.resetProcessedItems();
+        this.scheduleRefresh();
+      });
       this.domObserver = new MutationObserver(() => {
         this.scheduleRefresh();
       });
@@ -1820,9 +2019,9 @@
       );
     }
     stop() {
-      if (this.locationIntervalId !== null) {
-        window.clearInterval(this.locationIntervalId);
-        this.locationIntervalId = null;
+      if (this.stopObservingUrl) {
+        this.stopObservingUrl();
+        this.stopObservingUrl = null;
       }
       if (this.refreshTimerId !== null) {
         window.clearTimeout(this.refreshTimerId);
@@ -1897,6 +2096,7 @@
 
   // src/features/comment-filter.ts
   var THREAD_PROCESSED_ATTR = "data-bsb-comment-processed";
+  var REPLY_PROCESSED_ATTR = "data-bsb-comment-reply-processed";
   var BADGE_ATTR = "data-bsb-comment-badge";
   var TOGGLE_ATTR = "data-bsb-comment-toggle";
   var HIDDEN_ATTR2 = "data-bsb-comment-hidden";
@@ -1907,8 +2107,12 @@
     return Boolean(links && links.length > 0);
   }
   function extractCommentText(commentRenderer) {
+    const richTextNodes = [
+      ...commentRenderer.shadowRoot?.querySelector("bili-rich-text")?.shadowRoot?.querySelectorAll("span, a") ?? []
+    ];
     const nodes = [
-      ...commentRenderer.shadowRoot?.querySelectorAll("bili-rich-text span, #content, .reply-content") ?? []
+      ...richTextNodes,
+      ...commentRenderer.shadowRoot?.querySelectorAll("#content, .reply-content") ?? []
     ];
     return nodes.map((node) => node.textContent?.trim() ?? "").filter(Boolean).join(" ");
   }
@@ -1954,6 +2158,28 @@
   function getMainCommentRenderer(thread) {
     const renderer = thread.shadowRoot?.querySelector("bili-comment-renderer");
     return renderer instanceof HTMLElement && renderer.shadowRoot ? renderer : null;
+  }
+  function getReplyTargets(thread) {
+    const repliesRenderer = thread.shadowRoot?.querySelector("bili-comment-replies-renderer");
+    const repliesRoot = repliesRenderer?.shadowRoot;
+    if (!repliesRoot) {
+      return [];
+    }
+    const targets = [];
+    for (const reply of repliesRoot.querySelectorAll("bili-comment-reply-renderer")) {
+      const renderer = reply.shadowRoot?.querySelector("bili-comment-renderer");
+      if (!(renderer instanceof HTMLElement) || !renderer.shadowRoot) {
+        continue;
+      }
+      targets.push({
+        host: reply,
+        renderer,
+        processedAttr: REPLY_PROCESSED_ATTR,
+        thread,
+        kind: "reply"
+      });
+    }
+    return targets;
   }
   function getBadgeAnchor(commentRenderer) {
     const userInfo = commentRenderer.shadowRoot?.querySelector("bili-comment-user-info");
@@ -2016,21 +2242,17 @@
       });
     }
     currentConfig;
-    locationIntervalId = null;
     rootSweepIntervalId = null;
     documentObserver = null;
     refreshTimerId = null;
-    href = window.location.href;
+    stopObservingUrl = null;
     rootObservers = /* @__PURE__ */ new Map();
     start() {
       this.scheduleRefresh();
-      this.locationIntervalId = window.setInterval(() => {
-        if (this.href !== window.location.href) {
-          this.href = window.location.href;
-          this.resetProcessedThreads();
-          this.scheduleRefresh();
-        }
-      }, 700);
+      this.stopObservingUrl = observeUrlChanges(() => {
+        this.resetProcessedThreads();
+        this.scheduleRefresh();
+      });
       this.rootSweepIntervalId = window.setInterval(() => {
         this.refresh();
       }, ROOT_REFRESH_INTERVAL_MS);
@@ -2050,9 +2272,9 @@
       );
     }
     stop() {
-      if (this.locationIntervalId !== null) {
-        window.clearInterval(this.locationIntervalId);
-        this.locationIntervalId = null;
+      if (this.stopObservingUrl) {
+        this.stopObservingUrl();
+        this.stopObservingUrl = null;
       }
       if (this.rootSweepIntervalId !== null) {
         window.clearInterval(this.rootSweepIntervalId);
@@ -2122,46 +2344,54 @@
         return;
       }
       for (const thread of feedRoot.querySelectorAll("bili-comment-thread-renderer")) {
-        this.processThread(thread);
+        const mainRenderer = getMainCommentRenderer(thread);
+        if (mainRenderer) {
+          this.processTarget({
+            host: thread,
+            renderer: mainRenderer,
+            processedAttr: THREAD_PROCESSED_ATTR,
+            thread,
+            kind: "comment"
+          });
+        }
+        for (const replyTarget of getReplyTargets(thread)) {
+          this.processTarget(replyTarget);
+        }
       }
     }
-    processThread(thread) {
-      if (thread.getAttribute(THREAD_PROCESSED_ATTR) === "true") {
+    processTarget(target) {
+      if (target.host.getAttribute(target.processedAttr) === "true") {
         return;
       }
-      const commentRenderer = getMainCommentRenderer(thread);
-      if (!commentRenderer) {
-        return;
-      }
-      const match = classifyCommentRenderer(commentRenderer, this.currentConfig);
+      const match = classifyCommentRenderer(target.renderer, this.currentConfig);
       if (!match) {
         return;
       }
-      const badgeAnchor = getBadgeAnchor(commentRenderer);
+      const badgeAnchor = getBadgeAnchor(target.renderer);
       if (!badgeAnchor) {
         return;
       }
-      thread.setAttribute(THREAD_PROCESSED_ATTR, "true");
+      target.host.setAttribute(target.processedAttr, "true");
       if (!insertAfter(badgeAnchor, createBadge2(getBadgeText2(match)))) {
-        thread.removeAttribute(THREAD_PROCESSED_ATTR);
+        target.host.removeAttribute(target.processedAttr);
         return;
       }
       if (this.currentConfig.commentFilterMode !== "hide") {
         return;
       }
-      const content = getContentBody(commentRenderer);
-      const actionAnchor = getActionAnchor(commentRenderer);
+      const content = getContentBody(target.renderer);
+      const actionAnchor = getActionAnchor(target.renderer);
       if (!content || !actionAnchor) {
         return;
       }
       const toggle = createToggleButton2(() => {
         const hidden = content.style.display === "none";
         setCommentHidden(content, toggle, !hidden);
-        if (this.currentConfig.commentHideReplies) {
+        if (target.kind === "comment" && this.currentConfig.commentHideReplies) {
           if (hidden) {
-            restoreReplies(thread);
+            restoreReplies(target.thread);
           } else {
-            hideReplies(thread);
+            hideReplies(target.thread);
           }
         }
       });
@@ -2170,8 +2400,8 @@
       if (!insertAfter(actionAnchor, toggle)) {
         return;
       }
-      if (this.currentConfig.commentHideReplies) {
-        hideReplies(thread);
+      if (target.kind === "comment" && this.currentConfig.commentHideReplies) {
+        hideReplies(target.thread);
       }
     }
     resetProcessedThreads() {
@@ -2180,12 +2410,24 @@
         if (!feedRoot) {
           continue;
         }
-        for (const thread of feedRoot.querySelectorAll(`bili-comment-thread-renderer[${THREAD_PROCESSED_ATTR}='true']`)) {
-          thread.removeAttribute(THREAD_PROCESSED_ATTR);
-          const commentRenderer = getMainCommentRenderer(thread);
-          if (commentRenderer) {
-            removeInjectedDecorations(commentRenderer);
-            const content = getContentBody(commentRenderer);
+        for (const thread of feedRoot.querySelectorAll("bili-comment-thread-renderer")) {
+          const mainRenderer = getMainCommentRenderer(thread);
+          if (thread.getAttribute(THREAD_PROCESSED_ATTR) === "true" && mainRenderer) {
+            thread.removeAttribute(THREAD_PROCESSED_ATTR);
+            removeInjectedDecorations(mainRenderer);
+            const content = getContentBody(mainRenderer);
+            if (content) {
+              content.style.display = "";
+              content.removeAttribute(HIDDEN_ATTR2);
+            }
+          }
+          for (const replyTarget of getReplyTargets(thread)) {
+            if (replyTarget.host.getAttribute(REPLY_PROCESSED_ATTR) !== "true") {
+              continue;
+            }
+            replyTarget.host.removeAttribute(REPLY_PROCESSED_ATTR);
+            removeInjectedDecorations(replyTarget.renderer);
+            const content = getContentBody(replyTarget.renderer);
             if (content) {
               content.style.display = "";
               content.removeAttribute(HIDDEN_ATTR2);
