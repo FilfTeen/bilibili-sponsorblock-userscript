@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili SponsorBlock Core
 // @namespace    https://github.com/FilfTeen/bilibili-sponsorblock-userscript
-// @version      0.3.1
+// @version      0.3.2
 // @description  Tampermonkey core script for skipping sponsor segments on Bilibili.
 // @author       FilfTeen
 // @license      GPL-3.0-only
@@ -253,6 +253,62 @@
     return Math.round(seconds / 60 * 100) / 100;
   }
 
+  // src/utils/pattern.ts
+  var STRONG_PROMO_INTENT_PATTERN = /评论区(?:置顶)?|优惠(?:券|卷|劵)|无门槛|折扣|下单|购买|蓝链|链接|扫码|同款|密令|红包|福利|领(?:取|券|红包)|抢(?:券|红包)?|淘宝|京东|拼多多|天猫|满\d+|大促|金主|恰饭|商品卡/iu;
+  var BENIGN_PROMO_CONTEXT_PATTERN = /广告位|广告学|推广曲|推广大使|外卖(?:到了|真香|好吃|骑手)|同款(?:bgm|BGM|音乐|滤镜)/iu;
+  function regexFromStoredPattern(input) {
+    const trimmed = input.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const match = trimmed.match(/^\/(.*)\/([a-z]*)$/iu);
+    try {
+      if (match) {
+        return new RegExp(match[1], match[2]);
+      }
+      return new RegExp(trimmed, "giu");
+    } catch {
+      return null;
+    }
+  }
+  function collectPatternMatches(text, pattern, minLength = 2) {
+    const globalPattern = pattern.global ? pattern : new RegExp(pattern.source, `${pattern.flags}g`);
+    const matches = text.match(globalPattern) ?? [];
+    return [...new Set(matches.map((entry) => entry.trim()).filter((entry) => entry.length >= minLength))];
+  }
+  function validateStoredPattern(input) {
+    const trimmed = input.trim();
+    if (!trimmed) {
+      return {
+        valid: false,
+        error: "\u6B63\u5219\u4E0D\u80FD\u4E3A\u7A7A"
+      };
+    }
+    const compiled = regexFromStoredPattern(trimmed);
+    if (!compiled) {
+      return {
+        valid: false,
+        error: "\u6B63\u5219\u683C\u5F0F\u65E0\u6548"
+      };
+    }
+    return {
+      valid: true,
+      error: null
+    };
+  }
+  function isLikelyPromoText(text, matches, minMatches) {
+    const normalizedText = text.replace(/\s+/gu, " ").trim();
+    if (!normalizedText || matches.length === 0) {
+      return false;
+    }
+    if (BENIGN_PROMO_CONTEXT_PATTERN.test(normalizedText)) {
+      return false;
+    }
+    const strongIntent = STRONG_PROMO_INTENT_PATTERN.test(normalizedText);
+    const effectiveThreshold = strongIntent ? Math.max(1, minMatches) : Math.max(2, minMatches);
+    return matches.length >= effectiveThreshold;
+  }
+
   // src/utils/url.ts
   function normalizeServerAddress(rawValue) {
     if (!rawValue) {
@@ -303,7 +359,10 @@
     next.dynamicFilterMode = input.dynamicFilterMode === "hide" || input.dynamicFilterMode === "label" || input.dynamicFilterMode === "off" ? input.dynamicFilterMode : next.dynamicFilterMode;
     next.commentFilterMode = input.commentFilterMode === "hide" || input.commentFilterMode === "label" || input.commentFilterMode === "off" ? input.commentFilterMode : next.commentFilterMode;
     next.commentHideReplies = input.commentHideReplies ?? next.commentHideReplies;
-    next.dynamicRegexPattern = typeof input.dynamicRegexPattern === "string" && input.dynamicRegexPattern.trim().length > 0 ? input.dynamicRegexPattern.trim() : next.dynamicRegexPattern;
+    const regexPattern = typeof input.dynamicRegexPattern === "string" && input.dynamicRegexPattern.trim().length > 0 ? input.dynamicRegexPattern.trim() : null;
+    if (regexPattern && regexFromStoredPattern(regexPattern)) {
+      next.dynamicRegexPattern = regexPattern;
+    }
     next.dynamicRegexKeywordMinMatches = clampNumber(
       Number.isFinite(input.dynamicRegexKeywordMinMatches) ? Number(input.dynamicRegexKeywordMinMatches) : next.dynamicRegexKeywordMinMatches,
       1,
@@ -765,6 +824,7 @@
     form = document.createElement("div");
     filterForm = document.createElement("div");
     panelId = "bsb-tm-panel";
+    filterValidationMessage = null;
     config;
     stats;
     mount(playerHost) {
@@ -808,6 +868,7 @@
     }
     updateConfig(config) {
       this.config = config;
+      this.filterValidationMessage = null;
       this.render();
     }
     updateStats(stats) {
@@ -860,14 +921,12 @@
       this.panel.querySelector("[data-section='form']")?.replaceChildren(this.form);
     }
     renderFilters() {
-      this.filterForm.replaceChildren(
+      const children = [
         this.createSectionLabel("\u52A8\u6001\u9875\u5E7F\u544A\u8FC7\u6EE4"),
         this.createSelect("\u52A8\u6001\u8FC7\u6EE4\u6A21\u5F0F", this.config.dynamicFilterMode, CONTENT_FILTER_MODE_LABELS, async (value) => {
           await this.callbacks.onPatchConfig({ dynamicFilterMode: value });
         }),
-        this.createInput("\u52A8\u6001\u5173\u952E\u8BCD\u6B63\u5219", this.config.dynamicRegexPattern, async (value) => {
-          await this.callbacks.onPatchConfig({ dynamicRegexPattern: value });
-        }),
+        this.createRegexPatternInput(),
         this.createNumberInput("\u52A8\u6001\u6700\u5C11\u547D\u4E2D\u6570", this.config.dynamicRegexKeywordMinMatches, async (value) => {
           await this.callbacks.onPatchConfig({ dynamicRegexKeywordMinMatches: value });
         }),
@@ -879,7 +938,11 @@
           await this.callbacks.onPatchConfig({ commentHideReplies: checked });
         }),
         this.createResetButton(true)
-      );
+      ];
+      if (this.filterValidationMessage) {
+        children.splice(3, 0, this.createValidationMessage(this.filterValidationMessage));
+      }
+      this.filterForm.replaceChildren(...children);
       this.panel.querySelector("[data-section='filters']")?.replaceChildren(this.filterForm);
     }
     renderCategories() {
@@ -931,6 +994,37 @@
       input.spellcheck = false;
       input.addEventListener("change", async () => {
         await onCommit(input.value.trim());
+      });
+      wrapper.append(label, input);
+      return wrapper;
+    }
+    createRegexPatternInput() {
+      const wrapper = document.createElement("label");
+      wrapper.className = "bsb-tm-field stacked";
+      const label = document.createElement("span");
+      label.textContent = "\u52A8\u6001\u5173\u952E\u8BCD\u6B63\u5219";
+      const input = document.createElement("input");
+      input.type = "text";
+      input.value = this.config.dynamicRegexPattern;
+      input.spellcheck = false;
+      if (this.filterValidationMessage) {
+        input.setAttribute("aria-invalid", "true");
+      }
+      input.addEventListener("change", async () => {
+        const nextValue = input.value.trim();
+        const validation = validateStoredPattern(nextValue);
+        if (!validation.valid) {
+          this.filterValidationMessage = validation.error ?? "\u6B63\u5219\u683C\u5F0F\u65E0\u6548";
+          this.renderFilters();
+          return;
+        }
+        this.filterValidationMessage = null;
+        try {
+          await this.callbacks.onPatchConfig({ dynamicRegexPattern: nextValue });
+        } catch {
+          this.filterValidationMessage = "\u6B63\u5219\u4FDD\u5B58\u5931\u8D25";
+          this.renderFilters();
+        }
       });
       wrapper.append(label, input);
       return wrapper;
@@ -1013,7 +1107,47 @@
       line.append(label, value);
       return line;
     }
+    createValidationMessage(text) {
+      const message = document.createElement("p");
+      message.className = "bsb-tm-validation-message";
+      message.textContent = text;
+      return message;
+    }
   };
+
+  // src/utils/mutation.ts
+  function asRelevantElement(node) {
+    if (!node) {
+      return null;
+    }
+    if (node instanceof Element) {
+      return node;
+    }
+    return node.parentElement;
+  }
+  function matchesDeep(element, selectors) {
+    return selectors.some((selector) => element.matches(selector) || element.querySelector(selector));
+  }
+  function isIgnored(element, selectors) {
+    return selectors.some((selector) => element.matches(selector) || element.closest(selector));
+  }
+  function nodeListTouchesSelectors(nodes, relevantSelectors, ignoredSelectors) {
+    for (const node of Array.from(nodes)) {
+      const element = asRelevantElement(node);
+      if (!element || isIgnored(element, ignoredSelectors)) {
+        continue;
+      }
+      if (matchesDeep(element, relevantSelectors)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  function mutationsTouchSelectors(records, relevantSelectors, ignoredSelectors = []) {
+    return records.some(
+      (record) => nodeListTouchesSelectors(record.addedNodes, relevantSelectors, ignoredSelectors) || nodeListTouchesSelectors(record.removedNodes, relevantSelectors, ignoredSelectors)
+    );
+  }
 
   // src/utils/bvid.ts
   var XOR_CODE = BigInt("23442827791579");
@@ -1402,6 +1536,23 @@
   }
 
   // src/core/controller.ts
+  var VIDEO_RELEVANT_SELECTORS = [
+    "video",
+    "#bilibili-player",
+    "#playerWrap",
+    ".bpx-player-container",
+    ".bpx-player-video-wrap",
+    ".bilibili-player",
+    ".video-container",
+    ".player-container"
+  ];
+  var VIDEO_IGNORED_SELECTORS = [
+    ".bsb-tm-panel",
+    ".bsb-tm-entry-button",
+    ".bsb-tm-banner",
+    ".bsb-tm-notice-root",
+    ".bsb-tm-notice"
+  ];
   var ScriptController = class {
     constructor(configStore, statsStore) {
       this.configStore = configStore;
@@ -1439,13 +1590,14 @@
           this.notices.clear();
           this.restoreMuteState();
         }
-        void this.refreshCurrentVideo(true);
+        this.scheduleRefresh(true);
       });
       this.statsStore.subscribe((stats) => {
         this.currentStats = stats;
         this.panel.updateStats(stats);
       });
     }
+    started = false;
     currentConfig;
     currentStats;
     segmentStates = /* @__PURE__ */ new Map();
@@ -1467,23 +1619,41 @@
     refreshTimerId = null;
     pendingRefresh = false;
     pendingForceFetch = false;
+    pendingVisibleRefresh = false;
+    lastTickTime = null;
+    handleVisibilityChange = () => {
+      if (!document.hidden && this.pendingVisibleRefresh) {
+        this.pendingVisibleRefresh = false;
+        const nextForceFetch = this.pendingForceFetch;
+        this.pendingForceFetch = false;
+        this.scheduleRefresh(nextForceFetch);
+      }
+    };
     async start() {
+      if (this.started) {
+        return;
+      }
+      this.started = true;
       await this.cache.load();
       this.panel.mount();
       await this.refreshCurrentVideo(true);
       this.stopObservingUrl = observeUrlChanges(() => {
-        void this.refreshCurrentVideo(true);
+        this.scheduleRefresh(true);
       });
       this.tickIntervalId = window.setInterval(() => {
         this.tick();
       }, TICK_INTERVAL_MS);
-      this.domObserver = new MutationObserver(() => {
+      this.domObserver = new MutationObserver((records) => {
+        if (!mutationsTouchSelectors(records, VIDEO_RELEVANT_SELECTORS, VIDEO_IGNORED_SELECTORS)) {
+          return;
+        }
         this.scheduleRefresh();
       });
       this.domObserver.observe(document.documentElement, {
         childList: true,
         subtree: true
       });
+      document.addEventListener("visibilitychange", this.handleVisibilityChange);
       window.addEventListener(
         "pagehide",
         () => {
@@ -1506,6 +1676,10 @@
       await this.refreshCurrentVideo(true);
     }
     stop() {
+      if (!this.started) {
+        return;
+      }
+      this.started = false;
       if (this.stopObservingUrl) {
         this.stopObservingUrl();
         this.stopObservingUrl = null;
@@ -1521,12 +1695,19 @@
       this.refreshScheduled = false;
       this.pendingRefresh = false;
       this.pendingForceFetch = false;
+      this.pendingVisibleRefresh = false;
+      this.lastTickTime = null;
       this.domObserver?.disconnect();
       this.domObserver = null;
+      document.removeEventListener("visibilitychange", this.handleVisibilityChange);
       this.clearRuntimeState(true);
     }
     scheduleRefresh(forceFetch = false) {
       this.pendingForceFetch = this.pendingForceFetch || forceFetch;
+      if (document.hidden) {
+        this.pendingVisibleRefresh = true;
+        return;
+      }
       if (this.refreshScheduled) {
         return;
       }
@@ -1610,10 +1791,14 @@
       }
     }
     tick() {
-      if (!this.currentConfig.enabled || !this.currentVideo || !this.currentContext) {
+      if (!this.currentConfig.enabled || !this.currentVideo || !this.currentContext || this.currentSegments.length === 0) {
         return;
       }
       const currentTime = this.currentVideo.currentTime;
+      if (this.lastTickTime !== null && currentTime === this.lastTickTime && this.currentVideo.paused && !this.currentVideo.seeking) {
+        return;
+      }
+      this.lastTickTime = currentTime;
       for (const segment of this.currentSegments) {
         if (segment.actionType === "full") {
           continue;
@@ -1881,6 +2066,7 @@
       this.restoreMuteState();
       this.notices.clear();
       this.segmentStates.clear();
+      this.lastTickTime = null;
       this.currentSegments = [];
       this.currentSignature = "";
       this.currentContext = null;
@@ -1909,33 +2095,19 @@
     }
   };
 
-  // src/utils/pattern.ts
-  function regexFromStoredPattern(input) {
-    const trimmed = input.trim();
-    if (!trimmed) {
-      return null;
-    }
-    const match = trimmed.match(/^\/(.*)\/([a-z]*)$/iu);
-    try {
-      if (match) {
-        return new RegExp(match[1], match[2]);
-      }
-      return new RegExp(trimmed, "giu");
-    } catch {
-      return null;
-    }
-  }
-  function collectPatternMatches(text, pattern, minLength = 2) {
-    const globalPattern = pattern.global ? pattern : new RegExp(pattern.source, `${pattern.flags}g`);
-    const matches = text.match(globalPattern) ?? [];
-    return [...new Set(matches.map((entry) => entry.trim()).filter((entry) => entry.length >= minLength))];
-  }
-
   // src/features/dynamic-filter.ts
   var PROCESSED_ATTR = "data-bsb-dynamic-processed";
   var BADGE_SELECTOR = "[data-bsb-dynamic-badge]";
   var TOGGLE_SELECTOR = "[data-bsb-dynamic-toggle]";
   var HIDDEN_ATTR = "data-bsb-dynamic-hidden";
+  var DYNAMIC_RELEVANT_SELECTORS = [
+    ".bili-dyn-item",
+    ".bili-dyn-card-goods",
+    ".bili-rich-text__content",
+    ".dyn-card-opus",
+    ".dyn-card-opus__title"
+  ];
+  var DYNAMIC_IGNORED_SELECTORS = [BADGE_SELECTOR, TOGGLE_SELECTOR];
   function classifyDynamicItem(element, config) {
     if (element.querySelector(".bili-dyn-card-goods.hide-border")) {
       return {
@@ -1957,7 +2129,7 @@
       ...element.querySelectorAll(".bili-rich-text__content span:not(.bili-dyn-item__interaction *), .opus-paragraph-children span, .dyn-card-opus__title")
     ].map((node) => node.textContent ?? "").join(" ");
     const matches = collectPatternMatches(text, pattern);
-    if (matches.length < config.dynamicRegexKeywordMinMatches) {
+    if (!isLikelyPromoText(text, matches, config.dynamicRegexKeywordMinMatches)) {
       return null;
     }
     return {
@@ -2010,23 +2182,39 @@
         this.scheduleRefresh();
       });
     }
+    started = false;
     currentConfig;
     domObserver = null;
     refreshTimerId = null;
     stopObservingUrl = null;
+    pendingVisibleRefresh = false;
+    handleVisibilityChange = () => {
+      if (!document.hidden && this.pendingVisibleRefresh) {
+        this.pendingVisibleRefresh = false;
+        this.scheduleRefresh();
+      }
+    };
     start() {
+      if (this.started) {
+        return;
+      }
+      this.started = true;
       this.scheduleRefresh();
       this.stopObservingUrl = observeUrlChanges(() => {
         this.resetProcessedItems();
         this.scheduleRefresh();
       });
-      this.domObserver = new MutationObserver(() => {
+      this.domObserver = new MutationObserver((records) => {
+        if (!mutationsTouchSelectors(records, DYNAMIC_RELEVANT_SELECTORS, DYNAMIC_IGNORED_SELECTORS)) {
+          return;
+        }
         this.scheduleRefresh();
       });
       this.domObserver.observe(document.documentElement, {
         childList: true,
         subtree: true
       });
+      document.addEventListener("visibilitychange", this.handleVisibilityChange);
       window.addEventListener(
         "pagehide",
         () => {
@@ -2036,6 +2224,10 @@
       );
     }
     stop() {
+      if (!this.started) {
+        return;
+      }
+      this.started = false;
       if (this.stopObservingUrl) {
         this.stopObservingUrl();
         this.stopObservingUrl = null;
@@ -2046,9 +2238,15 @@
       }
       this.domObserver?.disconnect();
       this.domObserver = null;
+      this.pendingVisibleRefresh = false;
+      document.removeEventListener("visibilitychange", this.handleVisibilityChange);
       this.resetProcessedItems();
     }
     scheduleRefresh() {
+      if (document.hidden) {
+        this.pendingVisibleRefresh = true;
+        return;
+      }
       if (this.refreshTimerId !== null) {
         return;
       }
@@ -2058,6 +2256,10 @@
       }, 120);
     }
     refresh() {
+      if (document.hidden) {
+        this.pendingVisibleRefresh = true;
+        return;
+      }
       if (!this.currentConfig.enabled || this.currentConfig.dynamicFilterMode === "off" || !supportsDynamicFilters(window.location.href)) {
         this.resetProcessedItems();
         return;
@@ -2123,6 +2325,15 @@
   var HIDDEN_ATTR2 = "data-bsb-comment-hidden";
   var REPLIES_HIDDEN_ATTR = "data-bsb-comment-replies-hidden";
   var ROOT_REFRESH_INTERVAL_MS = 900;
+  var COMMENT_RELEVANT_SELECTORS = [
+    "bili-comments",
+    "bili-comment-thread-renderer",
+    "bili-comment-renderer",
+    "bili-comment-reply-renderer",
+    "bili-comment-replies-renderer",
+    "bili-rich-text"
+  ];
+  var COMMENT_IGNORED_SELECTORS = [`[${BADGE_ATTR}]`, `[${TOGGLE_ATTR}]`];
   function hasSponsoredGoodsLink(commentRenderer) {
     const links = commentRenderer.shadowRoot?.querySelector("bili-rich-text")?.shadowRoot?.querySelectorAll("a[data-type='goods']");
     return Boolean(links && links.length > 0);
@@ -2148,8 +2359,9 @@
     if (!pattern) {
       return null;
     }
-    const matches = collectPatternMatches(extractCommentText(commentRenderer), pattern);
-    if (matches.length < config.dynamicRegexKeywordMinMatches) {
+    const text = extractCommentText(commentRenderer);
+    const matches = collectPatternMatches(text, pattern);
+    if (!isLikelyPromoText(text, matches, config.dynamicRegexKeywordMinMatches)) {
       return null;
     }
     return {
@@ -2262,28 +2474,48 @@
         this.scheduleRefresh();
       });
     }
+    started = false;
     currentConfig;
     rootSweepIntervalId = null;
     documentObserver = null;
     refreshTimerId = null;
     stopObservingUrl = null;
     rootObservers = /* @__PURE__ */ new Map();
+    pendingVisibleRefresh = false;
+    handleVisibilityChange = () => {
+      if (!document.hidden && this.pendingVisibleRefresh) {
+        this.pendingVisibleRefresh = false;
+        this.scheduleRefresh();
+      }
+    };
     start() {
+      if (this.started) {
+        return;
+      }
+      this.started = true;
       this.scheduleRefresh();
       this.stopObservingUrl = observeUrlChanges(() => {
         this.resetProcessedThreads();
         this.scheduleRefresh();
       });
       this.rootSweepIntervalId = window.setInterval(() => {
+        if (document.hidden) {
+          this.pendingVisibleRefresh = true;
+          return;
+        }
         this.refresh();
       }, ROOT_REFRESH_INTERVAL_MS);
-      this.documentObserver = new MutationObserver(() => {
+      this.documentObserver = new MutationObserver((records) => {
+        if (!mutationsTouchSelectors(records, COMMENT_RELEVANT_SELECTORS, COMMENT_IGNORED_SELECTORS)) {
+          return;
+        }
         this.scheduleRefresh();
       });
       this.documentObserver.observe(document.documentElement, {
         childList: true,
         subtree: true
       });
+      document.addEventListener("visibilitychange", this.handleVisibilityChange);
       window.addEventListener(
         "pagehide",
         () => {
@@ -2293,6 +2525,10 @@
       );
     }
     stop() {
+      if (!this.started) {
+        return;
+      }
+      this.started = false;
       if (this.stopObservingUrl) {
         this.stopObservingUrl();
         this.stopObservingUrl = null;
@@ -2308,9 +2544,15 @@
       this.documentObserver?.disconnect();
       this.documentObserver = null;
       this.disconnectRootObservers();
+      this.pendingVisibleRefresh = false;
+      document.removeEventListener("visibilitychange", this.handleVisibilityChange);
       this.resetProcessedThreads();
     }
     scheduleRefresh() {
+      if (document.hidden) {
+        this.pendingVisibleRefresh = true;
+        return;
+      }
       if (this.refreshTimerId !== null) {
         return;
       }
@@ -2320,6 +2562,10 @@
       }, 160);
     }
     refresh() {
+      if (document.hidden) {
+        this.pendingVisibleRefresh = true;
+        return;
+      }
       if (!this.currentConfig.enabled || this.currentConfig.commentFilterMode === "off" || !supportsCommentFilters(window.location.href)) {
         this.disconnectRootObservers();
         this.resetProcessedThreads();
@@ -2347,7 +2593,10 @@
         if (this.rootObservers.has(root) || !root.shadowRoot) {
           continue;
         }
-        const observer = new MutationObserver(() => {
+        const observer = new MutationObserver((records) => {
+          if (!mutationsTouchSelectors(records, COMMENT_RELEVANT_SELECTORS, COMMENT_IGNORED_SELECTORS)) {
+            return;
+          }
           this.scheduleRefresh();
         });
         observer.observe(root.shadowRoot, {
@@ -2465,6 +2714,51 @@
     }
   };
 
+  // src/runtime/lifecycle.ts
+  function createRuntimeLifecycle(startup, shutdown) {
+    let started = false;
+    let starting = null;
+    async function start() {
+      if (started) {
+        return;
+      }
+      if (starting) {
+        return starting;
+      }
+      starting = (async () => {
+        started = true;
+        try {
+          await startup();
+        } catch (error) {
+          started = false;
+          shutdown();
+          throw error;
+        } finally {
+          starting = null;
+        }
+      })();
+      return starting;
+    }
+    function stop() {
+      if (!started && !starting) {
+        return;
+      }
+      started = false;
+      starting = null;
+      shutdown();
+    }
+    window.addEventListener("pageshow", () => {
+      void start();
+    });
+    window.addEventListener("pagehide", () => {
+      stop();
+    });
+    return {
+      start,
+      stop
+    };
+  }
+
   // src/ui/styles.ts
   var styles = `
 .bsb-tm-entry-button {
@@ -2544,6 +2838,12 @@
   display: block;
   margin-top: 4px;
   color: rgba(255, 255, 255, 0.88);
+}
+
+.bsb-tm-validation-message {
+  margin: -4px 0 0;
+  color: #ff9db4;
+  font-size: 12px;
 }
 
 .bsb-tm-button,
@@ -2651,9 +2951,19 @@
     const controller = new ScriptController(configStore, statsStore);
     const dynamicSponsorController = new DynamicSponsorController(configStore);
     const commentSponsorController = new CommentSponsorController(configStore);
-    dynamicSponsorController.start();
-    commentSponsorController.start();
-    await controller.start();
+    const runtime = createRuntimeLifecycle(
+      async () => {
+        dynamicSponsorController.start();
+        commentSponsorController.start();
+        await controller.start();
+      },
+      () => {
+        dynamicSponsorController.stop();
+        commentSponsorController.stop();
+        controller.stop();
+      }
+    );
+    await runtime.start();
     gmRegisterMenuCommand("Toggle BSB panel", () => controller.togglePanel());
     gmRegisterMenuCommand("Clear BSB cache", () => {
       void controller.clearCache();

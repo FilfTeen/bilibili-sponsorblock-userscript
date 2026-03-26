@@ -4,6 +4,7 @@ import { ConfigStore, StatsStore } from "./core/config-store";
 import { ScriptController } from "./core/controller";
 import { DynamicSponsorController } from "./features/dynamic-filter";
 import { CommentSponsorController } from "./features/comment-filter";
+import { createRuntimeLifecycle } from "./runtime/lifecycle";
 import { styles } from "./ui/styles";
 import { debugLog, isSupportedLocation } from "./utils/dom";
 
@@ -22,9 +23,19 @@ async function bootstrap(): Promise<void> {
   const controller = new ScriptController(configStore, statsStore);
   const dynamicSponsorController = new DynamicSponsorController(configStore);
   const commentSponsorController = new CommentSponsorController(configStore);
-  dynamicSponsorController.start();
-  commentSponsorController.start();
-  await controller.start();
+  const runtime = createRuntimeLifecycle(
+    async () => {
+      dynamicSponsorController.start();
+      commentSponsorController.start();
+      await controller.start();
+    },
+    () => {
+      dynamicSponsorController.stop();
+      commentSponsorController.stop();
+      controller.stop();
+    }
+  );
+  await runtime.start();
 
   gmRegisterMenuCommand("Toggle BSB panel", () => controller.togglePanel());
   gmRegisterMenuCommand("Clear BSB cache", () => {

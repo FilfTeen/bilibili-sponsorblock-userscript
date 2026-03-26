@@ -8,6 +8,7 @@ import {
 import { gmDeleteValue, gmGetValue, gmSetValue } from "../platform/gm";
 import type { CategoryMode, StoredConfig, StoredStats } from "../types";
 import { clampNumber } from "../utils/number";
+import { regexFromStoredPattern } from "../utils/pattern";
 import { normalizeServerAddress } from "../utils/url";
 
 type ConfigListener = (config: StoredConfig) => void;
@@ -51,10 +52,13 @@ export function normalizeConfig(input: Partial<StoredConfig> | null | undefined)
       ? input.commentFilterMode
       : next.commentFilterMode;
   next.commentHideReplies = input.commentHideReplies ?? next.commentHideReplies;
-  next.dynamicRegexPattern =
+  const regexPattern =
     typeof input.dynamicRegexPattern === "string" && input.dynamicRegexPattern.trim().length > 0
       ? input.dynamicRegexPattern.trim()
-      : next.dynamicRegexPattern;
+      : null;
+  if (regexPattern && regexFromStoredPattern(regexPattern)) {
+    next.dynamicRegexPattern = regexPattern;
+  }
   next.dynamicRegexKeywordMinMatches = clampNumber(
     Number.isFinite(input.dynamicRegexKeywordMinMatches)
       ? Number(input.dynamicRegexKeywordMinMatches)

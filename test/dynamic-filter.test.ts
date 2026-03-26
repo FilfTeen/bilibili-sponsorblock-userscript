@@ -27,4 +27,16 @@ describe("dynamic filter classification", () => {
     expect(result?.category).toBe("dynamicSponsor_suspicion_sponsor");
     expect(result?.matches.length).toBeGreaterThan(0);
   });
+
+  it("avoids false positives for benign marketing-adjacent text", () => {
+    const element = document.createElement("div");
+    element.innerHTML = `<div class="bili-rich-text__content"><span>这期分享广告学课程的阅读笔记</span></div>`;
+
+    const result = classifyDynamicItem(element, {
+      dynamicRegexPattern: "/广告|课程/gi",
+      dynamicRegexKeywordMinMatches: 1
+    });
+
+    expect(result).toBeNull();
+  });
 });

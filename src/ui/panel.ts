@@ -6,6 +6,7 @@ import {
   SCRIPT_NAME
 } from "../constants";
 import type { Category, CategoryMode, ContentFilterMode, SegmentRecord, StoredConfig, StoredStats } from "../types";
+import { validateStoredPattern } from "../utils/pattern";
 
 type PanelCallbacks = {
   onPatchConfig: (patch: Partial<StoredConfig>) => Promise<void>;
@@ -21,6 +22,7 @@ export class SettingsPanel {
   private readonly form = document.createElement("div");
   private readonly filterForm = document.createElement("div");
   private readonly panelId = "bsb-tm-panel";
+  private filterValidationMessage: string | null = null;
   private config: StoredConfig;
   private stats: StoredStats;
 
@@ -113,6 +115,7 @@ export class SettingsPanel {
 
   updateConfig(config: StoredConfig): void {
     this.config = config;
+    this.filterValidationMessage = null;
     this.render();
   }
 
@@ -174,14 +177,12 @@ export class SettingsPanel {
   }
 
   private renderFilters(): void {
-    this.filterForm.replaceChildren(
+    const children: HTMLElement[] = [
       this.createSectionLabel("动态页广告过滤"),
       this.createSelect("动态过滤模式", this.config.dynamicFilterMode, CONTENT_FILTER_MODE_LABELS, async (value) => {
         await this.callbacks.onPatchConfig({ dynamicFilterMode: value as ContentFilterMode });
       }),
-      this.createInput("动态关键词正则", this.config.dynamicRegexPattern, async (value) => {
-        await this.callbacks.onPatchConfig({ dynamicRegexPattern: value });
-      }),
+      this.createRegexPatternInput(),
       this.createNumberInput("动态最少命中数", this.config.dynamicRegexKeywordMinMatches, async (value) => {
         await this.callbacks.onPatchConfig({ dynamicRegexKeywordMinMatches: value });
       }),
@@ -193,7 +194,13 @@ export class SettingsPanel {
         await this.callbacks.onPatchConfig({ commentHideReplies: checked });
       }),
       this.createResetButton(true)
-    );
+    ];
+
+    if (this.filterValidationMessage) {
+      children.splice(3, 0, this.createValidationMessage(this.filterValidationMessage));
+    }
+
+    this.filterForm.replaceChildren(...children);
 
     this.panel.querySelector<HTMLElement>("[data-section='filters']")?.replaceChildren(this.filterForm);
   }
@@ -258,6 +265,42 @@ export class SettingsPanel {
     input.spellcheck = false;
     input.addEventListener("change", async () => {
       await onCommit(input.value.trim());
+    });
+
+    wrapper.append(label, input);
+    return wrapper;
+  }
+
+  private createRegexPatternInput(): HTMLElement {
+    const wrapper = document.createElement("label");
+    wrapper.className = "bsb-tm-field stacked";
+
+    const label = document.createElement("span");
+    label.textContent = "动态关键词正则";
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = this.config.dynamicRegexPattern;
+    input.spellcheck = false;
+    if (this.filterValidationMessage) {
+      input.setAttribute("aria-invalid", "true");
+    }
+    input.addEventListener("change", async () => {
+      const nextValue = input.value.trim();
+      const validation = validateStoredPattern(nextValue);
+      if (!validation.valid) {
+        this.filterValidationMessage = validation.error ?? "正则格式无效";
+        this.renderFilters();
+        return;
+      }
+
+      this.filterValidationMessage = null;
+      try {
+        await this.callbacks.onPatchConfig({ dynamicRegexPattern: nextValue });
+      } catch {
+        this.filterValidationMessage = "正则保存失败";
+        this.renderFilters();
+      }
     });
 
     wrapper.append(label, input);
@@ -361,5 +404,12 @@ export class SettingsPanel {
     value.textContent = valueText;
     line.append(label, value);
     return line;
+  }
+
+  private createValidationMessage(text: string): HTMLElement {
+    const message = document.createElement("p");
+    message.className = "bsb-tm-validation-message";
+    message.textContent = text;
+    return message;
   }
 }

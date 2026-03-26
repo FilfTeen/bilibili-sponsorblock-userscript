@@ -13,6 +13,7 @@ import { NoticeCenter } from "../ui/notice-center";
 import { SettingsPanel } from "../ui/panel";
 import type { Category, CategoryMode, FetchResponse, SegmentRecord, StoredConfig, StoredStats, VideoContext } from "../types";
 import { roundMinutes } from "../utils/number";
+import { mutationsTouchSelectors } from "../utils/mutation";
 import { resolveVideoContext } from "../utils/video-context";
 import { debugLog, findVideoElement, formatDurationLabel, resolvePlayerHost } from "../utils/dom";
 import { observeUrlChanges } from "../utils/navigation";
@@ -27,7 +28,26 @@ type RuntimeSegmentState = {
   lastObservedTime: number | null;
 };
 
+const VIDEO_RELEVANT_SELECTORS = [
+  "video",
+  "#bilibili-player",
+  "#playerWrap",
+  ".bpx-player-container",
+  ".bpx-player-video-wrap",
+  ".bilibili-player",
+  ".video-container",
+  ".player-container"
+] as const;
+const VIDEO_IGNORED_SELECTORS = [
+  ".bsb-tm-panel",
+  ".bsb-tm-entry-button",
+  ".bsb-tm-banner",
+  ".bsb-tm-notice-root",
+  ".bsb-tm-notice"
+] as const;
+
 export class ScriptController {
+  private started = false;
   private currentConfig: StoredConfig;
   private currentStats: StoredStats;
   private readonly segmentStates = new Map<string, RuntimeSegmentState>();
@@ -49,6 +69,16 @@ export class ScriptController {
   private refreshTimerId: number | null = null;
   private pendingRefresh = false;
   private pendingForceFetch = false;
+  private pendingVisibleRefresh = false;
+  private lastTickTime: number | null = null;
+  private readonly handleVisibilityChange = () => {
+    if (!document.hidden && this.pendingVisibleRefresh) {
+      this.pendingVisibleRefresh = false;
+      const nextForceFetch = this.pendingForceFetch;
+      this.pendingForceFetch = false;
+      this.scheduleRefresh(nextForceFetch);
+    }
+  };
 
   constructor(
     private readonly configStore: ConfigStore,
@@ -88,7 +118,7 @@ export class ScriptController {
         this.notices.clear();
         this.restoreMuteState();
       }
-      void this.refreshCurrentVideo(true);
+      this.scheduleRefresh(true);
     });
 
     this.statsStore.subscribe((stats) => {
@@ -98,25 +128,34 @@ export class ScriptController {
   }
 
   async start(): Promise<void> {
+    if (this.started) {
+      return;
+    }
+
+    this.started = true;
     await this.cache.load();
     this.panel.mount();
     await this.refreshCurrentVideo(true);
 
     this.stopObservingUrl = observeUrlChanges(() => {
-      void this.refreshCurrentVideo(true);
+      this.scheduleRefresh(true);
     });
 
     this.tickIntervalId = window.setInterval(() => {
       this.tick();
     }, TICK_INTERVAL_MS);
 
-    this.domObserver = new MutationObserver(() => {
+    this.domObserver = new MutationObserver((records) => {
+      if (!mutationsTouchSelectors(records, VIDEO_RELEVANT_SELECTORS, VIDEO_IGNORED_SELECTORS)) {
+        return;
+      }
       this.scheduleRefresh();
     });
     this.domObserver.observe(document.documentElement, {
       childList: true,
       subtree: true
     });
+    document.addEventListener("visibilitychange", this.handleVisibilityChange);
 
     window.addEventListener(
       "pagehide",
@@ -143,6 +182,11 @@ export class ScriptController {
   }
 
   stop(): void {
+    if (!this.started) {
+      return;
+    }
+
+    this.started = false;
     if (this.stopObservingUrl) {
       this.stopObservingUrl();
       this.stopObservingUrl = null;
@@ -158,13 +202,21 @@ export class ScriptController {
     this.refreshScheduled = false;
     this.pendingRefresh = false;
     this.pendingForceFetch = false;
+    this.pendingVisibleRefresh = false;
+    this.lastTickTime = null;
     this.domObserver?.disconnect();
     this.domObserver = null;
+    document.removeEventListener("visibilitychange", this.handleVisibilityChange);
     this.clearRuntimeState(true);
   }
 
   private scheduleRefresh(forceFetch = false): void {
     this.pendingForceFetch = this.pendingForceFetch || forceFetch;
+
+    if (document.hidden) {
+      this.pendingVisibleRefresh = true;
+      return;
+    }
 
     if (this.refreshScheduled) {
       return;
@@ -261,11 +313,21 @@ export class ScriptController {
   }
 
   private tick(): void {
-    if (!this.currentConfig.enabled || !this.currentVideo || !this.currentContext) {
+    if (!this.currentConfig.enabled || !this.currentVideo || !this.currentContext || this.currentSegments.length === 0) {
       return;
     }
 
     const currentTime = this.currentVideo.currentTime;
+    if (
+      this.lastTickTime !== null &&
+      currentTime === this.lastTickTime &&
+      this.currentVideo.paused &&
+      !this.currentVideo.seeking
+    ) {
+      return;
+    }
+
+    this.lastTickTime = currentTime;
     for (const segment of this.currentSegments) {
       if (segment.actionType === "full") {
         continue;
@@ -566,6 +628,7 @@ export class ScriptController {
     this.restoreMuteState();
     this.notices.clear();
     this.segmentStates.clear();
+    this.lastTickTime = null;
     this.currentSegments = [];
     this.currentSignature = "";
     this.currentContext = null;

@@ -78,6 +78,12 @@ export const styles = `
   color: rgba(255, 255, 255, 0.88);
 }
 
+.bsb-tm-validation-message {
+  margin: -4px 0 0;
+  color: #ff9db4;
+  font-size: 12px;
+}
+
 .bsb-tm-button,
 .bsb-tm-panel input,
 .bsb-tm-panel select {

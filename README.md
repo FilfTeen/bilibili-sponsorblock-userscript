@@ -129,6 +129,7 @@ URL 解析额外兼容:
 
 - URL 变化监听同时使用 `history` patch、`popstate/hashchange`、`Navigation API` 和低频 fallback，尽量兼容 Bilibili 的 SPA 路由。
 - 评论区和回复区大量使用 `shadow DOM`，脚本内部对 `bili-comments` 根节点做增量监听和周期补扫，避免漏处理延迟渲染内容。
+- 运行时额外处理了 `pagehide/pageshow` 生命周期，避免 Safari `BFCache` 恢复后脚本失活。
 - CI 默认跑 `tsc + vitest + build`，真实页面 smoke test 保留为本地回归命令。
 
 更完整的开发/测试约定见 [CONTRIBUTING.md](./CONTRIBUTING.md)。

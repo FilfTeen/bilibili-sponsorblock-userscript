@@ -81,6 +81,18 @@ describe("comment filter", () => {
     });
   });
 
+  it("ignores benign ad-adjacent discussion", () => {
+    const match = classifyCommentRenderer(
+      createCommentRenderer(false, "这条评论在讨论广告学课程和推广大使的区别") as HTMLElement & { shadowRoot: ShadowRoot },
+      {
+        dynamicRegexPattern: "/广告|课程|推广/gi",
+        dynamicRegexKeywordMinMatches: 1
+      }
+    );
+
+    expect(match).toBeNull();
+  });
+
   it("processes comment threads after a delayed re-scan", async () => {
     const configStore = new ConfigStore();
     const controller = new CommentSponsorController(configStore);

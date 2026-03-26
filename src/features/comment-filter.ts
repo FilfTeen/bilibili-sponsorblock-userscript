@@ -1,7 +1,8 @@
 import type { StoredConfig } from "../types";
 import { ConfigStore } from "../core/config-store";
-import { collectPatternMatches, regexFromStoredPattern } from "../utils/pattern";
+import { collectPatternMatches, isLikelyPromoText, regexFromStoredPattern } from "../utils/pattern";
 import { debugLog } from "../utils/dom";
+import { mutationsTouchSelectors } from "../utils/mutation";
 import { observeUrlChanges } from "../utils/navigation";
 import { supportsCommentFilters } from "../utils/page";
 
@@ -12,6 +13,15 @@ const TOGGLE_ATTR = "data-bsb-comment-toggle";
 const HIDDEN_ATTR = "data-bsb-comment-hidden";
 const REPLIES_HIDDEN_ATTR = "data-bsb-comment-replies-hidden";
 const ROOT_REFRESH_INTERVAL_MS = 900;
+const COMMENT_RELEVANT_SELECTORS = [
+  "bili-comments",
+  "bili-comment-thread-renderer",
+  "bili-comment-renderer",
+  "bili-comment-reply-renderer",
+  "bili-comment-replies-renderer",
+  "bili-rich-text"
+] as const;
+const COMMENT_IGNORED_SELECTORS = [`[${BADGE_ATTR}]`, `[${TOGGLE_ATTR}]`] as const;
 
 type CommentRenderer = HTMLElement & { shadowRoot: ShadowRoot };
 type CommentSponsorMatch =
@@ -62,8 +72,9 @@ export function classifyCommentRenderer(
     return null;
   }
 
-  const matches = collectPatternMatches(extractCommentText(commentRenderer), pattern);
-  if (matches.length < config.dynamicRegexKeywordMinMatches) {
+  const text = extractCommentText(commentRenderer);
+  const matches = collectPatternMatches(text, pattern);
+  if (!isLikelyPromoText(text, matches, config.dynamicRegexKeywordMinMatches)) {
     return null;
   }
 
@@ -198,12 +209,20 @@ function restoreReplies(thread: HTMLElement): void {
 }
 
 export class CommentSponsorController {
+  private started = false;
   private currentConfig: StoredConfig;
   private rootSweepIntervalId: number | null = null;
   private documentObserver: MutationObserver | null = null;
   private refreshTimerId: number | null = null;
   private stopObservingUrl: (() => void) | null = null;
   private readonly rootObservers = new Map<HTMLElement, MutationObserver>();
+  private pendingVisibleRefresh = false;
+  private readonly handleVisibilityChange = () => {
+    if (!document.hidden && this.pendingVisibleRefresh) {
+      this.pendingVisibleRefresh = false;
+      this.scheduleRefresh();
+    }
+  };
 
   constructor(private readonly configStore: ConfigStore) {
     this.currentConfig = this.configStore.getSnapshot();
@@ -215,6 +234,11 @@ export class CommentSponsorController {
   }
 
   start(): void {
+    if (this.started) {
+      return;
+    }
+
+    this.started = true;
     this.scheduleRefresh();
 
     this.stopObservingUrl = observeUrlChanges(() => {
@@ -223,16 +247,24 @@ export class CommentSponsorController {
     });
 
     this.rootSweepIntervalId = window.setInterval(() => {
+      if (document.hidden) {
+        this.pendingVisibleRefresh = true;
+        return;
+      }
       this.refresh();
     }, ROOT_REFRESH_INTERVAL_MS);
 
-    this.documentObserver = new MutationObserver(() => {
+    this.documentObserver = new MutationObserver((records) => {
+      if (!mutationsTouchSelectors(records, COMMENT_RELEVANT_SELECTORS, COMMENT_IGNORED_SELECTORS)) {
+        return;
+      }
       this.scheduleRefresh();
     });
     this.documentObserver.observe(document.documentElement, {
       childList: true,
       subtree: true
     });
+    document.addEventListener("visibilitychange", this.handleVisibilityChange);
 
     window.addEventListener(
       "pagehide",
@@ -244,6 +276,11 @@ export class CommentSponsorController {
   }
 
   stop(): void {
+    if (!this.started) {
+      return;
+    }
+
+    this.started = false;
     if (this.stopObservingUrl) {
       this.stopObservingUrl();
       this.stopObservingUrl = null;
@@ -259,10 +296,17 @@ export class CommentSponsorController {
     this.documentObserver?.disconnect();
     this.documentObserver = null;
     this.disconnectRootObservers();
+    this.pendingVisibleRefresh = false;
+    document.removeEventListener("visibilitychange", this.handleVisibilityChange);
     this.resetProcessedThreads();
   }
 
   private scheduleRefresh(): void {
+    if (document.hidden) {
+      this.pendingVisibleRefresh = true;
+      return;
+    }
+
     if (this.refreshTimerId !== null) {
       return;
     }
@@ -274,6 +318,11 @@ export class CommentSponsorController {
   }
 
   private refresh(): void {
+    if (document.hidden) {
+      this.pendingVisibleRefresh = true;
+      return;
+    }
+
     if (
       !this.currentConfig.enabled ||
       this.currentConfig.commentFilterMode === "off" ||
@@ -311,7 +360,10 @@ export class CommentSponsorController {
 
       // Comment threads often render entirely inside nested shadow roots, so
       // document-level observers miss the follow-up mutations after the host appears.
-      const observer = new MutationObserver(() => {
+      const observer = new MutationObserver((records) => {
+        if (!mutationsTouchSelectors(records, COMMENT_RELEVANT_SELECTORS, COMMENT_IGNORED_SELECTORS)) {
+          return;
+        }
         this.scheduleRefresh();
       });
       observer.observe(root.shadowRoot, {

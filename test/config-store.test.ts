@@ -21,4 +21,12 @@ describe("config normalization", () => {
     expect(config.commentFilterMode).toBe("off");
     expect(config.dynamicRegexKeywordMinMatches).toBe(10);
   });
+
+  it("falls back to the default regex when stored input is invalid", () => {
+    const config = normalizeConfig({
+      dynamicRegexPattern: "/(/"
+    });
+
+    expect(config.dynamicRegexPattern).toBe(DEFAULT_DYNAMIC_REGEX_PATTERN);
+  });
 });

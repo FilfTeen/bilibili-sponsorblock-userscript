@@ -14,7 +14,7 @@ function assert(condition, message) {
 }
 
 async function installGmShims(page, options = {}) {
-  const { failSegmentRequests = false } = options;
+  const { failSegmentRequests = false, initialStore = {} } = options;
   await page.exposeFunction("__bsbNodeRequest", async (details) => {
     if (failSegmentRequests && details.url.includes("/api/skipSegments/")) {
       return {
@@ -34,9 +34,9 @@ async function installGmShims(page, options = {}) {
     };
   });
 
-  await page.addInitScript(() => {
+  await page.addInitScript((seedStore) => {
     const requestLog = [];
-    const store = {};
+    const store = { ...seedStore };
 
     window.__bsbRequestLog = requestLog;
     window.__bsbGmStore = store;
@@ -73,7 +73,7 @@ async function installGmShims(page, options = {}) {
         });
       return { abort() {} };
     };
-  });
+  }, initialStore);
 }
 
 async function injectUserscript(page, userscript) {
@@ -112,6 +112,51 @@ async function verifyHomePage(page) {
   assert(result.dynamicBadgeCount > 0, "Dynamic filter did not label injected promo content.");
   assert(result.dynamicToggleCount > 0, "Dynamic filter did not add a reveal toggle.");
   assert(result.hiddenContentCount > 0, "Dynamic filter did not hide injected promo content.");
+}
+
+async function verifyHomePageLabelMode(browser) {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await installGmShims(page, {
+    initialStore: {
+      bsb_tm_config_v1: {
+        dynamicFilterMode: "label"
+      }
+    }
+  });
+
+  try {
+    await page.goto("https://www.bilibili.com/", { waitUntil: "domcontentloaded" });
+    const userscript = await readFile(scriptPath, "utf8");
+    await injectUserscript(page, userscript);
+
+    await page.evaluate(() => {
+      const item = document.createElement("div");
+      item.className = "bili-dyn-item";
+      item.innerHTML = `
+        <div class="bili-dyn-item__main">
+          <div class="bili-dyn-title__text">测试动态</div>
+          <div class="bili-dyn-content">
+            <div class="bili-rich-text__content"><span>点评论区置顶领取优惠券</span></div>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(item);
+    });
+    await page.waitForTimeout(600);
+
+    const result = await page.evaluate(() => ({
+      dynamicBadgeCount: document.querySelectorAll("[data-bsb-dynamic-badge]").length,
+      dynamicToggleCount: document.querySelectorAll("[data-bsb-dynamic-toggle]").length,
+      hiddenContentCount: document.querySelectorAll(".bili-dyn-content[style*='display: none']").length
+    }));
+
+    assert(result.dynamicBadgeCount > 0, "Dynamic label mode did not label injected promo content.");
+    assert(result.dynamicToggleCount === 0, "Dynamic label mode should not add reveal toggles.");
+    assert(result.hiddenContentCount === 0, "Dynamic label mode should not hide content.");
+  } finally {
+    await context.close();
+  }
 }
 
 async function verifyVideoPage(page) {
@@ -273,6 +318,7 @@ async function main() {
     await verifyHomePage(page);
     await verifyVideoPage(page);
     await context.close();
+    await verifyHomePageLabelMode(browser);
     await verifyFailureHandling(browser);
     console.log("Bilibili smoke test passed.");
   } finally {

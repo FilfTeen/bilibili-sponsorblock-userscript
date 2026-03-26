@@ -1,7 +1,8 @@
 import type { DynamicSponsorMatch, StoredConfig } from "../types";
 import { ConfigStore } from "../core/config-store";
-import { collectPatternMatches, regexFromStoredPattern } from "../utils/pattern";
+import { collectPatternMatches, isLikelyPromoText, regexFromStoredPattern } from "../utils/pattern";
 import { debugLog } from "../utils/dom";
+import { mutationsTouchSelectors } from "../utils/mutation";
 import { observeUrlChanges } from "../utils/navigation";
 import { supportsDynamicFilters } from "../utils/page";
 
@@ -9,6 +10,14 @@ const PROCESSED_ATTR = "data-bsb-dynamic-processed";
 const BADGE_SELECTOR = "[data-bsb-dynamic-badge]";
 const TOGGLE_SELECTOR = "[data-bsb-dynamic-toggle]";
 const HIDDEN_ATTR = "data-bsb-dynamic-hidden";
+const DYNAMIC_RELEVANT_SELECTORS = [
+  ".bili-dyn-item",
+  ".bili-dyn-card-goods",
+  ".bili-rich-text__content",
+  ".dyn-card-opus",
+  ".dyn-card-opus__title"
+] as const;
+const DYNAMIC_IGNORED_SELECTORS = [BADGE_SELECTOR, TOGGLE_SELECTOR] as const;
 
 export function classifyDynamicItem(
   element: HTMLElement,
@@ -39,7 +48,7 @@ export function classifyDynamicItem(
     .map((node) => node.textContent ?? "")
     .join(" ");
   const matches = collectPatternMatches(text, pattern);
-  if (matches.length < config.dynamicRegexKeywordMinMatches) {
+  if (!isLikelyPromoText(text, matches, config.dynamicRegexKeywordMinMatches)) {
     return null;
   }
 
@@ -102,10 +111,18 @@ function setDynamicHidden(body: HTMLElement, button: HTMLButtonElement, hidden: 
 }
 
 export class DynamicSponsorController {
+  private started = false;
   private currentConfig: StoredConfig;
   private domObserver: MutationObserver | null = null;
   private refreshTimerId: number | null = null;
   private stopObservingUrl: (() => void) | null = null;
+  private pendingVisibleRefresh = false;
+  private readonly handleVisibilityChange = () => {
+    if (!document.hidden && this.pendingVisibleRefresh) {
+      this.pendingVisibleRefresh = false;
+      this.scheduleRefresh();
+    }
+  };
 
   constructor(private readonly configStore: ConfigStore) {
     this.currentConfig = this.configStore.getSnapshot();
@@ -117,6 +134,11 @@ export class DynamicSponsorController {
   }
 
   start(): void {
+    if (this.started) {
+      return;
+    }
+
+    this.started = true;
     this.scheduleRefresh();
 
     this.stopObservingUrl = observeUrlChanges(() => {
@@ -124,13 +146,17 @@ export class DynamicSponsorController {
       this.scheduleRefresh();
     });
 
-    this.domObserver = new MutationObserver(() => {
+    this.domObserver = new MutationObserver((records) => {
+      if (!mutationsTouchSelectors(records, DYNAMIC_RELEVANT_SELECTORS, DYNAMIC_IGNORED_SELECTORS)) {
+        return;
+      }
       this.scheduleRefresh();
     });
     this.domObserver.observe(document.documentElement, {
       childList: true,
       subtree: true
     });
+    document.addEventListener("visibilitychange", this.handleVisibilityChange);
 
     window.addEventListener(
       "pagehide",
@@ -142,6 +168,11 @@ export class DynamicSponsorController {
   }
 
   stop(): void {
+    if (!this.started) {
+      return;
+    }
+
+    this.started = false;
     if (this.stopObservingUrl) {
       this.stopObservingUrl();
       this.stopObservingUrl = null;
@@ -152,10 +183,17 @@ export class DynamicSponsorController {
     }
     this.domObserver?.disconnect();
     this.domObserver = null;
+    this.pendingVisibleRefresh = false;
+    document.removeEventListener("visibilitychange", this.handleVisibilityChange);
     this.resetProcessedItems();
   }
 
   private scheduleRefresh(): void {
+    if (document.hidden) {
+      this.pendingVisibleRefresh = true;
+      return;
+    }
+
     if (this.refreshTimerId !== null) {
       return;
     }
@@ -167,6 +205,11 @@ export class DynamicSponsorController {
   }
 
   private refresh(): void {
+    if (document.hidden) {
+      this.pendingVisibleRefresh = true;
+      return;
+    }
+
     if (
       !this.currentConfig.enabled ||
       this.currentConfig.dynamicFilterMode === "off" ||
