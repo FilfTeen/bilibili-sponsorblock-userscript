@@ -1,8 +1,5 @@
 export const styles = `
 .bsb-tm-entry-button {
-  position: absolute;
-  top: 16px;
-  right: 16px;
   z-index: 2147483645;
   border: 0;
   border-radius: 999px;
@@ -12,6 +9,18 @@ export const styles = `
   font: 600 12px/1.2 "SF Pro Display", "PingFang SC", sans-serif;
   cursor: pointer;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+.bsb-tm-entry-button.is-inline {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+}
+
+.bsb-tm-entry-button.is-floating {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
 }
 
 .bsb-tm-panel {
@@ -63,6 +72,12 @@ export const styles = `
   gap: 12px;
 }
 
+.bsb-tm-section-label {
+  display: block;
+  margin-top: 4px;
+  color: rgba(255, 255, 255, 0.88);
+}
+
 .bsb-tm-button,
 .bsb-tm-panel input,
 .bsb-tm-panel select {
@@ -76,6 +91,10 @@ export const styles = `
 
 .bsb-tm-button {
   cursor: pointer;
+}
+
+.bsb-tm-button.compact {
+  justify-self: start;
 }
 
 .bsb-tm-button.primary {
@@ -128,5 +147,25 @@ export const styles = `
 .bsb-tm-notice-message {
   margin-top: 6px;
   opacity: 0.85;
+}
+
+@media (max-width: 768px) {
+  .bsb-tm-entry-button.is-floating {
+    right: 16px;
+    bottom: 16px;
+  }
+
+  .bsb-tm-panel {
+    top: 12px;
+    right: 12px;
+    width: min(420px, calc(100vw - 24px));
+    max-height: calc(100vh - 24px);
+  }
+
+  .bsb-tm-notice-root {
+    top: 16px;
+    left: 16px;
+    max-width: calc(100vw - 32px);
+  }
 }
 `;

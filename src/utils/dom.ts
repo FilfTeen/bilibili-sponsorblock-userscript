@@ -1,4 +1,5 @@
 import { SCRIPT_NAME } from "../constants";
+export { isSupportedLocation } from "./page";
 
 const PLAYER_HOST_SELECTORS = [
   "#bilibili-player",
@@ -21,21 +22,6 @@ export function resolvePlayerHost(video: HTMLVideoElement): HTMLElement {
   }
 
   return video.parentElement ?? video;
-}
-
-export function isSupportedLocation(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    return (
-      parsed.hostname === "www.bilibili.com" &&
-      (parsed.pathname.startsWith("/video/") ||
-        parsed.pathname.startsWith("/list/") ||
-        parsed.pathname.startsWith("/bangumi/") ||
-        parsed.pathname.startsWith("/festival/"))
-    );
-  } catch {
-    return false;
-  }
 }
 
 export function formatSegmentTime(seconds: number): string {

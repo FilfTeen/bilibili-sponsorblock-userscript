@@ -31,10 +31,10 @@ const userscriptBanner = `// ==UserScript==
 // @description  Tampermonkey core script for skipping sponsor segments on Bilibili.
 // @author       FilfTeen
 // @license      GPL-3.0-only
-// @match        https://www.bilibili.com/video/*
-// @match        https://www.bilibili.com/list/*
-// @match        https://www.bilibili.com/bangumi/*
-// @match        https://www.bilibili.com/festival/*
+// @match        https://www.bilibili.com/*
+// @match        https://search.bilibili.com/*
+// @match        https://t.bilibili.com/*
+// @match        https://space.bilibili.com/*
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_deleteValue

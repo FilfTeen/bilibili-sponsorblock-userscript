@@ -10,7 +10,8 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "types": [
-      "node"
+      "node",
+      "vitest/globals"
     ],
     "lib": [
       "ES2022",
@@ -20,6 +21,7 @@
   },
   "include": [
     "src",
+    "test",
     "scripts"
   ]
 }

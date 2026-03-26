@@ -11,8 +11,21 @@ export type Category =
   | "exclusive_access";
 
 export type CategoryMode = "auto" | "manual" | "notice" | "off";
+export type ContentFilterMode = "hide" | "label" | "off";
 
 export type ActionType = "skip" | "mute" | "full" | "poi";
+export type PageType =
+  | "unknown"
+  | "unsupported"
+  | "main"
+  | "video"
+  | "list"
+  | "festival"
+  | "anime"
+  | "opus"
+  | "search"
+  | "dynamic"
+  | "channel";
 
 export interface SponsorTime {
   segment: [number] | [number, number];
@@ -60,6 +73,11 @@ export interface StoredConfig {
   noticeDurationSec: number;
   minDurationSec: number;
   categoryModes: Record<Category, CategoryMode>;
+  dynamicFilterMode: ContentFilterMode;
+  dynamicRegexPattern: string;
+  dynamicRegexKeywordMinMatches: number;
+  commentFilterMode: ContentFilterMode;
+  commentHideReplies: boolean;
 }
 
 export interface StoredStats {
@@ -97,4 +115,9 @@ export interface NoticeOptions {
   durationMs?: number;
   actions?: NoticeAction[];
   sticky?: boolean;
+}
+
+export interface DynamicSponsorMatch {
+  category: "dynamicSponsor_sponsor" | "dynamicSponsor_forward_sponsor" | "dynamicSponsor_suspicion_sponsor";
+  matches: string[];
 }

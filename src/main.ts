@@ -2,6 +2,8 @@ import { gmAddStyle, gmRegisterMenuCommand } from "./platform/gm";
 import { ensurePageBridge } from "./platform/page-bridge";
 import { ConfigStore, StatsStore } from "./core/config-store";
 import { ScriptController } from "./core/controller";
+import { DynamicSponsorController } from "./features/dynamic-filter";
+import { CommentSponsorController } from "./features/comment-filter";
 import { styles } from "./ui/styles";
 import { debugLog, isSupportedLocation } from "./utils/dom";
 
@@ -18,6 +20,10 @@ async function bootstrap(): Promise<void> {
   await Promise.all([configStore.load(), statsStore.load()]);
 
   const controller = new ScriptController(configStore, statsStore);
+  const dynamicSponsorController = new DynamicSponsorController(configStore);
+  const commentSponsorController = new CommentSponsorController(configStore);
+  dynamicSponsorController.start();
+  commentSponsorController.start();
   await controller.start();
 
   gmRegisterMenuCommand("Toggle BSB panel", () => controller.togglePanel());

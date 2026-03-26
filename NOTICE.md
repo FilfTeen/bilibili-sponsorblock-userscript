@@ -17,6 +17,7 @@
 - 运行时从浏览器扩展改写为 Tampermonkey userscript
 - 不包含 background script
 - 不包含 popup / options 独立页面
-- 不包含投稿、投票、评论/动态过滤、预览条等扩展专属功能
+- 不包含投稿、投票、预览条等扩展专属功能
+- 保留了面向 Tampermonkey 的核心视频跳过能力，并补上了首页/动态/评论区的核心过滤场景
 
 再次感谢原作者 `hanydd` 对开源社区的贡献。

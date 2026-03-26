@@ -15,7 +15,8 @@ import { SettingsPanel } from "../ui/panel";
 import type { Category, CategoryMode, FetchResponse, SegmentRecord, StoredConfig, StoredStats, VideoContext } from "../types";
 import { roundMinutes } from "../utils/number";
 import { resolveVideoContext } from "../utils/video-context";
-import { debugLog, findVideoElement, formatDurationLabel, isSupportedLocation, resolvePlayerHost } from "../utils/dom";
+import { debugLog, findVideoElement, formatDurationLabel, resolvePlayerHost } from "../utils/dom";
+import { supportsVideoFeatures } from "../utils/page";
 
 type RuntimeSegmentState = {
   actionConsumed: boolean;
@@ -99,6 +100,7 @@ export class ScriptController {
 
   async start(): Promise<void> {
     await this.cache.load();
+    this.panel.mount();
     await this.refreshCurrentVideo(true);
 
     this.locationIntervalId = window.setInterval(() => {
@@ -192,8 +194,8 @@ export class ScriptController {
     this.refreshing = true;
 
     try {
-      if (!isSupportedLocation(window.location.href)) {
-        this.clearRuntimeState(true);
+      if (!supportsVideoFeatures(window.location.href)) {
+        this.clearRuntimeState();
         return;
       }
 
@@ -202,7 +204,7 @@ export class ScriptController {
       const video = findVideoElement();
 
       if (!context || !video) {
-        this.clearRuntimeState(true);
+        this.clearRuntimeState();
         return;
       }
 
@@ -562,6 +564,8 @@ export class ScriptController {
     this.panel.setFullVideoLabels([]);
     if (detachUi) {
       this.panel.unmount();
+    } else {
+      this.panel.mount();
     }
   }
 

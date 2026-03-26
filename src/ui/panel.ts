@@ -1,10 +1,11 @@
 import {
   CATEGORY_LABELS,
   CATEGORY_ORDER,
+  CONTENT_FILTER_MODE_LABELS,
   MODE_LABELS,
   SCRIPT_NAME
 } from "../constants";
-import type { Category, CategoryMode, SegmentRecord, StoredConfig, StoredStats } from "../types";
+import type { Category, CategoryMode, ContentFilterMode, SegmentRecord, StoredConfig, StoredStats } from "../types";
 
 type PanelCallbacks = {
   onPatchConfig: (patch: Partial<StoredConfig>) => Promise<void>;
@@ -18,6 +19,7 @@ export class SettingsPanel {
   private readonly banner = document.createElement("div");
   private readonly statsEl = document.createElement("div");
   private readonly form = document.createElement("div");
+  private readonly filterForm = document.createElement("div");
   private readonly panelId = "bsb-tm-panel";
   private config: StoredConfig;
   private stats: StoredStats;
@@ -49,6 +51,7 @@ export class SettingsPanel {
       this.createHeader(),
       this.createSection("summary"),
       this.createSection("form"),
+      this.createSection("filters"),
       this.createSection("categories")
     );
     this.panel.querySelector<HTMLButtonElement>(".bsb-tm-panel-close")?.addEventListener("click", () => {
@@ -57,25 +60,38 @@ export class SettingsPanel {
 
     this.statsEl.className = "bsb-tm-stats";
     this.form.className = "bsb-tm-form";
+    this.filterForm.className = "bsb-tm-form";
     this.render();
   }
 
-  mount(playerHost: HTMLElement): void {
-    if (getComputedStyle(playerHost).position === "static") {
-      playerHost.style.position = "relative";
-    }
-
-    if (!this.button.isConnected) {
-      playerHost.appendChild(this.button);
-    }
+  mount(playerHost?: HTMLElement | null): void {
     if (!this.panel.isConnected) {
       document.documentElement.appendChild(this.panel);
     }
-
-    const container = playerHost.parentElement;
-    if (container && !this.banner.isConnected) {
-      container.insertBefore(this.banner, playerHost);
+    if (!this.button.isConnected) {
+      document.documentElement.appendChild(this.button);
     }
+
+    if (playerHost) {
+      if (getComputedStyle(playerHost).position === "static") {
+        playerHost.style.position = "relative";
+      }
+
+      this.button.classList.remove("is-floating");
+      this.button.classList.add("is-inline");
+      playerHost.appendChild(this.button);
+
+      const container = playerHost.parentElement;
+      if (container) {
+        container.insertBefore(this.banner, playerHost);
+      }
+      return;
+    }
+
+    this.banner.remove();
+    this.button.classList.remove("is-inline");
+    this.button.classList.add("is-floating");
+    document.documentElement.appendChild(this.button);
   }
 
   toggle(): void {
@@ -120,6 +136,7 @@ export class SettingsPanel {
   private render(): void {
     this.renderSummary();
     this.renderForm();
+    this.renderFilters();
     this.renderCategories();
   }
 
@@ -150,10 +167,35 @@ export class SettingsPanel {
       this.createNumberInput("最短片段（秒）", this.config.minDurationSec, async (value) => {
         await this.callbacks.onPatchConfig({ minDurationSec: value });
       }),
-      this.createResetButton()
+      this.createResetButton(false)
     );
 
     this.panel.querySelector<HTMLElement>("[data-section='form']")?.replaceChildren(this.form);
+  }
+
+  private renderFilters(): void {
+    this.filterForm.replaceChildren(
+      this.createSectionLabel("动态页广告过滤"),
+      this.createSelect("动态过滤模式", this.config.dynamicFilterMode, CONTENT_FILTER_MODE_LABELS, async (value) => {
+        await this.callbacks.onPatchConfig({ dynamicFilterMode: value as ContentFilterMode });
+      }),
+      this.createInput("动态关键词正则", this.config.dynamicRegexPattern, async (value) => {
+        await this.callbacks.onPatchConfig({ dynamicRegexPattern: value });
+      }),
+      this.createNumberInput("动态最少命中数", this.config.dynamicRegexKeywordMinMatches, async (value) => {
+        await this.callbacks.onPatchConfig({ dynamicRegexKeywordMinMatches: value });
+      }),
+      this.createSectionLabel("评论区广告过滤"),
+      this.createSelect("评论过滤模式", this.config.commentFilterMode, CONTENT_FILTER_MODE_LABELS, async (value) => {
+        await this.callbacks.onPatchConfig({ commentFilterMode: value as ContentFilterMode });
+      }),
+      this.createCheckbox("隐藏匹配评论的回复", this.config.commentHideReplies, async (checked) => {
+        await this.callbacks.onPatchConfig({ commentHideReplies: checked });
+      }),
+      this.createResetButton(true)
+    );
+
+    this.panel.querySelector<HTMLElement>("[data-section='filters']")?.replaceChildren(this.filterForm);
   }
 
   private renderCategories(): void {
@@ -222,6 +264,34 @@ export class SettingsPanel {
     return wrapper;
   }
 
+  private createSelect<T extends string>(
+    labelText: string,
+    value: T,
+    options: Record<T, string>,
+    onCommit: (value: T) => Promise<void>
+  ): HTMLElement {
+    const wrapper = document.createElement("label");
+    wrapper.className = "bsb-tm-field stacked";
+
+    const label = document.createElement("span");
+    label.textContent = labelText;
+
+    const select = document.createElement("select");
+    for (const [optionValue, optionLabel] of Object.entries(options) as [T, string][]) {
+      const option = document.createElement("option");
+      option.value = optionValue;
+      option.textContent = optionLabel;
+      option.selected = optionValue === value;
+      select.appendChild(option);
+    }
+    select.addEventListener("change", async () => {
+      await onCommit(select.value as T);
+    });
+
+    wrapper.append(label, select);
+    return wrapper;
+  }
+
   private createNumberInput(labelText: string, value: number, onCommit: (value: number) => Promise<void>): HTMLElement {
     const wrapper = document.createElement("label");
     wrapper.className = "bsb-tm-field stacked";
@@ -242,10 +312,10 @@ export class SettingsPanel {
     return wrapper;
   }
 
-  private createResetButton(): HTMLElement {
+  private createResetButton(compact: boolean): HTMLElement {
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "bsb-tm-button danger";
+    button.className = `bsb-tm-button danger${compact ? " compact" : ""}`;
     button.textContent = "恢复默认设置";
     button.addEventListener("click", async () => {
       await this.callbacks.onReset();
@@ -274,6 +344,13 @@ export class SettingsPanel {
     section.className = "bsb-tm-panel-section";
     section.dataset.section = name;
     return section;
+  }
+
+  private createSectionLabel(text: string): HTMLElement {
+    const label = document.createElement("strong");
+    label.className = "bsb-tm-section-label";
+    label.textContent = text;
+    return label;
   }
 
   private createSummaryLine(labelText: string, valueText: string): HTMLElement {

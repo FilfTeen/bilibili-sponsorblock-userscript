@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name         Bilibili SponsorBlock Core
 // @namespace    https://github.com/FilfTeen/bilibili-sponsorblock-userscript
-// @version      0.1.0
+// @version      0.2.0
 // @description  Tampermonkey core script for skipping sponsor segments on Bilibili.
 // @author       FilfTeen
 // @license      GPL-3.0-only
-// @match        https://www.bilibili.com/video/*
-// @match        https://www.bilibili.com/list/*
-// @match        https://www.bilibili.com/bangumi/*
-// @match        https://www.bilibili.com/festival/*
+// @match        https://www.bilibili.com/*
+// @match        https://search.bilibili.com/*
+// @match        https://t.bilibili.com/*
+// @match        https://space.bilibili.com/*
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_deleteValue
@@ -85,6 +85,7 @@
   var TICK_INTERVAL_MS = 200;
   var POI_NOTICE_LEAD_SEC = 6;
   var SEGMENT_REWIND_RESET_SEC = 0.5;
+  var DEFAULT_DYNAMIC_REGEX_PATTERN = "/618|11(?!1).11(?:\u65E5)?|\u53CC(?:11|\u5341\u4E00|12|\u5341\u4E8C)|\u5973\u795E\u8282|\u5F00\u5B66\u5B63|\u5E74\u8D27\u8282|\u6070(?:\u4E2A|\u4E86|\u5230)?\u996D|\u91D1\u4E3B|(\u4ED6|\u5B83|\u5979)(?:\u4EEC)?\u5BB6(?:\u7684)?|(?:\u8BC4\u8BBA\u533A)?(?:\u9886(?:\u53D6|\u5F20|\u5230)?|\u62A2|\u9001|\u5F97|\u53E0)(?:\u6211\u7684)?(?:\u795E|\u4F18\u60E0|\u7EA2\u5305|\u6298\u6263|\u798F\u5229|\u65E0\u95E8\u69DB|\u9690\u85CF|\u79D8\u5BC6|\u4E13\u5C5E|(?:\u8D85)?\u5927(?:\u989D)?|\u989D\u5916)+(?:\u5238|\u5377|\u52B5|q(?:uan)?)?(?:\u540E|\u5230\u624B|\u4EF7|\u4F7F\u7528|\u4E0B\u5355)?|(?:\u9886|\u62A2|\u5F97|\u9001)(?:\u7EA2\u5305|\u4F18\u60E0|\u5238|\u798F\u5229)|(?:\u4F18\u60E0|(?:\u5238|\u5377|\u52B5)\u540E|\u5230\u624B|\u4FC3\u9500|\u6D3B\u52A8|\u795E)\u4EF7|(?:\u6DD8\u5B9D|tb|\u4EAC\u4E1C|jd|\u72D7\u4E1C|\u62FC\u591A\u591A|pdd|\u5929\u732B|tmall)\u641C\u7D22|(?:\u968F(\u4FBF|\u65F6)|\u4EFB\u610F)(?:\u9000|\u9000\u8D27|\u6362\u8D27)|(?:\u514D\u8D39|\u65E0\u507F)(?:\u6362(?:\u4E2A)?\u65B0|\u66FF\u6362|\u66F4\u6362|\u8BD5\u7528)(?:\u5546\u54C1|\u7269\u54C1)?|(?:\u70B9(?:\u51FB)?|\u6233|\u6765|\u6211)\u8BC4\u8BBA\u533A(?:\u7F6E\u9876)?|(?:\u7ACB\u5373|\u84DD\u94FE|\u94FE\u63A5|\u{1F517})(?:\u8D2D\u4E70|\u4E0B\u5355)|(?:vx|wx|\u5FAE\u4FE1|\u8F6F\u4EF6)\u626B\u7801(?:\u9886)?(?:\u4F18\u60E0|\u7EA2\u5305|\u5238)?|(?:\u6211\u7684)?\u540C\u6B3E(?:[\u7684]?(?:\u63A8\u8350|\u597D\u7269|\u5546\u54C1|\u5165\u624B|\u8D2D\u4E70|\u62E5\u6709|\u5206\u4EAB|\u5B89\u5229)?)|\u6EE1\\d+|\u5927\u4FC3|\u4FC3\u9500|\u6298\u6263|\u7279\u4EF7|\u79D2\u6740|\u5E7F\u544A|\u63A8\u5E7F|\u4F4E\u81F3|\u70ED\u5356|\u62A2\u8D2D|\u65B0\u54C1|\u8C6A\u793C|\u8D60\u54C1|\u5BC6\u4EE4|(?:\u997F\u4E86\u4E48|\u7F8E(?:\u56E2|\u56E3)|\u767E\u5EA6\u5916\u5356|\u8702\u9E1F|\u8FBE\u8FBE|UU\u8DD1\u817F|(?:\u6DD8\u5B9D)?\u95EA\u8D2D)|(?:\u70B9|\u8BA2|\u9001|\u5403)(?:\u5916\u5356|\u9910)|\u5916\u5356(?:\u8282|\u670D\u52A1|\u5E73\u53F0|app)/gi";
   var CATEGORY_ORDER = [
     "sponsor",
     "selfpromo",
@@ -115,6 +116,11 @@
     notice: "\u4EC5\u63D0\u793A",
     off: "\u5173\u95ED"
   };
+  var CONTENT_FILTER_MODE_LABELS = {
+    hide: "\u9690\u85CF\u5E76\u6807\u8BB0",
+    label: "\u4EC5\u6807\u8BB0",
+    off: "\u5173\u95ED"
+  };
   var DEFAULT_CATEGORY_MODES = {
     sponsor: "auto",
     selfpromo: "manual",
@@ -133,7 +139,12 @@
     enableCache: true,
     noticeDurationSec: 4,
     minDurationSec: 0,
-    categoryModes: DEFAULT_CATEGORY_MODES
+    categoryModes: DEFAULT_CATEGORY_MODES,
+    dynamicFilterMode: "hide",
+    dynamicRegexPattern: DEFAULT_DYNAMIC_REGEX_PATTERN,
+    dynamicRegexKeywordMinMatches: 1,
+    commentFilterMode: "hide",
+    commentHideReplies: false
   };
   var DEFAULT_STATS = {
     skipCount: 0,
@@ -289,6 +300,15 @@
       Number.isFinite(input.minDurationSec) ? Number(input.minDurationSec) : next.minDurationSec,
       0,
       300
+    );
+    next.dynamicFilterMode = input.dynamicFilterMode === "hide" || input.dynamicFilterMode === "label" || input.dynamicFilterMode === "off" ? input.dynamicFilterMode : next.dynamicFilterMode;
+    next.commentFilterMode = input.commentFilterMode === "hide" || input.commentFilterMode === "label" || input.commentFilterMode === "off" ? input.commentFilterMode : next.commentFilterMode;
+    next.commentHideReplies = input.commentHideReplies ?? next.commentHideReplies;
+    next.dynamicRegexPattern = typeof input.dynamicRegexPattern === "string" && input.dynamicRegexPattern.trim().length > 0 ? input.dynamicRegexPattern.trim() : next.dynamicRegexPattern;
+    next.dynamicRegexKeywordMinMatches = clampNumber(
+      Number.isFinite(input.dynamicRegexKeywordMinMatches) ? Number(input.dynamicRegexKeywordMinMatches) : next.dynamicRegexKeywordMinMatches,
+      1,
+      10
     );
     const serverAddress = normalizeServerAddress(input.serverAddress);
     if (serverAddress) {
@@ -724,6 +744,7 @@
         this.createHeader(),
         this.createSection("summary"),
         this.createSection("form"),
+        this.createSection("filters"),
         this.createSection("categories")
       );
       this.panel.querySelector(".bsb-tm-panel-close")?.addEventListener("click", () => {
@@ -731,6 +752,7 @@
       });
       this.statsEl.className = "bsb-tm-stats";
       this.form.className = "bsb-tm-form";
+      this.filterForm.className = "bsb-tm-form";
       this.render();
     }
     button = document.createElement("button");
@@ -738,23 +760,34 @@
     banner = document.createElement("div");
     statsEl = document.createElement("div");
     form = document.createElement("div");
+    filterForm = document.createElement("div");
     panelId = "bsb-tm-panel";
     config;
     stats;
     mount(playerHost) {
-      if (getComputedStyle(playerHost).position === "static") {
-        playerHost.style.position = "relative";
-      }
-      if (!this.button.isConnected) {
-        playerHost.appendChild(this.button);
-      }
       if (!this.panel.isConnected) {
         document.documentElement.appendChild(this.panel);
       }
-      const container = playerHost.parentElement;
-      if (container && !this.banner.isConnected) {
-        container.insertBefore(this.banner, playerHost);
+      if (!this.button.isConnected) {
+        document.documentElement.appendChild(this.button);
       }
+      if (playerHost) {
+        if (getComputedStyle(playerHost).position === "static") {
+          playerHost.style.position = "relative";
+        }
+        this.button.classList.remove("is-floating");
+        this.button.classList.add("is-inline");
+        playerHost.appendChild(this.button);
+        const container = playerHost.parentElement;
+        if (container) {
+          container.insertBefore(this.banner, playerHost);
+        }
+        return;
+      }
+      this.banner.remove();
+      this.button.classList.remove("is-inline");
+      this.button.classList.add("is-floating");
+      document.documentElement.appendChild(this.button);
     }
     toggle() {
       this.panel.classList.toggle("is-open");
@@ -791,6 +824,7 @@
     render() {
       this.renderSummary();
       this.renderForm();
+      this.renderFilters();
       this.renderCategories();
     }
     renderSummary() {
@@ -818,9 +852,32 @@
         this.createNumberInput("\u6700\u77ED\u7247\u6BB5\uFF08\u79D2\uFF09", this.config.minDurationSec, async (value) => {
           await this.callbacks.onPatchConfig({ minDurationSec: value });
         }),
-        this.createResetButton()
+        this.createResetButton(false)
       );
       this.panel.querySelector("[data-section='form']")?.replaceChildren(this.form);
+    }
+    renderFilters() {
+      this.filterForm.replaceChildren(
+        this.createSectionLabel("\u52A8\u6001\u9875\u5E7F\u544A\u8FC7\u6EE4"),
+        this.createSelect("\u52A8\u6001\u8FC7\u6EE4\u6A21\u5F0F", this.config.dynamicFilterMode, CONTENT_FILTER_MODE_LABELS, async (value) => {
+          await this.callbacks.onPatchConfig({ dynamicFilterMode: value });
+        }),
+        this.createInput("\u52A8\u6001\u5173\u952E\u8BCD\u6B63\u5219", this.config.dynamicRegexPattern, async (value) => {
+          await this.callbacks.onPatchConfig({ dynamicRegexPattern: value });
+        }),
+        this.createNumberInput("\u52A8\u6001\u6700\u5C11\u547D\u4E2D\u6570", this.config.dynamicRegexKeywordMinMatches, async (value) => {
+          await this.callbacks.onPatchConfig({ dynamicRegexKeywordMinMatches: value });
+        }),
+        this.createSectionLabel("\u8BC4\u8BBA\u533A\u5E7F\u544A\u8FC7\u6EE4"),
+        this.createSelect("\u8BC4\u8BBA\u8FC7\u6EE4\u6A21\u5F0F", this.config.commentFilterMode, CONTENT_FILTER_MODE_LABELS, async (value) => {
+          await this.callbacks.onPatchConfig({ commentFilterMode: value });
+        }),
+        this.createCheckbox("\u9690\u85CF\u5339\u914D\u8BC4\u8BBA\u7684\u56DE\u590D", this.config.commentHideReplies, async (checked) => {
+          await this.callbacks.onPatchConfig({ commentHideReplies: checked });
+        }),
+        this.createResetButton(true)
+      );
+      this.panel.querySelector("[data-section='filters']")?.replaceChildren(this.filterForm);
     }
     renderCategories() {
       const wrapper = document.createElement("div");
@@ -875,6 +932,25 @@
       wrapper.append(label, input);
       return wrapper;
     }
+    createSelect(labelText, value, options, onCommit) {
+      const wrapper = document.createElement("label");
+      wrapper.className = "bsb-tm-field stacked";
+      const label = document.createElement("span");
+      label.textContent = labelText;
+      const select = document.createElement("select");
+      for (const [optionValue, optionLabel] of Object.entries(options)) {
+        const option = document.createElement("option");
+        option.value = optionValue;
+        option.textContent = optionLabel;
+        option.selected = optionValue === value;
+        select.appendChild(option);
+      }
+      select.addEventListener("change", async () => {
+        await onCommit(select.value);
+      });
+      wrapper.append(label, select);
+      return wrapper;
+    }
     createNumberInput(labelText, value, onCommit) {
       const wrapper = document.createElement("label");
       wrapper.className = "bsb-tm-field stacked";
@@ -891,10 +967,10 @@
       wrapper.append(label, input);
       return wrapper;
     }
-    createResetButton() {
+    createResetButton(compact) {
       const button = document.createElement("button");
       button.type = "button";
-      button.className = "bsb-tm-button danger";
+      button.className = `bsb-tm-button danger${compact ? " compact" : ""}`;
       button.textContent = "\u6062\u590D\u9ED8\u8BA4\u8BBE\u7F6E";
       button.addEventListener("click", async () => {
         await this.callbacks.onReset();
@@ -918,6 +994,12 @@
       section.className = "bsb-tm-panel-section";
       section.dataset.section = name;
       return section;
+    }
+    createSectionLabel(text) {
+      const label = document.createElement("strong");
+      label.className = "bsb-tm-section-label";
+      label.textContent = text;
+      return label;
     }
     createSummaryLine(labelText, valueText) {
       const line = document.createElement("div");
@@ -1013,6 +1095,65 @@
     };
   }
 
+  // src/utils/page.ts
+  var SUPPORTED_HOSTS = /* @__PURE__ */ new Set([
+    "www.bilibili.com",
+    "search.bilibili.com",
+    "t.bilibili.com",
+    "space.bilibili.com"
+  ]);
+  function detectPageType(url) {
+    try {
+      const parsed = new URL(url);
+      if (!SUPPORTED_HOSTS.has(parsed.hostname)) {
+        return "unsupported";
+      }
+      if (parsed.hostname === "search.bilibili.com") {
+        return "search";
+      }
+      if (parsed.hostname === "t.bilibili.com") {
+        return "dynamic";
+      }
+      if (parsed.hostname === "space.bilibili.com") {
+        return "channel";
+      }
+      if (parsed.pathname.startsWith("/video/")) {
+        return "video";
+      }
+      if (parsed.pathname.startsWith("/list/")) {
+        return "list";
+      }
+      if (parsed.pathname.startsWith("/festival/")) {
+        return "festival";
+      }
+      if (parsed.pathname.startsWith("/bangumi/")) {
+        return "anime";
+      }
+      if (parsed.pathname.startsWith("/opus/")) {
+        return "opus";
+      }
+      return "main";
+    } catch {
+      return "unknown";
+    }
+  }
+  function isSupportedLocation(url) {
+    const pageType = detectPageType(url);
+    return pageType !== "unknown" && pageType !== "unsupported";
+  }
+  function supportsVideoFeatures(url) {
+    const pageType = detectPageType(url);
+    return pageType === "video" || pageType === "list" || pageType === "festival" || pageType === "anime";
+  }
+  function supportsDynamicFilters(url) {
+    const pageType = detectPageType(url);
+    return pageType === "main" || pageType === "dynamic" || pageType === "channel";
+  }
+  function supportsCommentFilters(url) {
+    const pageType = detectPageType(url);
+    return pageType === "video" || pageType === "list" || pageType === "festival" || pageType === "anime" || pageType === "opus" || pageType === "dynamic" || pageType === "channel";
+  }
+
   // src/utils/dom.ts
   var PLAYER_HOST_SELECTORS = [
     "#bilibili-player",
@@ -1032,14 +1173,6 @@
       }
     }
     return video.parentElement ?? video;
-  }
-  function isSupportedLocation(url) {
-    try {
-      const parsed = new URL(url);
-      return parsed.hostname === "www.bilibili.com" && (parsed.pathname.startsWith("/video/") || parsed.pathname.startsWith("/list/") || parsed.pathname.startsWith("/bangumi/") || parsed.pathname.startsWith("/festival/"));
-    } catch {
-      return false;
-    }
   }
   function formatSegmentTime(seconds) {
     const total = Math.max(0, Math.floor(seconds));
@@ -1126,6 +1259,7 @@
     pendingForceFetch = false;
     async start() {
       await this.cache.load();
+      this.panel.mount();
       await this.refreshCurrentVideo(true);
       this.locationIntervalId = window.setInterval(() => {
         if (this.href !== window.location.href) {
@@ -1206,15 +1340,15 @@
       }
       this.refreshing = true;
       try {
-        if (!isSupportedLocation(window.location.href)) {
-          this.clearRuntimeState(true);
+        if (!supportsVideoFeatures(window.location.href)) {
+          this.clearRuntimeState();
           return;
         }
         const snapshot = await requestPageSnapshot();
         const context = resolveVideoContext(snapshot);
         const video = findVideoElement();
         if (!context || !video) {
-          this.clearRuntimeState(true);
+          this.clearRuntimeState();
           return;
         }
         const signature = `${context.bvid}+${context.cid ?? ""}`;
@@ -1534,6 +1668,8 @@
       this.panel.setFullVideoLabels([]);
       if (detachUi) {
         this.panel.unmount();
+      } else {
+        this.panel.mount();
       }
     }
     shouldResetSegmentState(currentTime, state) {
@@ -1553,12 +1689,518 @@
     }
   };
 
+  // src/utils/pattern.ts
+  function regexFromStoredPattern(input) {
+    const trimmed = input.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const match = trimmed.match(/^\/(.*)\/([a-z]*)$/iu);
+    try {
+      if (match) {
+        return new RegExp(match[1], match[2]);
+      }
+      return new RegExp(trimmed, "giu");
+    } catch {
+      return null;
+    }
+  }
+  function collectPatternMatches(text, pattern, minLength = 2) {
+    const globalPattern = pattern.global ? pattern : new RegExp(pattern.source, `${pattern.flags}g`);
+    const matches = text.match(globalPattern) ?? [];
+    return [...new Set(matches.map((entry) => entry.trim()).filter((entry) => entry.length >= minLength))];
+  }
+
+  // src/features/dynamic-filter.ts
+  var PROCESSED_ATTR = "data-bsb-dynamic-processed";
+  var BADGE_SELECTOR = "[data-bsb-dynamic-badge]";
+  var TOGGLE_SELECTOR = "[data-bsb-dynamic-toggle]";
+  var HIDDEN_ATTR = "data-bsb-dynamic-hidden";
+  function classifyDynamicItem(element, config) {
+    if (element.querySelector(".bili-dyn-card-goods.hide-border")) {
+      return {
+        category: "dynamicSponsor_forward_sponsor",
+        matches: []
+      };
+    }
+    if (element.querySelector(".bili-dyn-card-goods")) {
+      return {
+        category: "dynamicSponsor_sponsor",
+        matches: []
+      };
+    }
+    const pattern = regexFromStoredPattern(config.dynamicRegexPattern);
+    if (!pattern) {
+      return null;
+    }
+    const text = [
+      ...element.querySelectorAll(".bili-rich-text__content span:not(.bili-dyn-item__interaction *), .opus-paragraph-children span, .dyn-card-opus__title")
+    ].map((node) => node.textContent ?? "").join(" ");
+    const matches = collectPatternMatches(text, pattern);
+    if (matches.length < config.dynamicRegexKeywordMinMatches) {
+      return null;
+    }
+    return {
+      category: "dynamicSponsor_suspicion_sponsor",
+      matches
+    };
+  }
+  function getBadgeText(match) {
+    if (match.category === "dynamicSponsor_forward_sponsor") {
+      return "\u8F6C\u53D1\u5E26\u8D27";
+    }
+    if (match.category === "dynamicSponsor_sponsor") {
+      return "\u5E26\u8D27\u52A8\u6001";
+    }
+    return match.matches.length > 0 ? `\u7591\u4F3C\u5E7F\u544A: ${match.matches.join(" / ")}` : "\u7591\u4F3C\u5E7F\u544A";
+  }
+  function resolveBadgeAnchor(element) {
+    return element.querySelector(".bili-dyn-title__text") ?? element.querySelector(".dyn-card-opus__title") ?? element.querySelector(".bili-dyn-item__header") ?? element.querySelector(".bili-dyn-item__main");
+  }
+  function resolveContentBody(element) {
+    return element.querySelector(".bili-dyn-content") ?? element.querySelector(".dyn-card-opus") ?? element.querySelector(".bili-dyn-item__main");
+  }
+  function createBadge(text) {
+    const badge = document.createElement("div");
+    badge.dataset.bsbDynamicBadge = "true";
+    badge.style.cssText = "display:inline-flex;align-items:center;gap:6px;margin-top:8px;padding:6px 10px;border-radius:999px;background:rgba(255,102,153,.14);border:1px solid rgba(255,102,153,.28);color:#c2185b;font:600 12px/1.2 'SF Pro Text','PingFang SC',sans-serif;";
+    badge.textContent = text;
+    return badge;
+  }
+  function createToggleButton(onClick) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.bsbDynamicToggle = "true";
+    button.style.cssText = "margin-top:8px;border:0;border-radius:999px;padding:7px 12px;background:rgba(15,23,42,.08);color:#0f172a;font:600 12px/1.2 'SF Pro Text','PingFang SC',sans-serif;cursor:pointer;";
+    button.textContent = "\u663E\u793A\u5185\u5BB9";
+    button.addEventListener("click", onClick);
+    return button;
+  }
+  function setDynamicHidden(body, button, hidden) {
+    body.style.display = hidden ? "none" : "";
+    button.textContent = hidden ? "\u663E\u793A\u5185\u5BB9" : "\u9690\u85CF\u5185\u5BB9";
+  }
+  var DynamicSponsorController = class {
+    constructor(configStore) {
+      this.configStore = configStore;
+      this.currentConfig = this.configStore.getSnapshot();
+      this.configStore.subscribe((config) => {
+        this.currentConfig = config;
+        this.resetProcessedItems();
+        this.scheduleRefresh();
+      });
+    }
+    currentConfig;
+    locationIntervalId = null;
+    domObserver = null;
+    refreshTimerId = null;
+    href = window.location.href;
+    start() {
+      this.scheduleRefresh();
+      this.locationIntervalId = window.setInterval(() => {
+        if (this.href !== window.location.href) {
+          this.href = window.location.href;
+          this.resetProcessedItems();
+          this.scheduleRefresh();
+        }
+      }, 700);
+      this.domObserver = new MutationObserver(() => {
+        this.scheduleRefresh();
+      });
+      this.domObserver.observe(document.documentElement, {
+        childList: true,
+        subtree: true
+      });
+      window.addEventListener(
+        "pagehide",
+        () => {
+          this.stop();
+        },
+        { once: true }
+      );
+    }
+    stop() {
+      if (this.locationIntervalId !== null) {
+        window.clearInterval(this.locationIntervalId);
+        this.locationIntervalId = null;
+      }
+      if (this.refreshTimerId !== null) {
+        window.clearTimeout(this.refreshTimerId);
+        this.refreshTimerId = null;
+      }
+      this.domObserver?.disconnect();
+      this.domObserver = null;
+      this.resetProcessedItems();
+    }
+    scheduleRefresh() {
+      if (this.refreshTimerId !== null) {
+        return;
+      }
+      this.refreshTimerId = window.setTimeout(() => {
+        this.refreshTimerId = null;
+        this.refresh();
+      }, 120);
+    }
+    refresh() {
+      if (!this.currentConfig.enabled || this.currentConfig.dynamicFilterMode === "off" || !supportsDynamicFilters(window.location.href)) {
+        this.resetProcessedItems();
+        return;
+      }
+      for (const element of document.querySelectorAll(".bili-dyn-item")) {
+        this.processDynamicItem(element);
+      }
+    }
+    processDynamicItem(element) {
+      if (element.getAttribute(PROCESSED_ATTR) === "true") {
+        return;
+      }
+      const match = classifyDynamicItem(element, this.currentConfig);
+      if (!match) {
+        return;
+      }
+      const anchor = resolveBadgeAnchor(element);
+      if (!anchor?.parentElement) {
+        return;
+      }
+      element.setAttribute(PROCESSED_ATTR, "true");
+      const badge = createBadge(getBadgeText(match));
+      anchor.parentElement.insertBefore(badge, anchor.nextSibling);
+      if (this.currentConfig.dynamicFilterMode !== "hide") {
+        return;
+      }
+      const body = resolveContentBody(element);
+      if (!body || body.getAttribute(HIDDEN_ATTR) === "true") {
+        return;
+      }
+      const toggle = createToggleButton(() => {
+        const hidden = body.style.display === "none";
+        setDynamicHidden(body, toggle, !hidden);
+      });
+      setDynamicHidden(body, toggle, true);
+      body.setAttribute(HIDDEN_ATTR, "true");
+      badge.parentElement?.insertBefore(toggle, badge.nextSibling);
+    }
+    resetProcessedItems() {
+      for (const element of document.querySelectorAll(`.bili-dyn-item[${PROCESSED_ATTR}='true']`)) {
+        element.removeAttribute(PROCESSED_ATTR);
+        element.querySelectorAll(BADGE_SELECTOR).forEach((node) => node.remove());
+        element.querySelectorAll(TOGGLE_SELECTOR).forEach((node) => node.remove());
+        const body = resolveContentBody(element);
+        if (body) {
+          body.style.display = "";
+          body.removeAttribute(HIDDEN_ATTR);
+        }
+      }
+      debugLog("Dynamic sponsor state reset");
+    }
+  };
+
+  // src/features/comment-filter.ts
+  var THREAD_PROCESSED_ATTR = "data-bsb-comment-processed";
+  var BADGE_ATTR = "data-bsb-comment-badge";
+  var TOGGLE_ATTR = "data-bsb-comment-toggle";
+  var HIDDEN_ATTR2 = "data-bsb-comment-hidden";
+  var REPLIES_HIDDEN_ATTR = "data-bsb-comment-replies-hidden";
+  var ROOT_REFRESH_INTERVAL_MS = 900;
+  function hasSponsoredGoodsLink(commentRenderer) {
+    const links = commentRenderer.shadowRoot?.querySelector("bili-rich-text")?.shadowRoot?.querySelectorAll("a[data-type='goods']");
+    return Boolean(links && links.length > 0);
+  }
+  function extractCommentText(commentRenderer) {
+    const nodes = [
+      ...commentRenderer.shadowRoot?.querySelectorAll("bili-rich-text span, #content, .reply-content") ?? []
+    ];
+    return nodes.map((node) => node.textContent?.trim() ?? "").filter(Boolean).join(" ");
+  }
+  function classifyCommentRenderer(commentRenderer, config) {
+    if (hasSponsoredGoodsLink(commentRenderer)) {
+      return {
+        reason: "goods",
+        matches: []
+      };
+    }
+    const pattern = regexFromStoredPattern(config.dynamicRegexPattern);
+    if (!pattern) {
+      return null;
+    }
+    const matches = collectPatternMatches(extractCommentText(commentRenderer), pattern);
+    if (matches.length < config.dynamicRegexKeywordMinMatches) {
+      return null;
+    }
+    return {
+      reason: "suspicion",
+      matches
+    };
+  }
+  function getBadgeText2(match) {
+    return match.reason === "goods" ? "\u8BC4\u8BBA\u533A\u5546\u54C1\u5E7F\u544A" : `\u7591\u4F3C\u5E7F\u544A\u8BC4\u8BBA: ${match.matches.join(" / ")}`;
+  }
+  function createBadge2(text) {
+    const badge = document.createElement("div");
+    badge.setAttribute(BADGE_ATTR, "true");
+    badge.style.cssText = "display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;background:rgba(255,102,153,.15);border:1px solid rgba(255,102,153,.28);color:#c2185b;font:600 11px/1.2 'SF Pro Text','PingFang SC',sans-serif;";
+    badge.textContent = text;
+    return badge;
+  }
+  function createToggleButton2(onClick) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.setAttribute(TOGGLE_ATTR, "true");
+    button.style.cssText = "margin-left:8px;border:0;border-radius:999px;padding:6px 10px;background:rgba(15,23,42,.08);color:#0f172a;font:600 12px/1.2 'SF Pro Text','PingFang SC',sans-serif;cursor:pointer;";
+    button.textContent = "\u663E\u793A\u8BC4\u8BBA\u5185\u5BB9";
+    button.addEventListener("click", onClick);
+    return button;
+  }
+  function getMainCommentRenderer(thread) {
+    const renderer = thread.shadowRoot?.querySelector("bili-comment-renderer");
+    return renderer instanceof HTMLElement && renderer.shadowRoot ? renderer : null;
+  }
+  function getBadgeAnchor(commentRenderer) {
+    const userInfo = commentRenderer.shadowRoot?.querySelector("bili-comment-user-info");
+    const infoRoot = userInfo?.shadowRoot;
+    return infoRoot?.querySelector("#user-up") ?? infoRoot?.querySelector("#user-level") ?? null;
+  }
+  function getContentBody(commentRenderer) {
+    return commentRenderer.shadowRoot?.querySelector("#content") ?? null;
+  }
+  function getActionAnchor(commentRenderer) {
+    const actionRenderer = commentRenderer.shadowRoot?.querySelector("#main")?.querySelector("bili-comment-action-buttons-renderer");
+    return actionRenderer?.shadowRoot?.querySelector("#reply") ?? getContentBody(commentRenderer);
+  }
+  function removeInjectedDecorations(commentRenderer) {
+    commentRenderer.shadowRoot?.querySelector("bili-comment-user-info")?.shadowRoot?.querySelectorAll(`[${BADGE_ATTR}='true']`).forEach((node) => node.remove());
+    commentRenderer.shadowRoot?.querySelector("#main")?.querySelector("bili-comment-action-buttons-renderer")?.shadowRoot?.querySelectorAll(`[${TOGGLE_ATTR}='true']`).forEach((node) => node.remove());
+  }
+  function insertAfter(anchor, node) {
+    const parent = anchor.parentNode;
+    if (!parent) {
+      return false;
+    }
+    parent.insertBefore(node, anchor.nextSibling);
+    return true;
+  }
+  function setCommentHidden(content, toggle, hidden) {
+    content.style.display = hidden ? "none" : "";
+    toggle.textContent = hidden ? "\u663E\u793A\u8BC4\u8BBA\u5185\u5BB9" : "\u9690\u85CF\u8BC4\u8BBA\u5185\u5BB9";
+  }
+  function hideReplies(thread) {
+    const repliesRenderer = thread.shadowRoot?.querySelector("bili-comment-replies-renderer");
+    const repliesRoot = repliesRenderer?.shadowRoot;
+    if (!repliesRoot) {
+      return;
+    }
+    repliesRoot.querySelectorAll("bili-comment-reply-renderer").forEach((reply) => {
+      reply.style.display = "none";
+      reply.setAttribute(REPLIES_HIDDEN_ATTR, "true");
+    });
+  }
+  function restoreReplies(thread) {
+    const repliesRenderer = thread.shadowRoot?.querySelector("bili-comment-replies-renderer");
+    const repliesRoot = repliesRenderer?.shadowRoot;
+    if (!repliesRoot) {
+      return;
+    }
+    repliesRoot.querySelectorAll(`bili-comment-reply-renderer[${REPLIES_HIDDEN_ATTR}='true']`).forEach((reply) => {
+      reply.style.display = "";
+      reply.removeAttribute(REPLIES_HIDDEN_ATTR);
+    });
+  }
+  var CommentSponsorController = class {
+    constructor(configStore) {
+      this.configStore = configStore;
+      this.currentConfig = this.configStore.getSnapshot();
+      this.configStore.subscribe((config) => {
+        this.currentConfig = config;
+        this.resetProcessedThreads();
+        this.scheduleRefresh();
+      });
+    }
+    currentConfig;
+    locationIntervalId = null;
+    rootSweepIntervalId = null;
+    documentObserver = null;
+    refreshTimerId = null;
+    href = window.location.href;
+    rootObservers = /* @__PURE__ */ new Map();
+    start() {
+      this.scheduleRefresh();
+      this.locationIntervalId = window.setInterval(() => {
+        if (this.href !== window.location.href) {
+          this.href = window.location.href;
+          this.resetProcessedThreads();
+          this.scheduleRefresh();
+        }
+      }, 700);
+      this.rootSweepIntervalId = window.setInterval(() => {
+        this.refresh();
+      }, ROOT_REFRESH_INTERVAL_MS);
+      this.documentObserver = new MutationObserver(() => {
+        this.scheduleRefresh();
+      });
+      this.documentObserver.observe(document.documentElement, {
+        childList: true,
+        subtree: true
+      });
+      window.addEventListener(
+        "pagehide",
+        () => {
+          this.stop();
+        },
+        { once: true }
+      );
+    }
+    stop() {
+      if (this.locationIntervalId !== null) {
+        window.clearInterval(this.locationIntervalId);
+        this.locationIntervalId = null;
+      }
+      if (this.rootSweepIntervalId !== null) {
+        window.clearInterval(this.rootSweepIntervalId);
+        this.rootSweepIntervalId = null;
+      }
+      if (this.refreshTimerId !== null) {
+        window.clearTimeout(this.refreshTimerId);
+        this.refreshTimerId = null;
+      }
+      this.documentObserver?.disconnect();
+      this.documentObserver = null;
+      this.disconnectRootObservers();
+      this.resetProcessedThreads();
+    }
+    scheduleRefresh() {
+      if (this.refreshTimerId !== null) {
+        return;
+      }
+      this.refreshTimerId = window.setTimeout(() => {
+        this.refreshTimerId = null;
+        this.refresh();
+      }, 160);
+    }
+    refresh() {
+      if (!this.currentConfig.enabled || this.currentConfig.commentFilterMode === "off" || !supportsCommentFilters(window.location.href)) {
+        this.disconnectRootObservers();
+        this.resetProcessedThreads();
+        return;
+      }
+      const roots = Array.from(document.querySelectorAll("bili-comments"));
+      this.syncRootObservers(roots);
+      for (const root of roots) {
+        this.scanCommentRoot(root);
+      }
+    }
+    syncRootObservers(roots) {
+      const liveRoots = new Set(roots);
+      for (const [root, observer] of this.rootObservers) {
+        if (!liveRoots.has(root) || !document.contains(root)) {
+          observer.disconnect();
+          this.rootObservers.delete(root);
+        }
+      }
+      for (const root of roots) {
+        if (this.rootObservers.has(root) || !root.shadowRoot) {
+          continue;
+        }
+        const observer = new MutationObserver(() => {
+          this.scheduleRefresh();
+        });
+        observer.observe(root.shadowRoot, {
+          childList: true,
+          subtree: true
+        });
+        this.rootObservers.set(root, observer);
+      }
+    }
+    disconnectRootObservers() {
+      for (const observer of this.rootObservers.values()) {
+        observer.disconnect();
+      }
+      this.rootObservers.clear();
+    }
+    scanCommentRoot(root) {
+      const feedRoot = root.shadowRoot;
+      if (!feedRoot) {
+        return;
+      }
+      for (const thread of feedRoot.querySelectorAll("bili-comment-thread-renderer")) {
+        this.processThread(thread);
+      }
+    }
+    processThread(thread) {
+      if (thread.getAttribute(THREAD_PROCESSED_ATTR) === "true") {
+        return;
+      }
+      const commentRenderer = getMainCommentRenderer(thread);
+      if (!commentRenderer) {
+        return;
+      }
+      const match = classifyCommentRenderer(commentRenderer, this.currentConfig);
+      if (!match) {
+        return;
+      }
+      const badgeAnchor = getBadgeAnchor(commentRenderer);
+      if (!badgeAnchor) {
+        return;
+      }
+      thread.setAttribute(THREAD_PROCESSED_ATTR, "true");
+      if (!insertAfter(badgeAnchor, createBadge2(getBadgeText2(match)))) {
+        thread.removeAttribute(THREAD_PROCESSED_ATTR);
+        return;
+      }
+      if (this.currentConfig.commentFilterMode !== "hide") {
+        return;
+      }
+      const content = getContentBody(commentRenderer);
+      const actionAnchor = getActionAnchor(commentRenderer);
+      if (!content || !actionAnchor) {
+        return;
+      }
+      const toggle = createToggleButton2(() => {
+        const hidden = content.style.display === "none";
+        setCommentHidden(content, toggle, !hidden);
+        if (this.currentConfig.commentHideReplies) {
+          if (hidden) {
+            restoreReplies(thread);
+          } else {
+            hideReplies(thread);
+          }
+        }
+      });
+      setCommentHidden(content, toggle, true);
+      content.setAttribute(HIDDEN_ATTR2, "true");
+      if (!insertAfter(actionAnchor, toggle)) {
+        return;
+      }
+      if (this.currentConfig.commentHideReplies) {
+        hideReplies(thread);
+      }
+    }
+    resetProcessedThreads() {
+      for (const root of document.querySelectorAll("bili-comments")) {
+        const feedRoot = root.shadowRoot;
+        if (!feedRoot) {
+          continue;
+        }
+        for (const thread of feedRoot.querySelectorAll(`bili-comment-thread-renderer[${THREAD_PROCESSED_ATTR}='true']`)) {
+          thread.removeAttribute(THREAD_PROCESSED_ATTR);
+          const commentRenderer = getMainCommentRenderer(thread);
+          if (commentRenderer) {
+            removeInjectedDecorations(commentRenderer);
+            const content = getContentBody(commentRenderer);
+            if (content) {
+              content.style.display = "";
+              content.removeAttribute(HIDDEN_ATTR2);
+            }
+          }
+          restoreReplies(thread);
+        }
+      }
+      debugLog("Comment sponsor state reset");
+    }
+  };
+
   // src/ui/styles.ts
   var styles = `
 .bsb-tm-entry-button {
-  position: absolute;
-  top: 16px;
-  right: 16px;
   z-index: 2147483645;
   border: 0;
   border-radius: 999px;
@@ -1568,6 +2210,18 @@
   font: 600 12px/1.2 "SF Pro Display", "PingFang SC", sans-serif;
   cursor: pointer;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+.bsb-tm-entry-button.is-inline {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+}
+
+.bsb-tm-entry-button.is-floating {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
 }
 
 .bsb-tm-panel {
@@ -1619,6 +2273,12 @@
   gap: 12px;
 }
 
+.bsb-tm-section-label {
+  display: block;
+  margin-top: 4px;
+  color: rgba(255, 255, 255, 0.88);
+}
+
 .bsb-tm-button,
 .bsb-tm-panel input,
 .bsb-tm-panel select {
@@ -1632,6 +2292,10 @@
 
 .bsb-tm-button {
   cursor: pointer;
+}
+
+.bsb-tm-button.compact {
+  justify-self: start;
 }
 
 .bsb-tm-button.primary {
@@ -1685,6 +2349,26 @@
   margin-top: 6px;
   opacity: 0.85;
 }
+
+@media (max-width: 768px) {
+  .bsb-tm-entry-button.is-floating {
+    right: 16px;
+    bottom: 16px;
+  }
+
+  .bsb-tm-panel {
+    top: 12px;
+    right: 12px;
+    width: min(420px, calc(100vw - 24px));
+    max-height: calc(100vh - 24px);
+  }
+
+  .bsb-tm-notice-root {
+    top: 16px;
+    left: 16px;
+    max-width: calc(100vw - 32px);
+  }
+}
 `;
 
   // src/main.ts
@@ -1698,6 +2382,10 @@
     const statsStore = new StatsStore();
     await Promise.all([configStore.load(), statsStore.load()]);
     const controller = new ScriptController(configStore, statsStore);
+    const dynamicSponsorController = new DynamicSponsorController(configStore);
+    const commentSponsorController = new CommentSponsorController(configStore);
+    dynamicSponsorController.start();
+    commentSponsorController.start();
     await controller.start();
     gmRegisterMenuCommand("Toggle BSB panel", () => controller.togglePanel());
     gmRegisterMenuCommand("Clear BSB cache", () => {

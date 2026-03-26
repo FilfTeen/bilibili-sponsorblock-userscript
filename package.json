@@ -1,6 +1,6 @@
 {
   "name": "bilibili-sponsorblock-userscript",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "license": "GPL-3.0-only",
@@ -11,11 +11,17 @@
   },
   "scripts": {
     "build": "node ./scripts/build.mjs",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "smoke:bilibili": "node ./scripts/smoke-bilibili.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "@types/node": "^24.5.2",
     "esbuild": "^0.25.10",
-    "typescript": "^5.9.2"
+    "jsdom": "^29.0.1",
+    "playwright-core": "^1.56.1",
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.1"
   }
 }

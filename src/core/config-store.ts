@@ -42,6 +42,26 @@ export function normalizeConfig(input: Partial<StoredConfig> | null | undefined)
     0,
     300
   );
+  next.dynamicFilterMode =
+    input.dynamicFilterMode === "hide" || input.dynamicFilterMode === "label" || input.dynamicFilterMode === "off"
+      ? input.dynamicFilterMode
+      : next.dynamicFilterMode;
+  next.commentFilterMode =
+    input.commentFilterMode === "hide" || input.commentFilterMode === "label" || input.commentFilterMode === "off"
+      ? input.commentFilterMode
+      : next.commentFilterMode;
+  next.commentHideReplies = input.commentHideReplies ?? next.commentHideReplies;
+  next.dynamicRegexPattern =
+    typeof input.dynamicRegexPattern === "string" && input.dynamicRegexPattern.trim().length > 0
+      ? input.dynamicRegexPattern.trim()
+      : next.dynamicRegexPattern;
+  next.dynamicRegexKeywordMinMatches = clampNumber(
+    Number.isFinite(input.dynamicRegexKeywordMinMatches)
+      ? Number(input.dynamicRegexKeywordMinMatches)
+      : next.dynamicRegexKeywordMinMatches,
+    1,
+    10
+  );
 
   const serverAddress = normalizeServerAddress(input.serverAddress);
   if (serverAddress) {
