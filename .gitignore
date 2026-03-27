@@ -2,4 +2,5 @@ node_modules
 dist/*
 !dist/bilibili-sponsorblock.user.js
 coverage
+output
 .DS_Store

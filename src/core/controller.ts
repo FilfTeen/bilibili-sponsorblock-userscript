@@ -11,7 +11,17 @@ import { normalizeSegments } from "./segment-filter";
 import { requestPageSnapshot } from "../platform/page-bridge";
 import { NoticeCenter } from "../ui/notice-center";
 import { SettingsPanel } from "../ui/panel";
-import type { Category, CategoryMode, FetchResponse, SegmentRecord, StoredConfig, StoredStats, VideoContext } from "../types";
+import { PreviewBar } from "../ui/preview-bar";
+import type {
+  Category,
+  CategoryMode,
+  FetchResponse,
+  RuntimeStatus,
+  SegmentRecord,
+  StoredConfig,
+  StoredStats,
+  VideoContext
+} from "../types";
 import { roundMinutes } from "../utils/number";
 import { mutationsTouchSelectors } from "../utils/mutation";
 import { resolveVideoContext } from "../utils/video-context";
@@ -52,9 +62,9 @@ export class ScriptController {
   private currentStats: StoredStats;
   private readonly segmentStates = new Map<string, RuntimeSegmentState>();
   private readonly notices = new NoticeCenter();
-  private readonly cache = new PersistentCache<FetchResponse>();
-  private readonly client = new SponsorBlockClient(this.cache);
+  private readonly client: SponsorBlockClient;
   private readonly panel: SettingsPanel;
+  private readonly previewBar = new PreviewBar();
   private tickIntervalId: number | null = null;
   private domObserver: MutationObserver | null = null;
   private stopObservingUrl: (() => void) | null = null;
@@ -71,6 +81,7 @@ export class ScriptController {
   private pendingForceFetch = false;
   private pendingVisibleRefresh = false;
   private lastTickTime: number | null = null;
+  private lastAnnouncedSignature = "";
   private readonly handleVisibilityChange = () => {
     if (!document.hidden && this.pendingVisibleRefresh) {
       this.pendingVisibleRefresh = false;
@@ -82,10 +93,12 @@ export class ScriptController {
 
   constructor(
     private readonly configStore: ConfigStore,
-    private readonly statsStore: StatsStore
+    private readonly statsStore: StatsStore,
+    private readonly cache: PersistentCache<FetchResponse>
   ) {
     this.currentConfig = this.configStore.getSnapshot();
     this.currentStats = this.statsStore.getSnapshot();
+    this.client = new SponsorBlockClient(this.cache);
     this.panel = new SettingsPanel(this.currentConfig, this.currentStats, {
       onPatchConfig: async (patch) => {
         await this.configStore.update((config) => ({
@@ -114,6 +127,7 @@ export class ScriptController {
     this.configStore.subscribe((config) => {
       this.currentConfig = config;
       this.panel.updateConfig(config);
+      this.previewBar.setEnabled(config.enabled && config.showPreviewBar);
       if (!config.enabled) {
         this.notices.clear();
         this.restoreMuteState();
@@ -134,7 +148,8 @@ export class ScriptController {
 
     this.started = true;
     await this.cache.load();
-    this.panel.mount();
+    this.previewBar.setEnabled(this.currentConfig.enabled && this.currentConfig.showPreviewBar);
+    this.updateRuntimeStatus(this.buildIdleStatus());
     await this.refreshCurrentVideo(true);
 
     this.stopObservingUrl = observeUrlChanges(() => {
@@ -168,6 +183,10 @@ export class ScriptController {
 
   togglePanel(): void {
     this.panel.toggle();
+  }
+
+  openPanel(): void {
+    this.panel.open();
   }
 
   async clearCache(): Promise<void> {
@@ -234,6 +253,8 @@ export class ScriptController {
   }
 
   private async refreshCurrentVideo(forceFetch = false): Promise<void> {
+    let resolvedContext: VideoContext | null = null;
+
     if (this.refreshing) {
       this.pendingRefresh = true;
       this.pendingForceFetch = this.pendingForceFetch || forceFetch;
@@ -254,9 +275,16 @@ export class ScriptController {
         playInfo: null
       };
       const context = resolveVideoContext(snapshot);
+      resolvedContext = context;
       const video = findVideoElement();
 
       if (!context || !video) {
+        this.updateRuntimeStatus({
+          kind: "pending",
+          message: "等待播放器和页面信息",
+          bvid: context?.bvid ?? null,
+          segmentCount: null
+        });
         if (video && supportsVideoFeatures(window.location.href)) {
           this.notices.show({
             id: "bsb-context-pending",
@@ -271,6 +299,13 @@ export class ScriptController {
 
       const signature = `${context.bvid}+${context.cid ?? ""}`;
       if (!forceFetch && signature === this.currentSignature && this.currentVideo === video) {
+        const playerHost = resolvePlayerHost(video);
+        this.notices.setHost(playerHost);
+        this.previewBar.bind(video);
+        this.previewBar.setEnabled(this.currentConfig.enabled && this.currentConfig.showPreviewBar);
+        if (this.currentSegments.length > 0) {
+          this.previewBar.setSegments(this.currentSegments);
+        }
         return;
       }
 
@@ -280,21 +315,74 @@ export class ScriptController {
       this.currentSignature = signature;
 
       const playerHost = resolvePlayerHost(video);
-      this.panel.mount(playerHost);
+      this.notices.setHost(playerHost);
+      this.previewBar.bind(video);
+      this.previewBar.setEnabled(this.currentConfig.enabled && this.currentConfig.showPreviewBar);
 
       if (!this.currentConfig.enabled) {
+        this.updateRuntimeStatus({
+          kind: "idle",
+          message: "脚本已停用",
+          bvid: context.bvid,
+          segmentCount: null
+        });
         return;
       }
+
+      this.updateRuntimeStatus({
+        kind: "pending",
+        message: "正在加载 SponsorBlock 片段",
+        bvid: context.bvid,
+        segmentCount: null
+      });
 
       const segments = await this.client.getSegments(context, this.currentConfig);
       this.currentSegments = normalizeSegments(segments, this.currentConfig, context.cid);
       this.panel.setFullVideoLabels(this.currentSegments.filter((segment) => segment.actionType === "full"));
+      this.previewBar.setSegments(this.currentSegments);
+      if (this.currentSegments.length > 0) {
+        this.updateRuntimeStatus({
+          kind: "loaded",
+          message: `已加载 ${this.currentSegments.length} 个可处理片段`,
+          bvid: context.bvid,
+          segmentCount: this.currentSegments.length
+        });
+        if (this.lastAnnouncedSignature !== signature) {
+          this.lastAnnouncedSignature = signature;
+          this.notices.show({
+            id: `segments-ready:${signature}`,
+            title: "SponsorBlock 已就绪",
+            message: `当前视频已载入 ${this.currentSegments.length} 个可处理片段。`,
+            durationMs: 2400
+          });
+        }
+      } else if (segments.length > 0) {
+        this.updateRuntimeStatus({
+          kind: "empty",
+          message: `已读取 ${segments.length} 个片段，但当前设置未启用对应分类`,
+          bvid: context.bvid,
+          segmentCount: 0
+        });
+      } else {
+        this.updateRuntimeStatus({
+          kind: "empty",
+          message: "当前视频暂无 SponsorBlock 数据",
+          bvid: context.bvid,
+          segmentCount: 0
+        });
+      }
       debugLog("Loaded segments", {
         signature,
         count: this.currentSegments.length
       });
     } catch (error) {
       debugLog("Failed to refresh video context", error);
+      this.updateRuntimeStatus({
+        kind: "error",
+        message: error instanceof Error ? `片段读取失败：${error.message}` : "片段读取失败",
+        bvid: resolvedContext?.bvid ?? this.currentContext?.bvid ?? null,
+        segmentCount: null
+      });
       this.notices.show({
         id: "bsb-fetch-error",
         title: "片段读取失败",
@@ -315,6 +403,11 @@ export class ScriptController {
   private tick(): void {
     if (!this.currentConfig.enabled || !this.currentVideo || !this.currentContext || this.currentSegments.length === 0) {
       return;
+    }
+
+    if (this.currentConfig.showPreviewBar) {
+      this.previewBar.bind(this.currentVideo);
+      this.previewBar.setSegments(this.currentSegments);
     }
 
     const currentTime = this.currentVideo.currentTime;
@@ -545,11 +638,12 @@ export class ScriptController {
 
     const start = segment.start;
     const end = segment.end;
+    this.dismissSegmentNotice(segment);
     this.currentVideo.currentTime = Math.max(end, this.currentVideo.currentTime);
 
     void this.statsStore.recordSkip(roundMinutes(end - start));
     this.notices.show({
-      id: this.noticeIdForSegment(segment),
+      id: this.resultNoticeIdForSegment(segment),
       title: `${verb}：${CATEGORY_LABELS[segment.category]}`,
       message: `范围 ${formatDurationLabel(start, end)}。`,
       durationMs: this.currentConfig.noticeDurationSec * 1000,
@@ -624,6 +718,10 @@ export class ScriptController {
     return `segment:${segment.UUID}`;
   }
 
+  private resultNoticeIdForSegment(segment: SegmentRecord): string {
+    return `segment-result:${segment.UUID}`;
+  }
+
   private clearRuntimeState(detachUi = false): void {
     this.restoreMuteState();
     this.notices.clear();
@@ -634,11 +732,45 @@ export class ScriptController {
     this.currentContext = null;
     this.currentVideo = null;
     this.panel.setFullVideoLabels([]);
+    this.previewBar.clear();
+    this.previewBar.bind(null);
+    this.notices.setHost(null);
     if (detachUi) {
       this.panel.unmount();
     } else {
-      this.panel.mount();
+      this.updateRuntimeStatus(this.buildIdleStatus());
     }
+  }
+
+  private buildIdleStatus(): RuntimeStatus {
+    if (!this.currentConfig.enabled) {
+      return {
+        kind: "idle",
+        message: "脚本已停用",
+        bvid: this.currentContext?.bvid ?? null,
+        segmentCount: null
+      };
+    }
+
+    if (supportsVideoFeatures(window.location.href)) {
+      return {
+        kind: "pending",
+        message: "等待播放器和页面信息",
+        bvid: this.currentContext?.bvid ?? null,
+        segmentCount: null
+      };
+    }
+
+    return {
+      kind: "idle",
+      message: "当前页面可使用缩略图标签与内容增强",
+      bvid: null,
+      segmentCount: null
+    };
+  }
+
+  private updateRuntimeStatus(status: RuntimeStatus): void {
+    this.panel.updateRuntimeStatus(status);
   }
 
   private shouldResetSegmentState(currentTime: number, state: RuntimeSegmentState): boolean {

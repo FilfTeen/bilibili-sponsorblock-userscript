@@ -1,7 +1,7 @@
 # Bilibili SponsorBlock Core
 
 一个面向 Tampermonkey 的 Bilibili SponsorBlock 核心脚本。  
-它保留了日常最实用的能力: 读取 SponsorBlock 片段、自动或手动跳过、静音片段、整视频标签提示、首页/动态页广告过滤、评论区广告过滤、页内轻量设置面板，以及本地持久化配置。
+它保留了日常最实用的能力: 读取 SponsorBlock 片段、自动或手动跳过、静音片段、播放器进度条标记、缩略图整视频角标、首页/动态页广告过滤、评论区广告过滤，以及本地持久化配置。
 
 ## 致谢
 
@@ -31,11 +31,12 @@
 - `skip` 片段自动或手动跳过
 - `mute` 片段自动或手动静音
 - `poi_highlight` 高光点提示与跳转
-- `full` 整视频标签 banner
+- 视频页进度条片段预览条
+- 首页、搜索页、播放页推荐区等位置的整视频缩略图角标
+- `full` 整视频标签提示
 - 首页、动态页和空间页的可疑带货动态识别
 - 评论区商品卡广告、可疑广告评论和可疑广告回复识别
-- 主页浮动入口按钮 + 视频页就近入口按钮
-- 页内设置按钮与设置面板
+- Tampermonkey 菜单打开的轻量设置面板
 - 本地配置、统计和 TTL 缓存
 - 评论/动态过滤的 `隐藏并标记 / 仅标记 / 关闭`
 - 单文件发布产物: `dist/bilibili-sponsorblock.user.js`
@@ -44,7 +45,6 @@
 
 - 片段投稿
 - 投票
-- 预览条复刻
 - 弹幕跳转
 - 快捷键
 - popup/options 独立页面
@@ -54,15 +54,22 @@
 ### Safari + Tampermonkey
 
 1. 从 App Store 安装 Tampermonkey for Safari。
-2. 打开最新发布文件:
-   [bilibili-sponsorblock.user.js](https://github.com/FilfTeen/bilibili-sponsorblock-userscript/releases/latest/download/bilibili-sponsorblock.user.js)
-3. 让 Tampermonkey 导入并启用脚本。
+2. 优先打开这个安装入口:
+   [bilibili-sponsorblock.user.js](https://github.com/FilfTeen/bilibili-sponsorblock-userscript/raw/main/dist/bilibili-sponsorblock.user.js)
+3. 当 Tampermonkey 弹出安装确认页时，点击 `Install`。
 4. 打开任意支持的 Bilibili 视频页。
-5. 在播放器附近或首页右下角使用 `BSB` 按钮打开设置面板。
+5. 如需修改设置，在 Tampermonkey 菜单中选择 `Open BSB settings`。
+
+如果 Safari 直接把脚本当作普通文本页打开，没有弹出安装确认页:
+
+1. 打开 `Tampermonkey Dashboard -> Utilities`。
+2. 在 `Import from URL` 中粘贴:
+   `https://raw.githubusercontent.com/FilfTeen/bilibili-sponsorblock-userscript/main/dist/bilibili-sponsorblock.user.js`
+3. 手动导入并启用。
 
 ### 其他支持 Tampermonkey 的浏览器
 
-同样使用上面的 GitHub Release 链接安装即可。
+同样使用上面的 raw GitHub 链接安装即可。Release 页面仍保留构建产物，便于版本归档。
 
 ## 支持页面
 
@@ -95,6 +102,8 @@ URL 解析额外兼容:
 - `enableCache`
 - `noticeDurationSec`
 - `minDurationSec`
+- `showPreviewBar`
+- `thumbnailLabelMode`
 - `categoryModes`
 - `dynamicFilterMode`
 - `dynamicRegexPattern`
@@ -113,10 +122,11 @@ URL 解析额外兼容:
 | --- | --- | --- |
 | 分发形式 | 浏览器扩展 | Tampermonkey 单文件脚本 |
 | 运行模型 | background + content scripts | 页内脚本 + 页面桥接 |
-| 设置入口 | popup / options 页面 | 播放器附近按钮 + 页内面板 |
+| 设置入口 | popup / options 页面 | Tampermonkey 菜单 + 轻量设置面板 |
 | 投稿/投票 | 支持 | 不支持 |
 | 评论/动态过滤 | 支持 | 支持核心过滤与标记 |
-| 预览条 | 支持 | 不支持 |
+| 预览条 | 支持 | 支持核心进度条标记 |
+| 缩略图整视频角标 | 支持 | 支持核心角标模式 |
 
 ## 过滤说明
 
@@ -142,11 +152,13 @@ npm run check
 npm test
 npm run build
 npm run smoke:bilibili
+npm run capture:bilibili
 ```
 
 构建输出:
 
 - `dist/bilibili-sponsorblock.user.js`
+- `output/playwright/*.png` `仅当运行 capture 命令时生成`
 
 ## GitHub 发布
 

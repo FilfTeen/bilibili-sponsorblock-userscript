@@ -69,6 +69,8 @@ function sanitizeSegments(value: unknown): SponsorTime[] {
 }
 
 export class SponsorBlockClient {
+  private readonly inFlightRequests = new Map<string, Promise<FetchResponse>>();
+
   constructor(private readonly cache: PersistentCache<FetchResponse>) {}
 
   async getSegments(video: VideoContext, config: StoredConfig): Promise<SponsorTime[]> {
@@ -82,7 +84,10 @@ export class SponsorBlockClient {
     }
 
     if (!response) {
-      response = await this.fetchWithRetry(buildUrl(normalizedServer, `/api/skipSegments/${hashPrefix}`));
+      response = await this.fetchWithDedup(
+        cacheKey,
+        buildUrl(normalizedServer, `/api/skipSegments/${hashPrefix}`)
+      );
 
       if (config.enableCache && (response.status === 200 || response.status === 404)) {
         await this.cache.set(cacheKey, response);
@@ -100,7 +105,7 @@ export class SponsorBlockClient {
     let payload: unknown;
     try {
       payload = JSON.parse(response.responseText);
-    } catch {
+    } catch (_error) {
       throw new Error("SponsorBlock API returned invalid JSON");
     }
 
@@ -111,6 +116,19 @@ export class SponsorBlockClient {
     const records = payload.filter(isSegmentRecord);
     const record = records.find((entry) => entry.videoID === video.bvid);
     return sanitizeSegments(record?.segments ?? []);
+  }
+
+  private async fetchWithDedup(cacheKey: string, url: string): Promise<FetchResponse> {
+    const existing = this.inFlightRequests.get(cacheKey);
+    if (existing) {
+      return existing;
+    }
+
+    const request = this.fetchWithRetry(url).finally(() => {
+      this.inFlightRequests.delete(cacheKey);
+    });
+    this.inFlightRequests.set(cacheKey, request);
+    return request;
   }
 
   private async fetchWithRetry(url: string): Promise<FetchResponse> {

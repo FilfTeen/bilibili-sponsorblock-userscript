@@ -5,8 +5,8 @@ import {
   DEFAULT_STATS,
   STATS_STORAGE_KEY
 } from "../constants";
-import { gmDeleteValue, gmGetValue, gmSetValue } from "../platform/gm";
-import type { CategoryMode, StoredConfig, StoredStats } from "../types";
+import { gmGetValue, gmSetValue } from "../platform/gm";
+import type { CategoryMode, StoredConfig, StoredStats, ThumbnailLabelMode } from "../types";
 import { clampNumber } from "../utils/number";
 import { regexFromStoredPattern } from "../utils/pattern";
 import { normalizeServerAddress } from "../utils/url";
@@ -16,6 +16,10 @@ type StatsListener = (stats: StoredStats) => void;
 
 function isCategoryMode(value: string): value is CategoryMode {
   return value === "auto" || value === "manual" || value === "notice" || value === "off";
+}
+
+function isThumbnailLabelMode(value: string): value is ThumbnailLabelMode {
+  return value === "overlay" || value === "off";
 }
 
 export function cloneDefaultConfig(): StoredConfig {
@@ -31,8 +35,12 @@ export function normalizeConfig(input: Partial<StoredConfig> | null | undefined)
     return next;
   }
 
+  const migratedFromOlderBuild =
+    typeof input.showPreviewBar !== "boolean" || typeof input.thumbnailLabelMode !== "string";
+
   next.enabled = input.enabled ?? next.enabled;
   next.enableCache = input.enableCache ?? next.enableCache;
+  next.showPreviewBar = input.showPreviewBar ?? next.showPreviewBar;
   next.noticeDurationSec = clampNumber(
     Number.isFinite(input.noticeDurationSec) ? Number(input.noticeDurationSec) : next.noticeDurationSec,
     1,
@@ -52,6 +60,9 @@ export function normalizeConfig(input: Partial<StoredConfig> | null | undefined)
       ? input.commentFilterMode
       : next.commentFilterMode;
   next.commentHideReplies = input.commentHideReplies ?? next.commentHideReplies;
+  if (typeof input.thumbnailLabelMode === "string" && isThumbnailLabelMode(input.thumbnailLabelMode)) {
+    next.thumbnailLabelMode = input.thumbnailLabelMode;
+  }
   const regexPattern =
     typeof input.dynamicRegexPattern === "string" && input.dynamicRegexPattern.trim().length > 0
       ? input.dynamicRegexPattern.trim()
@@ -66,6 +77,15 @@ export function normalizeConfig(input: Partial<StoredConfig> | null | undefined)
     1,
     10
   );
+
+  if (migratedFromOlderBuild) {
+    if (next.dynamicFilterMode === "hide") {
+      next.dynamicFilterMode = "off";
+    }
+    if (next.commentFilterMode === "hide") {
+      next.commentFilterMode = "off";
+    }
+  }
 
   const serverAddress = normalizeServerAddress(input.serverAddress);
   if (serverAddress) {
@@ -115,7 +135,7 @@ export class ConfigStore {
   }
 
   async reset(): Promise<StoredConfig> {
-    await gmDeleteValue(CONFIG_STORAGE_KEY);
+    await gmSetValue(CONFIG_STORAGE_KEY, null);
     this.config = cloneDefaultConfig();
     for (const listener of this.listeners) {
       listener(this.getSnapshot());

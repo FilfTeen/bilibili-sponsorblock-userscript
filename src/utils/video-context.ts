@@ -63,52 +63,60 @@ function resolvePages(initialState: Record<string, unknown> | null): Record<stri
   return rawPages.map((entry) => asRecord(entry)).filter((entry): entry is Record<string, unknown> => Boolean(entry));
 }
 
-export function extractBvidFromUrl(url: string): string | null {
+function parseUrl(url: string): URL | null {
   try {
-    const parsed = new URL(url);
-    const pathMatch = parsed.pathname.match(/BV1[a-zA-Z0-9]{9}/u);
-    if (pathMatch?.[0] && isBvid(pathMatch[0])) {
-      return pathMatch[0];
-    }
-
-    const searchParam = parsed.searchParams.get("bvid");
-    return readBvid(searchParam);
-  } catch {
+    return new URL(url, window.location.origin);
+  } catch (_error) {
     return null;
   }
+}
+
+export function extractBvidFromUrl(url: string): string | null {
+  const parsed = parseUrl(url);
+  if (!parsed) {
+    return null;
+  }
+
+  const pathMatch = parsed.pathname.match(/BV1[a-zA-Z0-9]{9}/u);
+  if (pathMatch?.[0] && isBvid(pathMatch[0])) {
+    return pathMatch[0];
+  }
+
+  const searchParam = parsed.searchParams.get("bvid");
+  return readBvid(searchParam);
 }
 
 export function extractAidFromUrl(url: string): number | null {
-  try {
-    const parsed = new URL(url);
-    const pathMatch = parsed.pathname.match(/(?:^|\/)av(\d+)(?:\/|$)/iu);
-    if (pathMatch?.[1]) {
-      return readAid(pathMatch[1]);
-    }
-
-    return firstNonNull(readAid(parsed.searchParams.get("aid")), readAid(parsed.searchParams.get("avid")));
-  } catch {
+  const parsed = parseUrl(url);
+  if (!parsed) {
     return null;
   }
+
+  const pathMatch = parsed.pathname.match(/(?:^|\/)av(\d+)(?:\/|$)/iu);
+  if (pathMatch?.[1]) {
+    return readAid(pathMatch[1]);
+  }
+
+  return firstNonNull(readAid(parsed.searchParams.get("aid")), readAid(parsed.searchParams.get("avid")));
 }
 
 export function extractPageFromUrl(url: string): number {
-  try {
-    const parsed = new URL(url);
-    const rawPage = Number(parsed.searchParams.get("p") ?? "1");
-    return Number.isFinite(rawPage) && rawPage > 0 ? Math.floor(rawPage) : 1;
-  } catch {
+  const parsed = parseUrl(url);
+  if (!parsed) {
     return 1;
   }
+
+  const rawPage = Number(parsed.searchParams.get("p") ?? "1");
+  return Number.isFinite(rawPage) && rawPage > 0 ? Math.floor(rawPage) : 1;
 }
 
 function extractCidFromUrl(url: string): string | null {
-  try {
-    const parsed = new URL(url);
-    return readIdentifier(parsed.searchParams.get("cid"));
-  } catch {
+  const parsed = parseUrl(url);
+  if (!parsed) {
     return null;
   }
+
+  return readIdentifier(parsed.searchParams.get("cid"));
 }
 
 function resolveCidFromPages(initialState: Record<string, unknown> | null, page: number): string | null {

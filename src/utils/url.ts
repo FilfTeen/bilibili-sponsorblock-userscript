@@ -15,7 +15,7 @@ export function normalizeServerAddress(rawValue: string | null | undefined): str
     parsed.search = "";
 
     return parsed.toString().replace(/\/+$/u, "");
-  } catch {
+  } catch (_error) {
     return null;
   }
 }

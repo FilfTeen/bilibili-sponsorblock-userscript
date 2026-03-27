@@ -3,7 +3,7 @@ import { cloneDefaultConfig } from "../src/core/config-store";
 import { SettingsPanel } from "../src/ui/panel";
 
 describe("settings panel", () => {
-  it("mounts globally and toggles panel state", () => {
+  it("mounts globally and toggles a hidden modal", () => {
     const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
       onPatchConfig: vi.fn(async () => {}),
       onCategoryModeChange: vi.fn(async () => {}),
@@ -11,12 +11,12 @@ describe("settings panel", () => {
     });
 
     panel.mount();
-    const button = document.querySelector(".bsb-tm-entry-button");
-    expect(button?.classList.contains("is-floating")).toBe(true);
-    expect(button?.getAttribute("aria-expanded")).toBe("false");
+    const backdrop = document.querySelector<HTMLElement>(".bsb-tm-panel-backdrop");
+    expect(backdrop?.hidden).toBe(true);
+    expect(window.getComputedStyle(backdrop!).display).toBe("none");
 
     panel.toggle();
-    expect(button?.getAttribute("aria-expanded")).toBe("true");
+    expect(backdrop?.hidden).toBe(false);
   });
 
   it("blocks invalid regex updates and shows a validation message", async () => {

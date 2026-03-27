@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili SponsorBlock Core
 // @namespace    https://github.com/FilfTeen/bilibili-sponsorblock-userscript
-// @version      0.3.2
+// @version      0.3.5
 // @description  Tampermonkey core script for skipping sponsor segments on Bilibili.
 // @author       FilfTeen
 // @license      GPL-3.0-only
@@ -11,63 +11,181 @@
 // @match        https://space.bilibili.com/*
 // @grant        GM_getValue
 // @grant        GM_setValue
-// @grant        GM_deleteValue
 // @grant        GM_xmlhttpRequest
 // @grant        GM_addStyle
 // @grant        GM_registerMenuCommand
 // @connect      *
 // @run-at       document-start
-// @noframes
-// @downloadURL  https://github.com/FilfTeen/bilibili-sponsorblock-userscript/releases/latest/download/bilibili-sponsorblock.user.js
-// @updateURL    https://github.com/FilfTeen/bilibili-sponsorblock-userscript/releases/latest/download/bilibili-sponsorblock.user.js
+// @homepageURL  https://github.com/FilfTeen/bilibili-sponsorblock-userscript
+// @supportURL   https://github.com/FilfTeen/bilibili-sponsorblock-userscript/issues
+// @downloadURL  https://raw.githubusercontent.com/FilfTeen/bilibili-sponsorblock-userscript/main/dist/bilibili-sponsorblock.user.js
+// @updateURL    https://raw.githubusercontent.com/FilfTeen/bilibili-sponsorblock-userscript/main/dist/bilibili-sponsorblock.user.js
 // ==/UserScript==
 "use strict";
 (() => {
+  var __defProp = Object.defineProperty;
+  var __defProps = Object.defineProperties;
+  var __getOwnPropDescs = Object.getOwnPropertyDescriptors;
+  var __getOwnPropSymbols = Object.getOwnPropertySymbols;
+  var __hasOwnProp = Object.prototype.hasOwnProperty;
+  var __propIsEnum = Object.prototype.propertyIsEnumerable;
+  var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+  var __spreadValues = (a, b) => {
+    for (var prop in b || (b = {}))
+      if (__hasOwnProp.call(b, prop))
+        __defNormalProp(a, prop, b[prop]);
+    if (__getOwnPropSymbols)
+      for (var prop of __getOwnPropSymbols(b)) {
+        if (__propIsEnum.call(b, prop))
+          __defNormalProp(a, prop, b[prop]);
+      }
+    return a;
+  };
+  var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
+  var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
+  var __async = (__this, __arguments, generator) => {
+    return new Promise((resolve, reject) => {
+      var fulfilled = (value) => {
+        try {
+          step(generator.next(value));
+        } catch (e) {
+          reject(e);
+        }
+      };
+      var rejected = (value) => {
+        try {
+          step(generator.throw(value));
+        } catch (e) {
+          reject(e);
+        }
+      };
+      var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
+      step((generator = generator.apply(__this, __arguments)).next());
+    });
+  };
+
   // src/platform/gm.ts
+  function resolveWindowFunction(name) {
+    if (typeof window === "undefined") {
+      return void 0;
+    }
+    return Reflect.get(window, name);
+  }
+  function resolveGrantedFunction(name) {
+    switch (name) {
+      case "GM_getValue":
+        if (typeof GM_getValue === "function") {
+          return GM_getValue;
+        }
+        break;
+      case "GM_setValue":
+        if (typeof GM_setValue === "function") {
+          return GM_setValue;
+        }
+        break;
+      case "GM_addStyle":
+        if (typeof GM_addStyle === "function") {
+          return GM_addStyle;
+        }
+        break;
+      case "GM_registerMenuCommand":
+        if (typeof GM_registerMenuCommand === "function") {
+          return GM_registerMenuCommand;
+        }
+        break;
+      case "GM_xmlhttpRequest":
+        if (typeof GM_xmlhttpRequest === "function") {
+          return GM_xmlhttpRequest;
+        }
+        break;
+      default:
+        break;
+    }
+    const fallback = resolveWindowFunction(name);
+    return typeof fallback === "function" ? fallback : void 0;
+  }
   function assertFunction(name) {
-    const fn = Reflect.get(globalThis, name);
+    const fn = resolveGrantedFunction(name);
     if (typeof fn !== "function") {
       throw new Error(`${name} is not available in this environment`);
     }
     return fn;
   }
-  async function gmGetValue(key, defaultValue) {
-    const fn = assertFunction("GM_getValue");
-    return fn(key, defaultValue);
+  function gmGetValue(key, defaultValue) {
+    return __async(this, null, function* () {
+      const fn = assertFunction("GM_getValue");
+      return fn(key, defaultValue);
+    });
   }
-  async function gmSetValue(key, value) {
-    const fn = assertFunction("GM_setValue");
-    fn(key, value);
-  }
-  async function gmDeleteValue(key) {
-    const fn = assertFunction("GM_deleteValue");
-    fn(key);
+  function gmSetValue(key, value) {
+    return __async(this, null, function* () {
+      const fn = assertFunction("GM_setValue");
+      fn(key, value);
+    });
   }
   function gmAddStyle(css) {
     const fn = assertFunction("GM_addStyle");
     fn(css);
   }
   function gmRegisterMenuCommand(label, handler) {
-    const fn = Reflect.get(globalThis, "GM_registerMenuCommand");
+    const fn = resolveGrantedFunction("GM_registerMenuCommand");
     if (typeof fn === "function") {
       fn(label, handler);
     }
   }
-  async function gmXmlHttpRequest(options) {
-    const fn = assertFunction("GM_xmlhttpRequest");
-    return new Promise((resolve, reject) => {
-      fn({
-        ...options,
-        onload: (response) => {
-          resolve({
-            responseText: response.responseText,
-            status: response.status,
-            ok: response.status >= 200 && response.status < 300
-          });
-        },
-        onerror: () => reject(new Error(`Request failed: ${options.method} ${options.url}`)),
-        ontimeout: () => reject(new Error(`Request timed out: ${options.method} ${options.url}`))
-      });
+  function fetchViaWindow(options) {
+    return __async(this, null, function* () {
+      if (typeof fetch !== "function") {
+        throw new Error("fetch is not available in this environment");
+      }
+      const controller = typeof AbortController === "function" ? new AbortController() : null;
+      const timeoutId = controller && typeof options.timeout === "number" && Number.isFinite(options.timeout) ? window.setTimeout(() => controller.abort(), options.timeout) : null;
+      try {
+        const response = yield fetch(options.url, {
+          method: options.method,
+          headers: options.headers,
+          body: options.data,
+          mode: "cors",
+          credentials: "omit",
+          signal: controller == null ? void 0 : controller.signal
+        });
+        return {
+          responseText: yield response.text(),
+          status: response.status,
+          ok: response.ok
+        };
+      } catch (error) {
+        if (controller == null ? void 0 : controller.signal.aborted) {
+          throw new Error(`Request timed out: ${options.method} ${options.url}`);
+        }
+        throw error instanceof Error ? error : new Error(`Request failed: ${options.method} ${options.url}`);
+      } finally {
+        if (timeoutId !== null) {
+          window.clearTimeout(timeoutId);
+        }
+      }
+    });
+  }
+  function gmXmlHttpRequest(options) {
+    return __async(this, null, function* () {
+      try {
+        return yield fetchViaWindow(options);
+      } catch (fetchError) {
+        const fn = assertFunction("GM_xmlhttpRequest");
+        return new Promise((resolve, reject) => {
+          fn(__spreadProps(__spreadValues({}, options), {
+            onload: (response) => {
+              resolve({
+                responseText: response.responseText,
+                status: response.status,
+                ok: response.status >= 200 && response.status < 300
+              });
+            },
+            onerror: () => reject(fetchError instanceof Error ? fetchError : new Error(`Request failed: ${options.method} ${options.url}`)),
+            ontimeout: () => reject(new Error(`Request timed out: ${options.method} ${options.url}`))
+          }));
+        });
+      }
     });
   }
 
@@ -109,6 +227,30 @@
     poi_highlight: "\u9AD8\u5149\u70B9",
     exclusive_access: "\u6574\u89C6\u9891\u6807\u7B7E"
   };
+  var CATEGORY_COLORS = {
+    sponsor: "#00d400",
+    selfpromo: "#ffff00",
+    interaction: "#cc00ff",
+    intro: "#00ffff",
+    outro: "#0202ed",
+    preview: "#008fd6",
+    padding: "#222222",
+    music_offtopic: "#ff9900",
+    poi_highlight: "#ff1684",
+    exclusive_access: "#008a5c"
+  };
+  var CATEGORY_TEXT_COLORS = {
+    sponsor: "#ffffff",
+    selfpromo: "#111111",
+    interaction: "#ffffff",
+    intro: "#111111",
+    outro: "#ffffff",
+    preview: "#ffffff",
+    padding: "#ffffff",
+    music_offtopic: "#111111",
+    poi_highlight: "#ffffff",
+    exclusive_access: "#ffffff"
+  };
   var MODE_LABELS = {
     auto: "\u81EA\u52A8",
     manual: "\u624B\u52A8",
@@ -118,6 +260,10 @@
   var CONTENT_FILTER_MODE_LABELS = {
     hide: "\u9690\u85CF\u5E76\u6807\u8BB0",
     label: "\u4EC5\u6807\u8BB0",
+    off: "\u5173\u95ED"
+  };
+  var THUMBNAIL_LABEL_MODE_LABELS = {
+    overlay: "\u7F29\u7565\u56FE\u89D2\u6807",
     off: "\u5173\u95ED"
   };
   var DEFAULT_CATEGORY_MODES = {
@@ -138,11 +284,13 @@
     enableCache: true,
     noticeDurationSec: 4,
     minDurationSec: 0,
+    showPreviewBar: true,
+    thumbnailLabelMode: "overlay",
     categoryModes: DEFAULT_CATEGORY_MODES,
-    dynamicFilterMode: "hide",
+    dynamicFilterMode: "off",
     dynamicRegexPattern: DEFAULT_DYNAMIC_REGEX_PATTERN,
     dynamicRegexKeywordMinMatches: 1,
-    commentFilterMode: "hide",
+    commentFilterMode: "off",
     commentHideReplies: false
   };
   var DEFAULT_STATS = {
@@ -175,24 +323,25 @@
     let playerManifest = null;
 
     try {
-      initialState = window.__INITIAL_STATE__ ?? null;
-    } catch {}
+      initialState = typeof window.__INITIAL_STATE__ === "undefined" ? null : window.__INITIAL_STATE__;
+    } catch (_error) {}
 
     try {
-      playInfo = window.__playinfo__ ?? null;
-    } catch {}
+      playInfo = typeof window.__playinfo__ === "undefined" ? null : window.__playinfo__;
+    } catch (_error) {}
 
     try {
-      const manifest = window.player?.getManifest?.();
-      if (manifest) {
+      const player = window.player;
+      const manifest = player && typeof player.getManifest === "function" ? player.getManifest() : null;
+      if (manifest && typeof manifest === "object") {
         playerManifest = {
-          aid: manifest.aid ?? null,
-          cid: manifest.cid ?? null,
-          bvid: manifest.bvid ?? null,
-          p: manifest.p ?? null
+          aid: typeof manifest.aid === "undefined" ? null : manifest.aid,
+          cid: typeof manifest.cid === "undefined" ? null : manifest.cid,
+          bvid: typeof manifest.bvid === "undefined" ? null : manifest.bvid,
+          p: typeof manifest.p === "undefined" ? null : manifest.p
         };
       }
-    } catch {}
+    } catch (_error) {}
 
     document.dispatchEvent(new CustomEvent(${JSON.stringify(RESPONSE_EVENT)}, {
       detail: {
@@ -219,29 +368,31 @@
     script.remove();
     bridgeInjected = true;
   }
-  async function requestPageSnapshot() {
-    ensurePageBridge();
-    return new Promise((resolve) => {
-      const id = `bsb-tm-${Math.random().toString(36).slice(2)}`;
-      const timeoutId = window.setTimeout(() => {
-        document.removeEventListener(RESPONSE_EVENT, onMessage);
-        resolve(null);
-      }, REQUEST_TIMEOUT_MS);
-      function onMessage(event) {
-        const data = event.detail;
-        if (!data || data.id !== id) {
-          return;
+  function requestPageSnapshot() {
+    return __async(this, null, function* () {
+      ensurePageBridge();
+      return new Promise((resolve) => {
+        const id = `bsb-tm-${Math.random().toString(36).slice(2)}`;
+        const timeoutId = window.setTimeout(() => {
+          document.removeEventListener(RESPONSE_EVENT, onMessage);
+          resolve(null);
+        }, REQUEST_TIMEOUT_MS);
+        function onMessage(event) {
+          const data = event.detail;
+          if (!data || data.id !== id) {
+            return;
+          }
+          window.clearTimeout(timeoutId);
+          document.removeEventListener(RESPONSE_EVENT, onMessage);
+          resolve(typeof data.payload === "undefined" ? null : data.payload);
         }
-        window.clearTimeout(timeoutId);
-        document.removeEventListener(RESPONSE_EVENT, onMessage);
-        resolve(data.payload ?? null);
-      }
-      document.addEventListener(RESPONSE_EVENT, onMessage);
-      document.dispatchEvent(
-        new CustomEvent(REQUEST_EVENT, {
-          detail: { id }
-        })
-      );
+        document.addEventListener(RESPONSE_EVENT, onMessage);
+        document.dispatchEvent(
+          new CustomEvent(REQUEST_EVENT, {
+            detail: { id }
+          })
+        );
+      });
     });
   }
 
@@ -267,13 +418,14 @@
         return new RegExp(match[1], match[2]);
       }
       return new RegExp(trimmed, "giu");
-    } catch {
+    } catch (_error) {
       return null;
     }
   }
   function collectPatternMatches(text, pattern, minLength = 2) {
+    var _a;
     const globalPattern = pattern.global ? pattern : new RegExp(pattern.source, `${pattern.flags}g`);
-    const matches = text.match(globalPattern) ?? [];
+    const matches = (_a = text.match(globalPattern)) != null ? _a : [];
     return [...new Set(matches.map((entry) => entry.trim()).filter((entry) => entry.length >= minLength))];
   }
   function validateStoredPattern(input) {
@@ -324,7 +476,7 @@
       parsed.hash = "";
       parsed.search = "";
       return parsed.toString().replace(/\/+$/u, "");
-    } catch {
+    } catch (_error) {
       return null;
     }
   }
@@ -333,19 +485,24 @@
   function isCategoryMode(value) {
     return value === "auto" || value === "manual" || value === "notice" || value === "off";
   }
+  function isThumbnailLabelMode(value) {
+    return value === "overlay" || value === "off";
+  }
   function cloneDefaultConfig() {
-    return {
-      ...DEFAULT_CONFIG,
-      categoryModes: { ...DEFAULT_CONFIG.categoryModes }
-    };
+    return __spreadProps(__spreadValues({}, DEFAULT_CONFIG), {
+      categoryModes: __spreadValues({}, DEFAULT_CONFIG.categoryModes)
+    });
   }
   function normalizeConfig(input) {
+    var _a, _b, _c, _d, _e;
     const next = cloneDefaultConfig();
     if (!input) {
       return next;
     }
-    next.enabled = input.enabled ?? next.enabled;
-    next.enableCache = input.enableCache ?? next.enableCache;
+    const migratedFromOlderBuild = typeof input.showPreviewBar !== "boolean" || typeof input.thumbnailLabelMode !== "string";
+    next.enabled = (_a = input.enabled) != null ? _a : next.enabled;
+    next.enableCache = (_b = input.enableCache) != null ? _b : next.enableCache;
+    next.showPreviewBar = (_c = input.showPreviewBar) != null ? _c : next.showPreviewBar;
     next.noticeDurationSec = clampNumber(
       Number.isFinite(input.noticeDurationSec) ? Number(input.noticeDurationSec) : next.noticeDurationSec,
       1,
@@ -358,7 +515,10 @@
     );
     next.dynamicFilterMode = input.dynamicFilterMode === "hide" || input.dynamicFilterMode === "label" || input.dynamicFilterMode === "off" ? input.dynamicFilterMode : next.dynamicFilterMode;
     next.commentFilterMode = input.commentFilterMode === "hide" || input.commentFilterMode === "label" || input.commentFilterMode === "off" ? input.commentFilterMode : next.commentFilterMode;
-    next.commentHideReplies = input.commentHideReplies ?? next.commentHideReplies;
+    next.commentHideReplies = (_d = input.commentHideReplies) != null ? _d : next.commentHideReplies;
+    if (typeof input.thumbnailLabelMode === "string" && isThumbnailLabelMode(input.thumbnailLabelMode)) {
+      next.thumbnailLabelMode = input.thumbnailLabelMode;
+    }
     const regexPattern = typeof input.dynamicRegexPattern === "string" && input.dynamicRegexPattern.trim().length > 0 ? input.dynamicRegexPattern.trim() : null;
     if (regexPattern && regexFromStoredPattern(regexPattern)) {
       next.dynamicRegexPattern = regexPattern;
@@ -368,12 +528,20 @@
       1,
       10
     );
+    if (migratedFromOlderBuild) {
+      if (next.dynamicFilterMode === "hide") {
+        next.dynamicFilterMode = "off";
+      }
+      if (next.commentFilterMode === "hide") {
+        next.commentFilterMode = "off";
+      }
+    }
     const serverAddress = normalizeServerAddress(input.serverAddress);
     if (serverAddress) {
       next.serverAddress = serverAddress;
     }
     for (const category of CATEGORY_ORDER) {
-      const value = input.categoryModes?.[category];
+      const value = (_e = input.categoryModes) == null ? void 0 : _e[category];
       if (value && isCategoryMode(value)) {
         next.categoryModes[category] = value;
       }
@@ -381,17 +549,20 @@
     return next;
   }
   var ConfigStore = class {
-    config = cloneDefaultConfig();
-    listeners = /* @__PURE__ */ new Set();
-    async load() {
-      this.config = normalizeConfig(await gmGetValue(CONFIG_STORAGE_KEY, null));
-      return this.getSnapshot();
+    constructor() {
+      __publicField(this, "config", cloneDefaultConfig());
+      __publicField(this, "listeners", /* @__PURE__ */ new Set());
+    }
+    load() {
+      return __async(this, null, function* () {
+        this.config = normalizeConfig(yield gmGetValue(CONFIG_STORAGE_KEY, null));
+        return this.getSnapshot();
+      });
     }
     getSnapshot() {
-      return {
-        ...this.config,
-        categoryModes: { ...this.config.categoryModes }
-      };
+      return __spreadProps(__spreadValues({}, this.config), {
+        categoryModes: __spreadValues({}, this.config.categoryModes)
+      });
     }
     subscribe(listener) {
       this.listeners.add(listener);
@@ -399,36 +570,44 @@
         this.listeners.delete(listener);
       };
     }
-    async update(updater) {
-      this.config = normalizeConfig(updater(this.getSnapshot()));
-      await gmSetValue(CONFIG_STORAGE_KEY, this.config);
-      for (const listener of this.listeners) {
-        listener(this.getSnapshot());
-      }
-      return this.getSnapshot();
+    update(updater) {
+      return __async(this, null, function* () {
+        this.config = normalizeConfig(updater(this.getSnapshot()));
+        yield gmSetValue(CONFIG_STORAGE_KEY, this.config);
+        for (const listener of this.listeners) {
+          listener(this.getSnapshot());
+        }
+        return this.getSnapshot();
+      });
     }
-    async reset() {
-      await gmDeleteValue(CONFIG_STORAGE_KEY);
-      this.config = cloneDefaultConfig();
-      for (const listener of this.listeners) {
-        listener(this.getSnapshot());
-      }
-      return this.getSnapshot();
+    reset() {
+      return __async(this, null, function* () {
+        yield gmSetValue(CONFIG_STORAGE_KEY, null);
+        this.config = cloneDefaultConfig();
+        for (const listener of this.listeners) {
+          listener(this.getSnapshot());
+        }
+        return this.getSnapshot();
+      });
     }
   };
   var StatsStore = class {
-    stats = { ...DEFAULT_STATS };
-    listeners = /* @__PURE__ */ new Set();
-    async load() {
-      const stored = await gmGetValue(STATS_STORAGE_KEY, null);
-      this.stats = {
-        skipCount: Number.isFinite(stored?.skipCount) ? Number(stored?.skipCount) : DEFAULT_STATS.skipCount,
-        minutesSaved: Number.isFinite(stored?.minutesSaved) ? Math.max(0, Number(stored?.minutesSaved)) : DEFAULT_STATS.minutesSaved
-      };
-      return this.getSnapshot();
+    constructor() {
+      __publicField(this, "stats", __spreadValues({}, DEFAULT_STATS));
+      __publicField(this, "listeners", /* @__PURE__ */ new Set());
+    }
+    load() {
+      return __async(this, null, function* () {
+        const stored = yield gmGetValue(STATS_STORAGE_KEY, null);
+        this.stats = {
+          skipCount: Number.isFinite(stored == null ? void 0 : stored.skipCount) ? Number(stored == null ? void 0 : stored.skipCount) : DEFAULT_STATS.skipCount,
+          minutesSaved: Number.isFinite(stored == null ? void 0 : stored.minutesSaved) ? Math.max(0, Number(stored == null ? void 0 : stored.minutesSaved)) : DEFAULT_STATS.minutesSaved
+        };
+        return this.getSnapshot();
+      });
     }
     getSnapshot() {
-      return { ...this.stats };
+      return __spreadValues({}, this.stats);
     }
     subscribe(listener) {
       this.listeners.add(listener);
@@ -436,21 +615,26 @@
         this.listeners.delete(listener);
       };
     }
-    async patch(update) {
-      this.stats = {
-        skipCount: update.skipCount ?? this.stats.skipCount,
-        minutesSaved: update.minutesSaved ?? this.stats.minutesSaved
-      };
-      await gmSetValue(STATS_STORAGE_KEY, this.stats);
-      for (const listener of this.listeners) {
-        listener(this.getSnapshot());
-      }
-      return this.getSnapshot();
+    patch(update) {
+      return __async(this, null, function* () {
+        var _a, _b;
+        this.stats = {
+          skipCount: (_a = update.skipCount) != null ? _a : this.stats.skipCount,
+          minutesSaved: (_b = update.minutesSaved) != null ? _b : this.stats.minutesSaved
+        };
+        yield gmSetValue(STATS_STORAGE_KEY, this.stats);
+        for (const listener of this.listeners) {
+          listener(this.getSnapshot());
+        }
+        return this.getSnapshot();
+      });
     }
-    async recordSkip(minutesSavedDelta) {
-      return this.patch({
-        skipCount: this.stats.skipCount + 1,
-        minutesSaved: Math.round((this.stats.minutesSaved + minutesSavedDelta) * 100) / 100
+    recordSkip(minutesSavedDelta) {
+      return __async(this, null, function* () {
+        return this.patch({
+          skipCount: this.stats.skipCount + 1,
+          minutesSaved: Math.round((this.stats.minutesSaved + minutesSavedDelta) * 100) / 100
+        });
       });
     }
   };
@@ -460,25 +644,31 @@
     return JSON.stringify(value).length;
   }
   var PersistentCache = class {
-    payload = { entries: {} };
-    loaded = false;
-    async load() {
-      if (this.loaded) {
-        return;
-      }
-      const stored = await gmGetValue(CACHE_STORAGE_KEY, null);
-      this.payload = normalizePayload(stored);
-      this.loaded = true;
-      await this.persist();
+    constructor() {
+      __publicField(this, "payload", { entries: {} });
+      __publicField(this, "loaded", false);
     }
-    async persist() {
-      this.cleanupExpired();
-      this.evictOverflow();
-      if (Object.keys(this.payload.entries).length === 0) {
-        await gmDeleteValue(CACHE_STORAGE_KEY);
-        return;
-      }
-      await gmSetValue(CACHE_STORAGE_KEY, this.payload);
+    load() {
+      return __async(this, null, function* () {
+        if (this.loaded) {
+          return;
+        }
+        const stored = yield gmGetValue(CACHE_STORAGE_KEY, null);
+        this.payload = normalizePayload(stored);
+        this.loaded = true;
+        yield this.persist();
+      });
+    }
+    persist() {
+      return __async(this, null, function* () {
+        this.cleanupExpired();
+        this.evictOverflow();
+        if (Object.keys(this.payload.entries).length === 0) {
+          yield gmSetValue(CACHE_STORAGE_KEY, null);
+          return;
+        }
+        yield gmSetValue(CACHE_STORAGE_KEY, this.payload);
+      });
     }
     cleanupExpired() {
       const now = Date.now();
@@ -505,46 +695,56 @@
         delete this.payload.entries[oldest[0]];
       }
     }
-    async get(key) {
-      await this.load();
-      const entry = this.payload.entries[key];
-      if (!entry) {
-        return void 0;
-      }
-      if (entry.expiresAt <= Date.now()) {
+    get(key) {
+      return __async(this, null, function* () {
+        yield this.load();
+        const entry = this.payload.entries[key];
+        if (!entry) {
+          return void 0;
+        }
+        if (entry.expiresAt <= Date.now()) {
+          delete this.payload.entries[key];
+          yield this.persist();
+          return void 0;
+        }
+        return entry.value;
+      });
+    }
+    set(key, value) {
+      return __async(this, null, function* () {
+        yield this.load();
+        const entry = {
+          value,
+          expiresAt: Date.now() + CACHE_TTL_MS,
+          updatedAt: Date.now(),
+          size: estimateSize(value)
+        };
+        this.payload.entries[key] = entry;
+        yield this.persist();
+      });
+    }
+    delete(key) {
+      return __async(this, null, function* () {
+        yield this.load();
         delete this.payload.entries[key];
-        await this.persist();
-        return void 0;
-      }
-      return entry.value;
+        yield this.persist();
+      });
     }
-    async set(key, value) {
-      await this.load();
-      const entry = {
-        value,
-        expiresAt: Date.now() + CACHE_TTL_MS,
-        updatedAt: Date.now(),
-        size: estimateSize(value)
-      };
-      this.payload.entries[key] = entry;
-      await this.persist();
+    clear() {
+      return __async(this, null, function* () {
+        this.payload = { entries: {} };
+        this.loaded = true;
+        yield gmSetValue(CACHE_STORAGE_KEY, null);
+      });
     }
-    async delete(key) {
-      await this.load();
-      delete this.payload.entries[key];
-      await this.persist();
-    }
-    async clear() {
-      this.payload = { entries: {} };
-      this.loaded = true;
-      await gmDeleteValue(CACHE_STORAGE_KEY);
-    }
-    async getStats() {
-      await this.load();
-      return {
-        entryCount: Object.keys(this.payload.entries).length,
-        sizeBytes: this.getTotalSize()
-      };
+    getStats() {
+      return __async(this, null, function* () {
+        yield this.load();
+        return {
+          entryCount: Object.keys(this.payload.entries).length,
+          sizeBytes: this.getTotalSize()
+        };
+      });
     }
   };
   function normalizePayload(input) {
@@ -574,14 +774,18 @@
   }
 
   // src/utils/hash.ts
-  async function sha256Hex(value) {
-    const data = new TextEncoder().encode(value);
-    const digest = await crypto.subtle.digest("SHA-256", data);
-    return Array.from(new Uint8Array(digest)).map((part) => part.toString(16).padStart(2, "0")).join("");
+  function sha256Hex(value) {
+    return __async(this, null, function* () {
+      const data = new TextEncoder().encode(value);
+      const digest = yield crypto.subtle.digest("SHA-256", data);
+      return Array.from(new Uint8Array(digest)).map((part) => part.toString(16).padStart(2, "0")).join("");
+    });
   }
-  async function getHashPrefix(value, length = 4) {
-    const digest = await sha256Hex(value);
-    return digest.slice(0, length);
+  function getHashPrefix(value, length = 4) {
+    return __async(this, null, function* () {
+      const digest = yield sha256Hex(value);
+      return digest.slice(0, length);
+    });
   }
 
   // src/api/sponsorblock-client.ts
@@ -609,80 +813,104 @@
       return [];
     }
     return value.filter((entry) => {
+      var _a;
       if (typeof entry !== "object" || entry === null) {
         return false;
       }
       const candidate = entry;
-      const secondPoint = candidate.segment?.[1];
+      const secondPoint = (_a = candidate.segment) == null ? void 0 : _a[1];
       return typeof candidate.UUID === "string" && typeof candidate.category === "string" && VALID_CATEGORIES.has(candidate.category) && typeof candidate.actionType === "string" && VALID_ACTION_TYPES.has(candidate.actionType) && Array.isArray(candidate.segment) && (candidate.segment.length === 1 || candidate.segment.length === 2) && Number.isFinite(candidate.segment[0]) && (secondPoint === void 0 || Number.isFinite(secondPoint) && secondPoint >= candidate.segment[0]);
     });
   }
   var SponsorBlockClient = class {
     constructor(cache) {
       this.cache = cache;
+      __publicField(this, "inFlightRequests", /* @__PURE__ */ new Map());
     }
-    async getSegments(video, config) {
-      const hashPrefix = await getHashPrefix(video.bvid, 4);
-      const normalizedServer = normalizeServerAddress(config.serverAddress) ?? config.serverAddress;
-      const cacheKey = `segments:${normalizedServer}:${hashPrefix}`;
-      let response;
-      if (config.enableCache) {
-        response = await this.cache.get(cacheKey);
-      }
-      if (!response) {
-        response = await this.fetchWithRetry(buildUrl(normalizedServer, `/api/skipSegments/${hashPrefix}`));
-        if (config.enableCache && (response.status === 200 || response.status === 404)) {
-          await this.cache.set(cacheKey, response);
+    getSegments(video, config) {
+      return __async(this, null, function* () {
+        var _a, _b;
+        const hashPrefix = yield getHashPrefix(video.bvid, 4);
+        const normalizedServer = (_a = normalizeServerAddress(config.serverAddress)) != null ? _a : config.serverAddress;
+        const cacheKey = `segments:${normalizedServer}:${hashPrefix}`;
+        let response;
+        if (config.enableCache) {
+          response = yield this.cache.get(cacheKey);
         }
-      }
-      if (response.status === 404) {
-        return [];
-      }
-      if (!response.ok) {
-        throw new Error(`SponsorBlock API returned ${response.status}`);
-      }
-      let payload;
-      try {
-        payload = JSON.parse(response.responseText);
-      } catch {
-        throw new Error("SponsorBlock API returned invalid JSON");
-      }
-      if (!Array.isArray(payload)) {
-        throw new Error("SponsorBlock API returned an unexpected payload shape");
-      }
-      const records = payload.filter(isSegmentRecord);
-      const record = records.find((entry) => entry.videoID === video.bvid);
-      return sanitizeSegments(record?.segments ?? []);
-    }
-    async fetchWithRetry(url) {
-      const attempts = 2;
-      let lastError = null;
-      for (let index = 0; index < attempts; index += 1) {
+        if (!response) {
+          response = yield this.fetchWithDedup(
+            cacheKey,
+            buildUrl(normalizedServer, `/api/skipSegments/${hashPrefix}`)
+          );
+          if (config.enableCache && (response.status === 200 || response.status === 404)) {
+            yield this.cache.set(cacheKey, response);
+          }
+        }
+        if (response.status === 404) {
+          return [];
+        }
+        if (!response.ok) {
+          throw new Error(`SponsorBlock API returned ${response.status}`);
+        }
+        let payload;
         try {
-          const response = await gmXmlHttpRequest({
-            method: "GET",
-            url,
-            headers: {
-              Accept: "application/json"
-            },
-            timeout: REQUEST_TIMEOUT_MS
-          });
-          if (response.ok || response.status === 404 || response.status < 500 || index === attempts - 1) {
-            return response;
-          }
-        } catch (error) {
-          lastError = error instanceof Error ? error : new Error("Unknown request error");
-          if (index === attempts - 1) {
-            throw lastError;
+          payload = JSON.parse(response.responseText);
+        } catch (_error) {
+          throw new Error("SponsorBlock API returned invalid JSON");
+        }
+        if (!Array.isArray(payload)) {
+          throw new Error("SponsorBlock API returned an unexpected payload shape");
+        }
+        const records = payload.filter(isSegmentRecord);
+        const record = records.find((entry) => entry.videoID === video.bvid);
+        return sanitizeSegments((_b = record == null ? void 0 : record.segments) != null ? _b : []);
+      });
+    }
+    fetchWithDedup(cacheKey, url) {
+      return __async(this, null, function* () {
+        const existing = this.inFlightRequests.get(cacheKey);
+        if (existing) {
+          return existing;
+        }
+        const request = this.fetchWithRetry(url).finally(() => {
+          this.inFlightRequests.delete(cacheKey);
+        });
+        this.inFlightRequests.set(cacheKey, request);
+        return request;
+      });
+    }
+    fetchWithRetry(url) {
+      return __async(this, null, function* () {
+        const attempts = 2;
+        let lastError = null;
+        for (let index = 0; index < attempts; index += 1) {
+          try {
+            const response = yield gmXmlHttpRequest({
+              method: "GET",
+              url,
+              headers: {
+                Accept: "application/json"
+              },
+              timeout: REQUEST_TIMEOUT_MS
+            });
+            if (response.ok || response.status === 404 || response.status < 500 || index === attempts - 1) {
+              return response;
+            }
+          } catch (error) {
+            lastError = error instanceof Error ? error : new Error("Unknown request error");
+            if (index === attempts - 1) {
+              throw lastError;
+            }
           }
         }
-      }
-      throw lastError ?? new Error("Request failed");
+        throw lastError != null ? lastError : new Error("Request failed");
+      });
     }
   };
 
   // src/core/segment-filter.ts
   function normalizeSegments(segments, config, currentCid = null) {
+    var _a, _b;
     const seen = /* @__PURE__ */ new Set();
     const normalized = [];
     for (const segment of segments) {
@@ -690,12 +918,12 @@
         continue;
       }
       seen.add(segment.UUID);
-      const mode = config.categoryModes[segment.category] ?? "off";
+      const mode = (_a = config.categoryModes[segment.category]) != null ? _a : "off";
       if (mode === "off") {
         continue;
       }
       const start = segment.segment[0];
-      const end = segment.segment.length > 1 ? segment.segment[1] ?? null : null;
+      const end = segment.segment.length > 1 ? (_b = segment.segment[1]) != null ? _b : null : null;
       const duration = typeof end === "number" ? Math.max(0, end - start) : null;
       const segmentCid = typeof segment.cid === "string" && segment.cid.length > 0 ? segment.cid : null;
       if (currentCid && segmentCid && segmentCid !== currentCid) {
@@ -707,28 +935,46 @@
       if (!Number.isFinite(start)) {
         continue;
       }
-      normalized.push({
-        ...segment,
+      normalized.push(__spreadProps(__spreadValues({}, segment), {
         start,
         end,
         duration,
         mode
-      });
+      }));
     }
     return normalized.sort((left, right) => left.start - right.start);
   }
 
   // src/ui/notice-center.ts
   var NoticeCenter = class {
-    root;
-    notices = /* @__PURE__ */ new Map();
-    timers = /* @__PURE__ */ new Map();
     constructor() {
+      __publicField(this, "root");
+      __publicField(this, "notices", /* @__PURE__ */ new Map());
+      __publicField(this, "timers", /* @__PURE__ */ new Map());
+      __publicField(this, "host", null);
       this.root = document.createElement("div");
-      this.root.className = "bsb-tm-notice-root";
-      document.documentElement.appendChild(this.root);
+      this.root.className = "bsb-tm-notice-root is-floating";
+    }
+    ensureAttached() {
+      var _a;
+      const parent = ((_a = this.host) == null ? void 0 : _a.isConnected) ? this.host : document.documentElement;
+      if (this.root.parentElement !== parent) {
+        parent.appendChild(this.root);
+      }
+      this.root.classList.toggle("is-floating", parent === document.documentElement);
+    }
+    setHost(host) {
+      this.host = host;
+      if (host) {
+        host.classList.add("bsb-tm-player-host");
+      }
+      if (this.root.isConnected && this.notices.size > 0) {
+        this.ensureAttached();
+      }
     }
     show(options) {
+      var _a, _b, _c;
+      this.ensureAttached();
       this.dismiss(options.id);
       const notice = document.createElement("div");
       notice.className = "bsb-tm-notice";
@@ -739,24 +985,27 @@
       const message = document.createElement("div");
       message.className = "bsb-tm-notice-message";
       message.textContent = options.message;
+      const body = document.createElement("div");
+      body.className = "bsb-tm-notice-body";
+      body.append(title, message);
       const actions = document.createElement("div");
       actions.className = "bsb-tm-notice-actions";
-      for (const action of options.actions ?? []) {
+      for (const action of (_a = options.actions) != null ? _a : []) {
         const button = document.createElement("button");
         button.type = "button";
-        button.className = `bsb-tm-button ${action.variant ?? "secondary"}`;
+        button.className = `bsb-tm-button ${(_b = action.variant) != null ? _b : "secondary"}`;
         button.textContent = action.label;
         button.addEventListener("click", () => action.onClick());
         actions.appendChild(button);
       }
-      notice.append(title, message);
+      notice.appendChild(body);
       if (actions.childElementCount > 0) {
         notice.appendChild(actions);
       }
       this.root.appendChild(notice);
       this.notices.set(options.id, notice);
       if (!options.sticky) {
-        const duration = options.durationMs ?? 4e3;
+        const duration = (_c = options.durationMs) != null ? _c : 4e3;
         const timerId = window.setTimeout(() => {
           this.dismiss(options.id);
         }, duration);
@@ -775,6 +1024,9 @@
       }
       notice.remove();
       this.notices.delete(id);
+      if (this.notices.size === 0) {
+        this.root.remove();
+      }
     }
     clear() {
       for (const id of [...this.notices.keys()]) {
@@ -787,21 +1039,43 @@
   var SettingsPanel = class {
     constructor(config, stats, callbacks) {
       this.callbacks = callbacks;
+      __publicField(this, "backdrop", document.createElement("div"));
+      __publicField(this, "panel", document.createElement("aside"));
+      __publicField(this, "statsEl", document.createElement("div"));
+      __publicField(this, "form", document.createElement("div"));
+      __publicField(this, "filterForm", document.createElement("div"));
+      __publicField(this, "categoryForm", document.createElement("div"));
+      __publicField(this, "panelId", "bsb-tm-panel");
+      __publicField(this, "filterValidationMessage", null);
+      __publicField(this, "config");
+      __publicField(this, "stats");
+      __publicField(this, "fullVideoLabels", []);
+      __publicField(this, "runtimeStatus", {
+        kind: "idle",
+        message: "\u7B49\u5F85\u9875\u9762\u5339\u914D",
+        bvid: null,
+        segmentCount: null
+      });
+      __publicField(this, "handleKeydown", (event) => {
+        if (event.key === "Escape" && !this.backdrop.hidden) {
+          this.close();
+        }
+      });
+      var _a;
       this.config = config;
       this.stats = stats;
-      this.button.className = "bsb-tm-entry-button";
-      this.button.type = "button";
-      this.button.textContent = "BSB";
-      this.button.setAttribute("aria-label", `${SCRIPT_NAME} panel`);
-      this.button.setAttribute("aria-controls", this.panelId);
-      this.button.setAttribute("aria-expanded", "false");
-      this.button.addEventListener("click", () => {
-        this.toggle();
+      this.backdrop.className = "bsb-tm-panel-backdrop";
+      this.backdrop.hidden = true;
+      this.backdrop.addEventListener("click", (event) => {
+        if (event.target === this.backdrop) {
+          this.close();
+        }
       });
-      this.banner.className = "bsb-tm-banner";
-      this.banner.hidden = true;
       this.panel.className = "bsb-tm-panel";
       this.panel.id = this.panelId;
+      this.panel.setAttribute("role", "dialog");
+      this.panel.setAttribute("aria-modal", "true");
+      this.panel.setAttribute("aria-labelledby", "bsb-tm-panel-title");
       this.panel.append(
         this.createHeader(),
         this.createSection("summary"),
@@ -809,62 +1083,42 @@
         this.createSection("filters"),
         this.createSection("categories")
       );
-      this.panel.querySelector(".bsb-tm-panel-close")?.addEventListener("click", () => {
+      (_a = this.panel.querySelector(".bsb-tm-panel-close")) == null ? void 0 : _a.addEventListener("click", () => {
         this.close();
       });
       this.statsEl.className = "bsb-tm-stats";
       this.form.className = "bsb-tm-form";
       this.filterForm.className = "bsb-tm-form";
+      this.categoryForm.className = "bsb-tm-categories";
+      this.backdrop.appendChild(this.panel);
       this.render();
     }
-    button = document.createElement("button");
-    panel = document.createElement("aside");
-    banner = document.createElement("div");
-    statsEl = document.createElement("div");
-    form = document.createElement("div");
-    filterForm = document.createElement("div");
-    panelId = "bsb-tm-panel";
-    filterValidationMessage = null;
-    config;
-    stats;
-    mount(playerHost) {
-      if (!this.panel.isConnected) {
-        document.documentElement.appendChild(this.panel);
+    mount() {
+      if (!this.backdrop.isConnected) {
+        document.documentElement.appendChild(this.backdrop);
       }
-      if (!this.button.isConnected) {
-        document.documentElement.appendChild(this.button);
-      }
-      if (playerHost) {
-        if (getComputedStyle(playerHost).position === "static") {
-          playerHost.style.position = "relative";
-        }
-        this.button.classList.remove("is-floating");
-        this.button.classList.add("is-inline");
-        playerHost.appendChild(this.button);
-        const container = playerHost.parentElement;
-        if (container) {
-          container.insertBefore(this.banner, playerHost);
-        }
-        return;
-      }
-      this.banner.remove();
-      this.button.classList.remove("is-inline");
-      this.button.classList.add("is-floating");
-      document.documentElement.appendChild(this.button);
     }
     toggle() {
-      this.panel.classList.toggle("is-open");
-      this.button.setAttribute("aria-expanded", String(this.panel.classList.contains("is-open")));
+      if (this.backdrop.hidden) {
+        this.open();
+        return;
+      }
+      this.close();
+    }
+    open() {
+      this.mount();
+      this.backdrop.hidden = false;
+      document.documentElement.classList.add("bsb-tm-panel-open");
+      document.addEventListener("keydown", this.handleKeydown);
     }
     close() {
-      this.panel.classList.remove("is-open");
-      this.button.setAttribute("aria-expanded", "false");
+      this.backdrop.hidden = true;
+      document.documentElement.classList.remove("bsb-tm-panel-open");
+      document.removeEventListener("keydown", this.handleKeydown);
     }
     unmount() {
       this.close();
-      this.banner.remove();
-      this.panel.remove();
-      this.button.remove();
+      this.backdrop.remove();
     }
     updateConfig(config) {
       this.config = config;
@@ -875,15 +1129,13 @@
       this.stats = stats;
       this.renderSummary();
     }
+    updateRuntimeStatus(status) {
+      this.runtimeStatus = status;
+      this.renderSummary();
+    }
     setFullVideoLabels(segments) {
-      if (segments.length === 0) {
-        this.banner.hidden = true;
-        this.banner.textContent = "";
-        return;
-      }
-      const labels = [...new Set(segments.map((segment) => CATEGORY_LABELS[segment.category]))];
-      this.banner.hidden = false;
-      this.banner.textContent = `\u6574\u89C6\u9891\u6807\u7B7E\uFF1A${labels.join(" / ")}`;
+      this.fullVideoLabels = [...new Set(segments.map((segment) => CATEGORY_LABELS[segment.category]))];
+      this.renderSummary();
     }
     render() {
       this.renderSummary();
@@ -892,62 +1144,89 @@
       this.renderCategories();
     }
     renderSummary() {
+      var _a, _b;
+      const labels = this.fullVideoLabels.length > 0 ? this.fullVideoLabels.join(" / ") : "-";
       this.statsEl.replaceChildren(
-        this.createSummaryLine("\u72B6\u6001", this.config.enabled ? "\u542F\u7528" : "\u505C\u7528"),
-        this.createSummaryLine("\u8DF3\u8FC7\u6B21\u6570", String(this.stats.skipCount)),
+        this.createSummaryLine("\u8FD0\u884C\u72B6\u6001", this.config.enabled ? "\u5DF2\u542F\u7528" : "\u5DF2\u505C\u7528"),
+        this.createSummaryLine("\u5F53\u524D\u89C6\u9891", (_a = this.runtimeStatus.bvid) != null ? _a : "-"),
+        this.createSummaryLine("\u7247\u6BB5\u72B6\u6001", this.runtimeStatus.message),
+        this.createSummaryLine("\u6574\u89C6\u9891\u6807\u7B7E", labels),
+        this.createSummaryLine("\u7D2F\u8BA1\u8DF3\u8FC7", `${this.stats.skipCount} \u6B21`),
         this.createSummaryLine("\u8282\u7701\u65F6\u957F", `${this.stats.minutesSaved.toFixed(2)} \u5206\u949F`)
       );
-      this.panel.querySelector("[data-section='summary']")?.replaceChildren(this.statsEl);
+      (_b = this.panel.querySelector("[data-section='summary']")) == null ? void 0 : _b.replaceChildren(
+        this.createSectionHeading("\u72B6\u6001\u603B\u89C8", "\u811A\u672C\u9ED8\u8BA4\u4E0D\u6539\u52A8\u9875\u9762\u5E03\u5C40\uFF0C\u8BBE\u7F6E\u4EC5\u5728\u4F60\u4E3B\u52A8\u6253\u5F00\u65F6\u51FA\u73B0\u3002"),
+        this.statsEl
+      );
     }
     renderForm() {
+      var _a;
       this.form.replaceChildren(
-        this.createCheckbox("\u811A\u672C\u542F\u7528", this.config.enabled, async (checked) => {
-          await this.callbacks.onPatchConfig({ enabled: checked });
-        }),
-        this.createCheckbox("\u542F\u7528\u7F13\u5B58", this.config.enableCache, async (checked) => {
-          await this.callbacks.onPatchConfig({ enableCache: checked });
-        }),
-        this.createInput("\u670D\u52A1\u5668\u5730\u5740", this.config.serverAddress, async (value) => {
-          await this.callbacks.onPatchConfig({ serverAddress: value });
-        }),
-        this.createNumberInput("\u63D0\u793A\u65F6\u957F\uFF08\u79D2\uFF09", this.config.noticeDurationSec, async (value) => {
-          await this.callbacks.onPatchConfig({ noticeDurationSec: value });
-        }),
-        this.createNumberInput("\u6700\u77ED\u7247\u6BB5\uFF08\u79D2\uFF09", this.config.minDurationSec, async (value) => {
-          await this.callbacks.onPatchConfig({ minDurationSec: value });
-        }),
+        this.createCheckbox("\u542F\u7528\u811A\u672C", "\u603B\u5F00\u5173\u3002\u5173\u95ED\u540E\u4E0D\u518D\u8BF7\u6C42\u7247\u6BB5\u3001\u6E32\u67D3\u89D2\u6807\u6216\u8FC7\u6EE4\u5185\u5BB9\u3002", this.config.enabled, (checked) => __async(this, null, function* () {
+          yield this.callbacks.onPatchConfig({ enabled: checked });
+        })),
+        this.createCheckbox("\u542F\u7528\u7F13\u5B58", "\u7F13\u5B58 SponsorBlock \u548C\u7F29\u7565\u56FE\u6807\u7B7E\u7ED3\u679C\uFF0C\u51CF\u5C11\u91CD\u590D\u8BF7\u6C42\u3002", this.config.enableCache, (checked) => __async(this, null, function* () {
+          yield this.callbacks.onPatchConfig({ enableCache: checked });
+        })),
+        this.createCheckbox("\u663E\u793A\u64AD\u653E\u5668\u9884\u89C8\u6761", "\u5728\u89C6\u9891\u8FDB\u5EA6\u6761\u4E0A\u53E0\u52A0\u4E0A\u6E38\u540C\u7C7B\u7684\u7247\u6BB5\u989C\u8272\u6807\u8BB0\u3002", this.config.showPreviewBar, (checked) => __async(this, null, function* () {
+          yield this.callbacks.onPatchConfig({ showPreviewBar: checked });
+        })),
+        this.createSelect(
+          "\u7F29\u7565\u56FE\u6574\u89C6\u9891\u6807\u7B7E",
+          this.config.thumbnailLabelMode,
+          THUMBNAIL_LABEL_MODE_LABELS,
+          (value) => __async(this, null, function* () {
+            yield this.callbacks.onPatchConfig({ thumbnailLabelMode: value });
+          })
+        ),
+        this.createInput("\u670D\u52A1\u5668\u5730\u5740", "SponsorBlock API \u670D\u52A1\u5730\u5740\u3002\u901A\u5E38\u4FDD\u6301\u9ED8\u8BA4\u5373\u53EF\u3002", this.config.serverAddress, (value) => __async(this, null, function* () {
+          yield this.callbacks.onPatchConfig({ serverAddress: value });
+        })),
+        this.createNumberInput("\u63D0\u793A\u505C\u7559\u65F6\u95F4\uFF08\u79D2\uFF09", "\u81EA\u52A8\u8DF3\u8FC7\u3001\u9519\u8BEF\u548C\u9AD8\u5149\u63D0\u793A\u7684\u505C\u7559\u65F6\u95F4\u3002", this.config.noticeDurationSec, (value) => __async(this, null, function* () {
+          yield this.callbacks.onPatchConfig({ noticeDurationSec: value });
+        })),
+        this.createNumberInput("\u5FFD\u7565\u77ED\u7247\u6BB5\uFF08\u79D2\uFF09", "\u4F4E\u4E8E\u6B64\u957F\u5EA6\u7684\u666E\u901A\u7247\u6BB5\u4E0D\u5904\u7406\u3002", this.config.minDurationSec, (value) => __async(this, null, function* () {
+          yield this.callbacks.onPatchConfig({ minDurationSec: value });
+        })),
         this.createResetButton(false)
       );
-      this.panel.querySelector("[data-section='form']")?.replaceChildren(this.form);
+      (_a = this.panel.querySelector("[data-section='form']")) == null ? void 0 : _a.replaceChildren(
+        this.createSectionHeading("\u57FA\u7840\u9009\u9879", "\u4F18\u5148\u8D34\u8FD1\u539F\u63D2\u4EF6\u4F53\u9A8C\uFF0C\u4E0D\u505A\u989D\u5916\u9875\u9762\u6539\u9020\u3002"),
+        this.form
+      );
     }
     renderFilters() {
+      var _a;
       const children = [
         this.createSectionLabel("\u52A8\u6001\u9875\u5E7F\u544A\u8FC7\u6EE4"),
-        this.createSelect("\u52A8\u6001\u8FC7\u6EE4\u6A21\u5F0F", this.config.dynamicFilterMode, CONTENT_FILTER_MODE_LABELS, async (value) => {
-          await this.callbacks.onPatchConfig({ dynamicFilterMode: value });
-        }),
+        this.createSelect("\u52A8\u6001\u8FC7\u6EE4\u6A21\u5F0F", this.config.dynamicFilterMode, CONTENT_FILTER_MODE_LABELS, (value) => __async(this, null, function* () {
+          yield this.callbacks.onPatchConfig({ dynamicFilterMode: value });
+        })),
         this.createRegexPatternInput(),
-        this.createNumberInput("\u52A8\u6001\u6700\u5C11\u547D\u4E2D\u6570", this.config.dynamicRegexKeywordMinMatches, async (value) => {
-          await this.callbacks.onPatchConfig({ dynamicRegexKeywordMinMatches: value });
-        }),
+        this.createNumberInput("\u52A8\u6001\u6700\u5C11\u547D\u4E2D\u6570", "\u4EC5\u5BF9\u7591\u4F3C\u5E7F\u544A\u8BCD\u547D\u4E2D\u8FBE\u5230\u8BE5\u6570\u91CF\u7684\u5185\u5BB9\u91C7\u53D6\u52A8\u4F5C\u3002", this.config.dynamicRegexKeywordMinMatches, (value) => __async(this, null, function* () {
+          yield this.callbacks.onPatchConfig({ dynamicRegexKeywordMinMatches: value });
+        })),
         this.createSectionLabel("\u8BC4\u8BBA\u533A\u5E7F\u544A\u8FC7\u6EE4"),
-        this.createSelect("\u8BC4\u8BBA\u8FC7\u6EE4\u6A21\u5F0F", this.config.commentFilterMode, CONTENT_FILTER_MODE_LABELS, async (value) => {
-          await this.callbacks.onPatchConfig({ commentFilterMode: value });
-        }),
-        this.createCheckbox("\u9690\u85CF\u5339\u914D\u8BC4\u8BBA\u7684\u56DE\u590D", this.config.commentHideReplies, async (checked) => {
-          await this.callbacks.onPatchConfig({ commentHideReplies: checked });
-        }),
+        this.createSelect("\u8BC4\u8BBA\u8FC7\u6EE4\u6A21\u5F0F", this.config.commentFilterMode, CONTENT_FILTER_MODE_LABELS, (value) => __async(this, null, function* () {
+          yield this.callbacks.onPatchConfig({ commentFilterMode: value });
+        })),
+        this.createCheckbox("\u540C\u65F6\u5904\u7406\u547D\u4E2D\u8BC4\u8BBA\u7684\u56DE\u590D", "\u5F00\u542F\u540E\uFF0C\u547D\u4E2D\u4E3B\u8BC4\u8BBA\u65F6\u53EF\u540C\u6B65\u9690\u85CF\u5176\u56DE\u590D\u697C\u5C42\u3002", this.config.commentHideReplies, (checked) => __async(this, null, function* () {
+          yield this.callbacks.onPatchConfig({ commentHideReplies: checked });
+        })),
         this.createResetButton(true)
       ];
       if (this.filterValidationMessage) {
         children.splice(3, 0, this.createValidationMessage(this.filterValidationMessage));
       }
       this.filterForm.replaceChildren(...children);
-      this.panel.querySelector("[data-section='filters']")?.replaceChildren(this.filterForm);
+      (_a = this.panel.querySelector("[data-section='filters']")) == null ? void 0 : _a.replaceChildren(
+        this.createSectionHeading("\u52A8\u6001\u4E0E\u8BC4\u8BBA", "\u9ED8\u8BA4\u5173\u95ED\uFF0C\u907F\u514D\u8BEF\u4F24\u6B63\u5E38\u5185\u5BB9\u3002\u9700\u8981\u65F6\u518D\u5355\u72EC\u5F00\u542F\u3002"),
+        this.filterForm
+      );
     }
     renderCategories() {
-      const wrapper = document.createElement("div");
-      wrapper.className = "bsb-tm-categories";
+      var _a;
+      this.categoryForm.replaceChildren();
       for (const category of CATEGORY_ORDER) {
         const row = document.createElement("label");
         row.className = "bsb-tm-category-row";
@@ -961,48 +1240,56 @@
           option.selected = this.config.categoryModes[category] === mode;
           select.appendChild(option);
         }
-        select.addEventListener("change", async () => {
-          await this.callbacks.onCategoryModeChange(category, select.value);
-        });
+        select.addEventListener("change", () => __async(this, null, function* () {
+          yield this.callbacks.onCategoryModeChange(category, select.value);
+        }));
         row.append(label, select);
-        wrapper.appendChild(row);
+        this.categoryForm.appendChild(row);
       }
-      this.panel.querySelector("[data-section='categories']")?.replaceChildren(wrapper);
+      (_a = this.panel.querySelector("[data-section='categories']")) == null ? void 0 : _a.replaceChildren(
+        this.createSectionHeading("\u5206\u7C7B\u5904\u7406", "\u6CBF\u7528\u539F\u9879\u76EE\u7684\u81EA\u52A8/\u624B\u52A8/\u4EC5\u63D0\u793A/\u5173\u95ED\u8BED\u4E49\u3002"),
+        this.categoryForm
+      );
     }
-    createCheckbox(labelText, checked, onChange) {
+    createCheckbox(labelText, helpText, checked, onChange) {
       const label = document.createElement("label");
       label.className = "bsb-tm-field";
+      const copy = document.createElement("div");
+      copy.className = "bsb-tm-field-copy";
+      const title = document.createElement("span");
+      title.className = "bsb-tm-field-title";
+      title.textContent = labelText;
+      const help = document.createElement("small");
+      help.className = "bsb-tm-field-help";
+      help.textContent = helpText;
       const input = document.createElement("input");
       input.type = "checkbox";
       input.checked = checked;
-      input.addEventListener("change", async () => {
-        await onChange(input.checked);
-      });
-      const text = document.createElement("span");
-      text.textContent = labelText;
-      label.append(input, text);
+      input.addEventListener("change", () => __async(null, null, function* () {
+        yield onChange(input.checked);
+      }));
+      copy.append(title, help);
+      label.append(copy, input);
       return label;
     }
-    createInput(labelText, value, onCommit) {
+    createInput(labelText, helpText, value, onCommit) {
       const wrapper = document.createElement("label");
       wrapper.className = "bsb-tm-field stacked";
-      const label = document.createElement("span");
-      label.textContent = labelText;
+      wrapper.append(this.createInputLabel(labelText, helpText));
       const input = document.createElement("input");
       input.type = "text";
       input.value = value;
       input.spellcheck = false;
-      input.addEventListener("change", async () => {
-        await onCommit(input.value.trim());
-      });
-      wrapper.append(label, input);
+      input.addEventListener("change", () => __async(this, null, function* () {
+        yield onCommit(input.value.trim());
+      }));
+      wrapper.append(input);
       return wrapper;
     }
     createRegexPatternInput() {
       const wrapper = document.createElement("label");
       wrapper.className = "bsb-tm-field stacked";
-      const label = document.createElement("span");
-      label.textContent = "\u52A8\u6001\u5173\u952E\u8BCD\u6B63\u5219";
+      wrapper.append(this.createInputLabel("\u52A8\u6001\u5173\u952E\u8BCD\u6B63\u5219", "\u7528\u4E8E\u8BC6\u522B\u53EF\u7591\u5E7F\u544A\u63AA\u8F9E\u3002\u4FDD\u7559\u9ED8\u8BA4\u503C\u901A\u5E38\u66F4\u7A33\u3002"));
       const input = document.createElement("input");
       input.type = "text";
       input.value = this.config.dynamicRegexPattern;
@@ -1010,30 +1297,30 @@
       if (this.filterValidationMessage) {
         input.setAttribute("aria-invalid", "true");
       }
-      input.addEventListener("change", async () => {
+      input.addEventListener("change", () => __async(this, null, function* () {
+        var _a;
         const nextValue = input.value.trim();
         const validation = validateStoredPattern(nextValue);
         if (!validation.valid) {
-          this.filterValidationMessage = validation.error ?? "\u6B63\u5219\u683C\u5F0F\u65E0\u6548";
+          this.filterValidationMessage = (_a = validation.error) != null ? _a : "\u6B63\u5219\u683C\u5F0F\u65E0\u6548";
           this.renderFilters();
           return;
         }
         this.filterValidationMessage = null;
         try {
-          await this.callbacks.onPatchConfig({ dynamicRegexPattern: nextValue });
-        } catch {
+          yield this.callbacks.onPatchConfig({ dynamicRegexPattern: nextValue });
+        } catch (_error) {
           this.filterValidationMessage = "\u6B63\u5219\u4FDD\u5B58\u5931\u8D25";
           this.renderFilters();
         }
-      });
-      wrapper.append(label, input);
+      }));
+      wrapper.append(input);
       return wrapper;
     }
     createSelect(labelText, value, options, onCommit) {
       const wrapper = document.createElement("label");
       wrapper.className = "bsb-tm-field stacked";
-      const label = document.createElement("span");
-      label.textContent = labelText;
+      wrapper.append(this.createInputLabel(labelText));
       const select = document.createElement("select");
       for (const [optionValue, optionLabel] of Object.entries(options)) {
         const option = document.createElement("option");
@@ -1042,26 +1329,25 @@
         option.selected = optionValue === value;
         select.appendChild(option);
       }
-      select.addEventListener("change", async () => {
-        await onCommit(select.value);
-      });
-      wrapper.append(label, select);
+      select.addEventListener("change", () => __async(this, null, function* () {
+        yield onCommit(select.value);
+      }));
+      wrapper.append(select);
       return wrapper;
     }
-    createNumberInput(labelText, value, onCommit) {
+    createNumberInput(labelText, helpText, value, onCommit) {
       const wrapper = document.createElement("label");
       wrapper.className = "bsb-tm-field stacked";
-      const label = document.createElement("span");
-      label.textContent = labelText;
+      wrapper.append(this.createInputLabel(labelText, helpText));
       const input = document.createElement("input");
       input.type = "number";
       input.value = String(value);
       input.min = "0";
       input.step = "1";
-      input.addEventListener("change", async () => {
-        await onCommit(Number(input.value));
-      });
-      wrapper.append(label, input);
+      input.addEventListener("change", () => __async(this, null, function* () {
+        yield onCommit(Number(input.value));
+      }));
+      wrapper.append(input);
       return wrapper;
     }
     createResetButton(compact) {
@@ -1069,28 +1355,49 @@
       button.type = "button";
       button.className = `bsb-tm-button danger${compact ? " compact" : ""}`;
       button.textContent = "\u6062\u590D\u9ED8\u8BA4\u8BBE\u7F6E";
-      button.addEventListener("click", async () => {
-        await this.callbacks.onReset();
-      });
+      button.addEventListener("click", () => __async(this, null, function* () {
+        yield this.callbacks.onReset();
+      }));
       return button;
     }
     createHeader() {
       const header = document.createElement("div");
       header.className = "bsb-tm-panel-header";
+      const titleWrap = document.createElement("div");
       const title = document.createElement("strong");
+      title.id = "bsb-tm-panel-title";
       title.textContent = SCRIPT_NAME;
+      const subtitle = document.createElement("div");
+      subtitle.className = "bsb-tm-panel-subtitle";
+      subtitle.textContent = "\u6309\u4E0A\u6E38\u4F53\u9A8C\u505A\u8F7B\u91CF\u589E\u5F3A\uFF0C\u4E0D\u6539\u5199 B \u7AD9\u539F\u6709\u5E03\u5C40\u3002";
+      titleWrap.append(title, subtitle);
       const closeButton = document.createElement("button");
       closeButton.type = "button";
       closeButton.className = "bsb-tm-button secondary bsb-tm-panel-close";
       closeButton.textContent = "\u5173\u95ED";
-      header.append(title, closeButton);
+      header.append(titleWrap, closeButton);
       return header;
     }
     createSection(name) {
-      const section = document.createElement("div");
+      const section = document.createElement("section");
       section.className = "bsb-tm-panel-section";
       section.dataset.section = name;
       return section;
+    }
+    createSectionHeading(titleText, descriptionText) {
+      const wrapper = document.createElement("div");
+      wrapper.className = "bsb-tm-section-heading";
+      const title = document.createElement("strong");
+      title.className = "bsb-tm-section-title";
+      title.textContent = titleText;
+      wrapper.appendChild(title);
+      if (descriptionText) {
+        const description = document.createElement("p");
+        description.className = "bsb-tm-section-description";
+        description.textContent = descriptionText;
+        wrapper.appendChild(description);
+      }
+      return wrapper;
     }
     createSectionLabel(text) {
       const label = document.createElement("strong");
@@ -1098,10 +1405,26 @@
       label.textContent = text;
       return label;
     }
+    createInputLabel(titleText, helpText) {
+      const wrapper = document.createElement("div");
+      wrapper.className = "bsb-tm-input-label";
+      const title = document.createElement("span");
+      title.className = "bsb-tm-field-title";
+      title.textContent = titleText;
+      wrapper.appendChild(title);
+      if (helpText) {
+        const help = document.createElement("small");
+        help.className = "bsb-tm-field-help";
+        help.textContent = helpText;
+        wrapper.appendChild(help);
+      }
+      return wrapper;
+    }
     createSummaryLine(labelText, valueText) {
       const line = document.createElement("div");
+      line.className = "bsb-tm-summary-line";
       const label = document.createElement("strong");
-      label.textContent = `${labelText}\uFF1A`;
+      label.textContent = labelText;
       const value = document.createElement("span");
       value.textContent = valueText;
       line.append(label, value);
@@ -1112,6 +1435,141 @@
       message.className = "bsb-tm-validation-message";
       message.textContent = text;
       return message;
+    }
+  };
+
+  // src/ui/preview-bar.ts
+  function resolvePreviewParents(video) {
+    var _a, _b, _c, _d;
+    const scope = (_a = video == null ? void 0 : video.closest(".bpx-player-control-wrap, .bpx-player-control-entity")) != null ? _a : document;
+    const main = (_b = scope.querySelector(".bpx-player-progress")) != null ? _b : scope.querySelector(".bpx-player-progress-wrap");
+    const shadow = (_d = (_c = scope.querySelector(".bpx-player-shadow-progress-area")) != null ? _c : scope.querySelector(".bpx-player-progress")) != null ? _d : scope.querySelector(".bpx-player-progress-wrap");
+    if (!main || !shadow) {
+      return null;
+    }
+    return { main, shadow };
+  }
+  function createContainer(id) {
+    const container = document.createElement("ul");
+    container.id = id;
+    return container;
+  }
+  var PreviewBar = class {
+    constructor() {
+      __publicField(this, "mainContainer", createContainer("previewbar"));
+      __publicField(this, "shadowContainer", createContainer("shadowPreviewbar"));
+      __publicField(this, "boundVideo", null);
+      __publicField(this, "boundParents", null);
+      __publicField(this, "segments", []);
+      __publicField(this, "enabled", true);
+      __publicField(this, "handleDurationChange", () => {
+        this.render();
+      });
+    }
+    bind(video) {
+      if (this.boundVideo === video) {
+        if (!this.boundParents || !this.boundParents.main.isConnected || !this.boundParents.shadow.isConnected) {
+          this.boundParents = resolvePreviewParents(video);
+        }
+        this.ensureMounted();
+        this.render();
+        return;
+      }
+      this.unbind();
+      this.boundVideo = video;
+      this.boundParents = resolvePreviewParents(video);
+      if (!this.boundVideo) {
+        return;
+      }
+      this.boundVideo.addEventListener("loadedmetadata", this.handleDurationChange);
+      this.boundVideo.addEventListener("durationchange", this.handleDurationChange);
+      this.ensureMounted();
+      this.render();
+    }
+    setEnabled(enabled) {
+      this.enabled = enabled;
+      this.render();
+    }
+    setSegments(segments) {
+      this.segments = segments.filter((segment) => segment.actionType !== "full");
+      this.render();
+    }
+    clear() {
+      this.segments = [];
+      this.render();
+    }
+    destroy() {
+      this.unbind();
+      this.mainContainer.remove();
+      this.shadowContainer.remove();
+    }
+    unbind() {
+      if (this.boundVideo) {
+        this.boundVideo.removeEventListener("loadedmetadata", this.handleDurationChange);
+        this.boundVideo.removeEventListener("durationchange", this.handleDurationChange);
+      }
+      this.boundVideo = null;
+      this.boundParents = null;
+    }
+    ensureMounted() {
+      if (!this.boundParents) {
+        return;
+      }
+      if (getComputedStyle(this.boundParents.main).position === "static") {
+        this.boundParents.main.style.position = "relative";
+      }
+      if (getComputedStyle(this.boundParents.shadow).position === "static") {
+        this.boundParents.shadow.style.position = "relative";
+      }
+      if (this.mainContainer.parentElement !== this.boundParents.main) {
+        this.boundParents.main.prepend(this.mainContainer);
+      }
+      if (this.shadowContainer.parentElement !== this.boundParents.shadow) {
+        this.boundParents.shadow.prepend(this.shadowContainer);
+      }
+    }
+    render() {
+      this.mainContainer.replaceChildren();
+      this.shadowContainer.replaceChildren();
+      if (!this.enabled || !this.boundVideo || !this.boundParents) {
+        return;
+      }
+      this.ensureMounted();
+      const duration = Number.isFinite(this.boundVideo.duration) ? this.boundVideo.duration : 0;
+      if (duration <= 0) {
+        return;
+      }
+      const segments = [...this.segments].sort((left, right) => {
+        var _a, _b;
+        const leftDuration = ((_a = left.end) != null ? _a : left.start) - left.start;
+        const rightDuration = ((_b = right.end) != null ? _b : right.start) - right.start;
+        return rightDuration - leftDuration;
+      });
+      for (const segment of segments) {
+        const bar = this.createBar(segment, duration);
+        if (!bar) {
+          continue;
+        }
+        this.mainContainer.appendChild(bar);
+        this.shadowContainer.appendChild(bar.cloneNode(true));
+      }
+    }
+    createBar(segment, duration) {
+      var _a;
+      const start = Math.max(0, Math.min(duration, segment.start));
+      const end = segment.actionType === "poi" ? Math.min(duration, start + Math.max(0.6, duration * 25e-4)) : Math.max(start, Math.min(duration, (_a = segment.end) != null ? _a : start));
+      if (end <= start) {
+        return null;
+      }
+      const bar = document.createElement("li");
+      bar.className = "previewbar";
+      bar.dataset.category = segment.category;
+      bar.dataset.actionType = segment.actionType;
+      bar.style.left = `${start / duration * 100}%`;
+      bar.style.right = `${100 - end / duration * 100}%`;
+      bar.style.backgroundColor = CATEGORY_COLORS[segment.category];
+      bar.style.opacity = segment.actionType === "poi" ? "0.9" : "0.7";
+      return bar;
     }
   };
 
@@ -1167,7 +1625,7 @@
     const buffer = ["B", "V", "1", "0", "0", "0", "0", "0", "0", "0", "0", "0"];
     let index = buffer.length - 1;
     let value = (MAX_AVID | BigInt(parsedAvid)) ^ XOR_CODE;
-    while (value > 0n && index >= 0) {
+    while (value > BigInt(0) && index >= 0) {
       buffer[index] = ALPHABET[Number(value % BASE)];
       value /= BASE;
       index -= 1;
@@ -1221,55 +1679,60 @@
     return null;
   }
   function resolvePages(initialState) {
-    const videoData = asRecord(initialState?.videoData);
-    const videoInfo = asRecord(initialState?.videoInfo);
-    const rawPages = videoData?.pages ?? videoInfo?.pages;
+    var _a;
+    const videoData = asRecord(initialState == null ? void 0 : initialState.videoData);
+    const videoInfo = asRecord(initialState == null ? void 0 : initialState.videoInfo);
+    const rawPages = (_a = videoData == null ? void 0 : videoData.pages) != null ? _a : videoInfo == null ? void 0 : videoInfo.pages;
     if (!Array.isArray(rawPages)) {
       return [];
     }
     return rawPages.map((entry) => asRecord(entry)).filter((entry) => Boolean(entry));
   }
-  function extractBvidFromUrl(url) {
+  function parseUrl(url) {
     try {
-      const parsed = new URL(url);
-      const pathMatch = parsed.pathname.match(/BV1[a-zA-Z0-9]{9}/u);
-      if (pathMatch?.[0] && isBvid(pathMatch[0])) {
-        return pathMatch[0];
-      }
-      const searchParam = parsed.searchParams.get("bvid");
-      return readBvid(searchParam);
-    } catch {
+      return new URL(url, window.location.origin);
+    } catch (_error) {
       return null;
     }
+  }
+  function extractBvidFromUrl(url) {
+    const parsed = parseUrl(url);
+    if (!parsed) {
+      return null;
+    }
+    const pathMatch = parsed.pathname.match(/BV1[a-zA-Z0-9]{9}/u);
+    if ((pathMatch == null ? void 0 : pathMatch[0]) && isBvid(pathMatch[0])) {
+      return pathMatch[0];
+    }
+    const searchParam = parsed.searchParams.get("bvid");
+    return readBvid(searchParam);
   }
   function extractAidFromUrl(url) {
-    try {
-      const parsed = new URL(url);
-      const pathMatch = parsed.pathname.match(/(?:^|\/)av(\d+)(?:\/|$)/iu);
-      if (pathMatch?.[1]) {
-        return readAid(pathMatch[1]);
-      }
-      return firstNonNull(readAid(parsed.searchParams.get("aid")), readAid(parsed.searchParams.get("avid")));
-    } catch {
+    const parsed = parseUrl(url);
+    if (!parsed) {
       return null;
     }
+    const pathMatch = parsed.pathname.match(/(?:^|\/)av(\d+)(?:\/|$)/iu);
+    if (pathMatch == null ? void 0 : pathMatch[1]) {
+      return readAid(pathMatch[1]);
+    }
+    return firstNonNull(readAid(parsed.searchParams.get("aid")), readAid(parsed.searchParams.get("avid")));
   }
   function extractPageFromUrl(url) {
-    try {
-      const parsed = new URL(url);
-      const rawPage = Number(parsed.searchParams.get("p") ?? "1");
-      return Number.isFinite(rawPage) && rawPage > 0 ? Math.floor(rawPage) : 1;
-    } catch {
+    var _a;
+    const parsed = parseUrl(url);
+    if (!parsed) {
       return 1;
     }
+    const rawPage = Number((_a = parsed.searchParams.get("p")) != null ? _a : "1");
+    return Number.isFinite(rawPage) && rawPage > 0 ? Math.floor(rawPage) : 1;
   }
   function extractCidFromUrl(url) {
-    try {
-      const parsed = new URL(url);
-      return readIdentifier(parsed.searchParams.get("cid"));
-    } catch {
+    const parsed = parseUrl(url);
+    if (!parsed) {
       return null;
     }
+    return readIdentifier(parsed.searchParams.get("cid"));
   }
   function resolveCidFromPages(initialState, page) {
     for (const entry of resolvePages(initialState)) {
@@ -1282,58 +1745,62 @@
     return null;
   }
   function resolveTitle(initialState) {
+    var _a, _b, _c, _d, _e;
     return firstNonNull(
-      readString(initialState?.h1Title),
-      readString(asRecord(initialState?.videoData)?.title),
-      readString(asRecord(initialState?.videoInfo)?.title),
-      readString(asRecord(initialState?.epInfo)?.title),
-      readString(asRecord(initialState?.epInfo)?.longTitle),
-      readString(asRecord(initialState?.mediaInfo)?.title)
+      readString(initialState == null ? void 0 : initialState.h1Title),
+      readString((_a = asRecord(initialState == null ? void 0 : initialState.videoData)) == null ? void 0 : _a.title),
+      readString((_b = asRecord(initialState == null ? void 0 : initialState.videoInfo)) == null ? void 0 : _b.title),
+      readString((_c = asRecord(initialState == null ? void 0 : initialState.epInfo)) == null ? void 0 : _c.title),
+      readString((_d = asRecord(initialState == null ? void 0 : initialState.epInfo)) == null ? void 0 : _d.longTitle),
+      readString((_e = asRecord(initialState == null ? void 0 : initialState.mediaInfo)) == null ? void 0 : _e.title)
     );
   }
   function resolvePage(snapshot, initialState) {
+    var _a, _b, _c;
     const fromUrl = extractPageFromUrl(snapshot.url);
     if (fromUrl > 1) {
       return fromUrl;
     }
     return firstNonNull(
-      readNumber(snapshot.playerManifest?.p),
-      readNumber(asRecord(initialState?.videoData)?.p),
-      readNumber(asRecord(initialState?.videoInfo)?.p),
+      readNumber((_a = snapshot.playerManifest) == null ? void 0 : _a.p),
+      readNumber((_b = asRecord(initialState == null ? void 0 : initialState.videoData)) == null ? void 0 : _b.p),
+      readNumber((_c = asRecord(initialState == null ? void 0 : initialState.videoInfo)) == null ? void 0 : _c.p),
       1
     );
   }
   function resolveBvid(snapshot, initialState) {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k;
     const directBvid = firstNonNull(
-      readBvid(initialState?.bvid),
-      readBvid(asRecord(initialState?.videoData)?.bvid),
-      readBvid(asRecord(initialState?.videoInfo)?.bvid),
-      readBvid(asRecord(initialState?.epInfo)?.bvid),
-      readBvid(snapshot.playerManifest?.bvid),
+      readBvid(initialState == null ? void 0 : initialState.bvid),
+      readBvid((_a = asRecord(initialState == null ? void 0 : initialState.videoData)) == null ? void 0 : _a.bvid),
+      readBvid((_b = asRecord(initialState == null ? void 0 : initialState.videoInfo)) == null ? void 0 : _b.bvid),
+      readBvid((_c = asRecord(initialState == null ? void 0 : initialState.epInfo)) == null ? void 0 : _c.bvid),
+      readBvid((_d = snapshot.playerManifest) == null ? void 0 : _d.bvid),
       extractBvidFromUrl(snapshot.url)
     );
     if (directBvid) {
       return directBvid;
     }
     const aid = firstNonNull(
-      readAid(initialState?.aid),
-      readAid(asRecord(initialState?.videoData)?.aid),
-      readAid(asRecord(initialState?.videoInfo)?.aid),
-      readAid(asRecord(initialState?.epInfo)?.aid),
-      readAid(snapshot.playerManifest?.aid),
-      readAid(asRecord(snapshot.playInfo)?.aid),
-      readAid(asRecord(asRecord(snapshot.playInfo)?.data)?.aid),
+      readAid(initialState == null ? void 0 : initialState.aid),
+      readAid((_e = asRecord(initialState == null ? void 0 : initialState.videoData)) == null ? void 0 : _e.aid),
+      readAid((_f = asRecord(initialState == null ? void 0 : initialState.videoInfo)) == null ? void 0 : _f.aid),
+      readAid((_g = asRecord(initialState == null ? void 0 : initialState.epInfo)) == null ? void 0 : _g.aid),
+      readAid((_h = snapshot.playerManifest) == null ? void 0 : _h.aid),
+      readAid((_i = asRecord(snapshot.playInfo)) == null ? void 0 : _i.aid),
+      readAid((_k = asRecord((_j = asRecord(snapshot.playInfo)) == null ? void 0 : _j.data)) == null ? void 0 : _k.aid),
       extractAidFromUrl(snapshot.url)
     );
     return aid ? avidToBvid(aid) : null;
   }
   function resolveCid(snapshot, initialState, page) {
+    var _a, _b, _c, _d;
     return firstNonNull(
-      readIdentifier(initialState?.cid),
-      readIdentifier(asRecord(initialState?.videoData)?.cid),
-      readIdentifier(asRecord(initialState?.videoInfo)?.cid),
-      readIdentifier(asRecord(initialState?.epInfo)?.cid),
-      readIdentifier(snapshot.playerManifest?.cid),
+      readIdentifier(initialState == null ? void 0 : initialState.cid),
+      readIdentifier((_a = asRecord(initialState == null ? void 0 : initialState.videoData)) == null ? void 0 : _a.cid),
+      readIdentifier((_b = asRecord(initialState == null ? void 0 : initialState.videoInfo)) == null ? void 0 : _b.cid),
+      readIdentifier((_c = asRecord(initialState == null ? void 0 : initialState.epInfo)) == null ? void 0 : _c.cid),
+      readIdentifier((_d = snapshot.playerManifest) == null ? void 0 : _d.cid),
       extractCidFromUrl(snapshot.url),
       resolveCidFromPages(initialState, page)
     );
@@ -1379,6 +1846,9 @@
       if (parsed.hostname === "space.bilibili.com") {
         return "channel";
       }
+      if (parsed.pathname.startsWith("/account/history")) {
+        return "history";
+      }
       if (parsed.pathname.startsWith("/video/")) {
         return "video";
       }
@@ -1395,7 +1865,7 @@
         return "opus";
       }
       return "main";
-    } catch {
+    } catch (_error) {
       return "unknown";
     }
   }
@@ -1428,13 +1898,14 @@
     return document.querySelector("video");
   }
   function resolvePlayerHost(video) {
+    var _a;
     for (const selector of PLAYER_HOST_SELECTORS) {
       const found = video.closest(selector);
       if (found) {
         return found;
       }
     }
-    return video.parentElement ?? video;
+    return (_a = video.parentElement) != null ? _a : video;
   }
   function formatSegmentTime(seconds) {
     const total = Math.max(0, Math.floor(seconds));
@@ -1554,38 +2025,70 @@
     ".bsb-tm-notice"
   ];
   var ScriptController = class {
-    constructor(configStore, statsStore) {
+    constructor(configStore, statsStore, cache) {
       this.configStore = configStore;
       this.statsStore = statsStore;
+      this.cache = cache;
+      __publicField(this, "started", false);
+      __publicField(this, "currentConfig");
+      __publicField(this, "currentStats");
+      __publicField(this, "segmentStates", /* @__PURE__ */ new Map());
+      __publicField(this, "notices", new NoticeCenter());
+      __publicField(this, "client");
+      __publicField(this, "panel");
+      __publicField(this, "previewBar", new PreviewBar());
+      __publicField(this, "tickIntervalId", null);
+      __publicField(this, "domObserver", null);
+      __publicField(this, "stopObservingUrl", null);
+      __publicField(this, "currentContext", null);
+      __publicField(this, "currentVideo", null);
+      __publicField(this, "currentSignature", "");
+      __publicField(this, "currentSegments", []);
+      __publicField(this, "activeMuteOwners", /* @__PURE__ */ new Set());
+      __publicField(this, "previousMutedState", false);
+      __publicField(this, "refreshing", false);
+      __publicField(this, "refreshScheduled", false);
+      __publicField(this, "refreshTimerId", null);
+      __publicField(this, "pendingRefresh", false);
+      __publicField(this, "pendingForceFetch", false);
+      __publicField(this, "pendingVisibleRefresh", false);
+      __publicField(this, "lastTickTime", null);
+      __publicField(this, "lastAnnouncedSignature", "");
+      __publicField(this, "handleVisibilityChange", () => {
+        if (!document.hidden && this.pendingVisibleRefresh) {
+          this.pendingVisibleRefresh = false;
+          const nextForceFetch = this.pendingForceFetch;
+          this.pendingForceFetch = false;
+          this.scheduleRefresh(nextForceFetch);
+        }
+      });
       this.currentConfig = this.configStore.getSnapshot();
       this.currentStats = this.statsStore.getSnapshot();
+      this.client = new SponsorBlockClient(this.cache);
       this.panel = new SettingsPanel(this.currentConfig, this.currentStats, {
-        onPatchConfig: async (patch) => {
-          await this.configStore.update((config) => ({
-            ...config,
-            ...patch,
-            categoryModes: {
-              ...config.categoryModes,
-              ...patch.categoryModes ?? {}
-            }
-          }));
-        },
-        onCategoryModeChange: async (category, mode) => {
-          await this.configStore.update((config) => ({
-            ...config,
-            categoryModes: {
-              ...config.categoryModes,
+        onPatchConfig: (patch) => __async(this, null, function* () {
+          yield this.configStore.update((config) => {
+            var _a;
+            return __spreadProps(__spreadValues(__spreadValues({}, config), patch), {
+              categoryModes: __spreadValues(__spreadValues({}, config.categoryModes), (_a = patch.categoryModes) != null ? _a : {})
+            });
+          });
+        }),
+        onCategoryModeChange: (category, mode) => __async(this, null, function* () {
+          yield this.configStore.update((config) => __spreadProps(__spreadValues({}, config), {
+            categoryModes: __spreadProps(__spreadValues({}, config.categoryModes), {
               [category]: mode
-            }
+            })
           }));
-        },
-        onReset: async () => {
-          await this.configStore.reset();
-        }
+        }),
+        onReset: () => __async(this, null, function* () {
+          yield this.configStore.reset();
+        })
       });
       this.configStore.subscribe((config) => {
         this.currentConfig = config;
         this.panel.updateConfig(config);
+        this.previewBar.setEnabled(config.enabled && config.showPreviewBar);
         if (!config.enabled) {
           this.notices.clear();
           this.restoreMuteState();
@@ -1597,85 +2100,62 @@
         this.panel.updateStats(stats);
       });
     }
-    started = false;
-    currentConfig;
-    currentStats;
-    segmentStates = /* @__PURE__ */ new Map();
-    notices = new NoticeCenter();
-    cache = new PersistentCache();
-    client = new SponsorBlockClient(this.cache);
-    panel;
-    tickIntervalId = null;
-    domObserver = null;
-    stopObservingUrl = null;
-    currentContext = null;
-    currentVideo = null;
-    currentSignature = "";
-    currentSegments = [];
-    activeMuteOwners = /* @__PURE__ */ new Set();
-    previousMutedState = false;
-    refreshing = false;
-    refreshScheduled = false;
-    refreshTimerId = null;
-    pendingRefresh = false;
-    pendingForceFetch = false;
-    pendingVisibleRefresh = false;
-    lastTickTime = null;
-    handleVisibilityChange = () => {
-      if (!document.hidden && this.pendingVisibleRefresh) {
-        this.pendingVisibleRefresh = false;
-        const nextForceFetch = this.pendingForceFetch;
-        this.pendingForceFetch = false;
-        this.scheduleRefresh(nextForceFetch);
-      }
-    };
-    async start() {
-      if (this.started) {
-        return;
-      }
-      this.started = true;
-      await this.cache.load();
-      this.panel.mount();
-      await this.refreshCurrentVideo(true);
-      this.stopObservingUrl = observeUrlChanges(() => {
-        this.scheduleRefresh(true);
-      });
-      this.tickIntervalId = window.setInterval(() => {
-        this.tick();
-      }, TICK_INTERVAL_MS);
-      this.domObserver = new MutationObserver((records) => {
-        if (!mutationsTouchSelectors(records, VIDEO_RELEVANT_SELECTORS, VIDEO_IGNORED_SELECTORS)) {
+    start() {
+      return __async(this, null, function* () {
+        if (this.started) {
           return;
         }
-        this.scheduleRefresh();
+        this.started = true;
+        yield this.cache.load();
+        this.previewBar.setEnabled(this.currentConfig.enabled && this.currentConfig.showPreviewBar);
+        this.updateRuntimeStatus(this.buildIdleStatus());
+        yield this.refreshCurrentVideo(true);
+        this.stopObservingUrl = observeUrlChanges(() => {
+          this.scheduleRefresh(true);
+        });
+        this.tickIntervalId = window.setInterval(() => {
+          this.tick();
+        }, TICK_INTERVAL_MS);
+        this.domObserver = new MutationObserver((records) => {
+          if (!mutationsTouchSelectors(records, VIDEO_RELEVANT_SELECTORS, VIDEO_IGNORED_SELECTORS)) {
+            return;
+          }
+          this.scheduleRefresh();
+        });
+        this.domObserver.observe(document.documentElement, {
+          childList: true,
+          subtree: true
+        });
+        document.addEventListener("visibilitychange", this.handleVisibilityChange);
+        window.addEventListener(
+          "pagehide",
+          () => {
+            this.stop();
+          },
+          { once: true }
+        );
       });
-      this.domObserver.observe(document.documentElement, {
-        childList: true,
-        subtree: true
-      });
-      document.addEventListener("visibilitychange", this.handleVisibilityChange);
-      window.addEventListener(
-        "pagehide",
-        () => {
-          this.stop();
-        },
-        { once: true }
-      );
     }
     togglePanel() {
       this.panel.toggle();
     }
-    async clearCache() {
-      await this.cache.clear();
-      this.notices.show({
-        id: "bsb-cache-cleared",
-        title: "\u7F13\u5B58\u5DF2\u6E05\u7406",
-        message: "\u4E0B\u6B21\u8FDB\u5165\u89C6\u9891\u65F6\u4F1A\u91CD\u65B0\u8BF7\u6C42\u7247\u6BB5\u6570\u636E\u3002",
-        durationMs: 2800
+    openPanel() {
+      this.panel.open();
+    }
+    clearCache() {
+      return __async(this, null, function* () {
+        yield this.cache.clear();
+        this.notices.show({
+          id: "bsb-cache-cleared",
+          title: "\u7F13\u5B58\u5DF2\u6E05\u7406",
+          message: "\u4E0B\u6B21\u8FDB\u5165\u89C6\u9891\u65F6\u4F1A\u91CD\u65B0\u8BF7\u6C42\u7247\u6BB5\u6570\u636E\u3002",
+          durationMs: 2800
+        });
+        yield this.refreshCurrentVideo(true);
       });
-      await this.refreshCurrentVideo(true);
     }
     stop() {
+      var _a;
       if (!this.started) {
         return;
       }
@@ -1697,7 +2177,7 @@
       this.pendingForceFetch = false;
       this.pendingVisibleRefresh = false;
       this.lastTickTime = null;
-      this.domObserver?.disconnect();
+      (_a = this.domObserver) == null ? void 0 : _a.disconnect();
       this.domObserver = null;
       document.removeEventListener("visibilitychange", this.handleVisibilityChange);
       this.clearRuntimeState(true);
@@ -1720,79 +2200,153 @@
         void this.refreshCurrentVideo(nextForceFetch);
       }, 120);
     }
-    async refreshCurrentVideo(forceFetch = false) {
-      if (this.refreshing) {
-        this.pendingRefresh = true;
-        this.pendingForceFetch = this.pendingForceFetch || forceFetch;
-        return;
-      }
-      this.refreshing = true;
-      try {
-        if (!supportsVideoFeatures(window.location.href)) {
-          this.clearRuntimeState();
+    refreshCurrentVideo(forceFetch = false) {
+      return __async(this, null, function* () {
+        var _a, _b, _c, _d, _e, _f;
+        let resolvedContext = null;
+        if (this.refreshing) {
+          this.pendingRefresh = true;
+          this.pendingForceFetch = this.pendingForceFetch || forceFetch;
           return;
         }
-        const snapshot = await requestPageSnapshot() ?? {
-          url: window.location.href,
-          initialState: null,
-          playerManifest: null,
-          playInfo: null
-        };
-        const context = resolveVideoContext(snapshot);
-        const video = findVideoElement();
-        if (!context || !video) {
-          if (video && supportsVideoFeatures(window.location.href)) {
-            this.notices.show({
-              id: "bsb-context-pending",
-              title: "\u7B49\u5F85\u9875\u9762\u4FE1\u606F",
-              message: "\u6682\u65F6\u65E0\u6CD5\u8BC6\u522B\u5F53\u524D\u89C6\u9891\uFF0C\u811A\u672C\u4F1A\u7EE7\u7EED\u81EA\u52A8\u91CD\u8BD5\u3002",
-              durationMs: 2600
+        this.refreshing = true;
+        try {
+          if (!supportsVideoFeatures(window.location.href)) {
+            this.clearRuntimeState();
+            return;
+          }
+          const snapshot = (_a = yield requestPageSnapshot()) != null ? _a : {
+            url: window.location.href,
+            initialState: null,
+            playerManifest: null,
+            playInfo: null
+          };
+          const context = resolveVideoContext(snapshot);
+          resolvedContext = context;
+          const video = findVideoElement();
+          if (!context || !video) {
+            this.updateRuntimeStatus({
+              kind: "pending",
+              message: "\u7B49\u5F85\u64AD\u653E\u5668\u548C\u9875\u9762\u4FE1\u606F",
+              bvid: (_b = context == null ? void 0 : context.bvid) != null ? _b : null,
+              segmentCount: null
             });
+            if (video && supportsVideoFeatures(window.location.href)) {
+              this.notices.show({
+                id: "bsb-context-pending",
+                title: "\u7B49\u5F85\u9875\u9762\u4FE1\u606F",
+                message: "\u6682\u65F6\u65E0\u6CD5\u8BC6\u522B\u5F53\u524D\u89C6\u9891\uFF0C\u811A\u672C\u4F1A\u7EE7\u7EED\u81EA\u52A8\u91CD\u8BD5\u3002",
+                durationMs: 2600
+              });
+            }
+            this.clearRuntimeState();
+            return;
+          }
+          const signature = `${context.bvid}+${(_c = context.cid) != null ? _c : ""}`;
+          if (!forceFetch && signature === this.currentSignature && this.currentVideo === video) {
+            const playerHost2 = resolvePlayerHost(video);
+            this.notices.setHost(playerHost2);
+            this.previewBar.bind(video);
+            this.previewBar.setEnabled(this.currentConfig.enabled && this.currentConfig.showPreviewBar);
+            if (this.currentSegments.length > 0) {
+              this.previewBar.setSegments(this.currentSegments);
+            }
+            return;
           }
           this.clearRuntimeState();
-          return;
+          this.currentContext = context;
+          this.currentVideo = video;
+          this.currentSignature = signature;
+          const playerHost = resolvePlayerHost(video);
+          this.notices.setHost(playerHost);
+          this.previewBar.bind(video);
+          this.previewBar.setEnabled(this.currentConfig.enabled && this.currentConfig.showPreviewBar);
+          if (!this.currentConfig.enabled) {
+            this.updateRuntimeStatus({
+              kind: "idle",
+              message: "\u811A\u672C\u5DF2\u505C\u7528",
+              bvid: context.bvid,
+              segmentCount: null
+            });
+            return;
+          }
+          this.updateRuntimeStatus({
+            kind: "pending",
+            message: "\u6B63\u5728\u52A0\u8F7D SponsorBlock \u7247\u6BB5",
+            bvid: context.bvid,
+            segmentCount: null
+          });
+          const segments = yield this.client.getSegments(context, this.currentConfig);
+          this.currentSegments = normalizeSegments(segments, this.currentConfig, context.cid);
+          this.panel.setFullVideoLabels(this.currentSegments.filter((segment) => segment.actionType === "full"));
+          this.previewBar.setSegments(this.currentSegments);
+          if (this.currentSegments.length > 0) {
+            this.updateRuntimeStatus({
+              kind: "loaded",
+              message: `\u5DF2\u52A0\u8F7D ${this.currentSegments.length} \u4E2A\u53EF\u5904\u7406\u7247\u6BB5`,
+              bvid: context.bvid,
+              segmentCount: this.currentSegments.length
+            });
+            if (this.lastAnnouncedSignature !== signature) {
+              this.lastAnnouncedSignature = signature;
+              this.notices.show({
+                id: `segments-ready:${signature}`,
+                title: "SponsorBlock \u5DF2\u5C31\u7EEA",
+                message: `\u5F53\u524D\u89C6\u9891\u5DF2\u8F7D\u5165 ${this.currentSegments.length} \u4E2A\u53EF\u5904\u7406\u7247\u6BB5\u3002`,
+                durationMs: 2400
+              });
+            }
+          } else if (segments.length > 0) {
+            this.updateRuntimeStatus({
+              kind: "empty",
+              message: `\u5DF2\u8BFB\u53D6 ${segments.length} \u4E2A\u7247\u6BB5\uFF0C\u4F46\u5F53\u524D\u8BBE\u7F6E\u672A\u542F\u7528\u5BF9\u5E94\u5206\u7C7B`,
+              bvid: context.bvid,
+              segmentCount: 0
+            });
+          } else {
+            this.updateRuntimeStatus({
+              kind: "empty",
+              message: "\u5F53\u524D\u89C6\u9891\u6682\u65E0 SponsorBlock \u6570\u636E",
+              bvid: context.bvid,
+              segmentCount: 0
+            });
+          }
+          debugLog("Loaded segments", {
+            signature,
+            count: this.currentSegments.length
+          });
+        } catch (error) {
+          debugLog("Failed to refresh video context", error);
+          this.updateRuntimeStatus({
+            kind: "error",
+            message: error instanceof Error ? `\u7247\u6BB5\u8BFB\u53D6\u5931\u8D25\uFF1A${error.message}` : "\u7247\u6BB5\u8BFB\u53D6\u5931\u8D25",
+            bvid: (_f = (_e = resolvedContext == null ? void 0 : resolvedContext.bvid) != null ? _e : (_d = this.currentContext) == null ? void 0 : _d.bvid) != null ? _f : null,
+            segmentCount: null
+          });
+          this.notices.show({
+            id: "bsb-fetch-error",
+            title: "\u7247\u6BB5\u8BFB\u53D6\u5931\u8D25",
+            message: error instanceof Error ? error.message : "\u672A\u77E5\u9519\u8BEF",
+            durationMs: 4e3
+          });
+        } finally {
+          this.refreshing = false;
+          if (this.pendingRefresh) {
+            const nextForceFetch = this.pendingForceFetch;
+            this.pendingRefresh = false;
+            this.pendingForceFetch = false;
+            this.scheduleRefresh(nextForceFetch);
+          }
         }
-        const signature = `${context.bvid}+${context.cid ?? ""}`;
-        if (!forceFetch && signature === this.currentSignature && this.currentVideo === video) {
-          return;
-        }
-        this.clearRuntimeState();
-        this.currentContext = context;
-        this.currentVideo = video;
-        this.currentSignature = signature;
-        const playerHost = resolvePlayerHost(video);
-        this.panel.mount(playerHost);
-        if (!this.currentConfig.enabled) {
-          return;
-        }
-        const segments = await this.client.getSegments(context, this.currentConfig);
-        this.currentSegments = normalizeSegments(segments, this.currentConfig, context.cid);
-        this.panel.setFullVideoLabels(this.currentSegments.filter((segment) => segment.actionType === "full"));
-        debugLog("Loaded segments", {
-          signature,
-          count: this.currentSegments.length
-        });
-      } catch (error) {
-        debugLog("Failed to refresh video context", error);
-        this.notices.show({
-          id: "bsb-fetch-error",
-          title: "\u7247\u6BB5\u8BFB\u53D6\u5931\u8D25",
-          message: error instanceof Error ? error.message : "\u672A\u77E5\u9519\u8BEF",
-          durationMs: 4e3
-        });
-      } finally {
-        this.refreshing = false;
-        if (this.pendingRefresh) {
-          const nextForceFetch = this.pendingForceFetch;
-          this.pendingRefresh = false;
-          this.pendingForceFetch = false;
-          this.scheduleRefresh(nextForceFetch);
-        }
-      }
+      });
     }
     tick() {
       if (!this.currentConfig.enabled || !this.currentVideo || !this.currentContext || this.currentSegments.length === 0) {
         return;
+      }
+      if (this.currentConfig.showPreviewBar) {
+        this.previewBar.bind(this.currentVideo);
+        this.previewBar.setSegments(this.currentSegments);
       }
       const currentTime = this.currentVideo.currentTime;
       if (this.lastTickTime !== null && currentTime === this.lastTickTime && this.currentVideo.paused && !this.currentVideo.seeking) {
@@ -1992,10 +2546,11 @@
       }
       const start = segment.start;
       const end = segment.end;
+      this.dismissSegmentNotice(segment);
       this.currentVideo.currentTime = Math.max(end, this.currentVideo.currentTime);
       void this.statsStore.recordSkip(roundMinutes(end - start));
       this.notices.show({
-        id: this.noticeIdForSegment(segment),
+        id: this.resultNoticeIdForSegment(segment),
         title: `${verb}\uFF1A${CATEGORY_LABELS[segment.category]}`,
         message: `\u8303\u56F4 ${formatDurationLabel(start, end)}\u3002`,
         durationMs: this.currentConfig.noticeDurationSec * 1e3,
@@ -2062,6 +2617,9 @@
     noticeIdForSegment(segment) {
       return `segment:${segment.UUID}`;
     }
+    resultNoticeIdForSegment(segment) {
+      return `segment-result:${segment.UUID}`;
+    }
     clearRuntimeState(detachUi = false) {
       this.restoreMuteState();
       this.notices.clear();
@@ -2072,11 +2630,42 @@
       this.currentContext = null;
       this.currentVideo = null;
       this.panel.setFullVideoLabels([]);
+      this.previewBar.clear();
+      this.previewBar.bind(null);
+      this.notices.setHost(null);
       if (detachUi) {
         this.panel.unmount();
       } else {
-        this.panel.mount();
+        this.updateRuntimeStatus(this.buildIdleStatus());
       }
+    }
+    buildIdleStatus() {
+      var _a, _b, _c, _d;
+      if (!this.currentConfig.enabled) {
+        return {
+          kind: "idle",
+          message: "\u811A\u672C\u5DF2\u505C\u7528",
+          bvid: (_b = (_a = this.currentContext) == null ? void 0 : _a.bvid) != null ? _b : null,
+          segmentCount: null
+        };
+      }
+      if (supportsVideoFeatures(window.location.href)) {
+        return {
+          kind: "pending",
+          message: "\u7B49\u5F85\u64AD\u653E\u5668\u548C\u9875\u9762\u4FE1\u606F",
+          bvid: (_d = (_c = this.currentContext) == null ? void 0 : _c.bvid) != null ? _d : null,
+          segmentCount: null
+        };
+      }
+      return {
+        kind: "idle",
+        message: "\u5F53\u524D\u9875\u9762\u53EF\u4F7F\u7528\u7F29\u7565\u56FE\u6807\u7B7E\u4E0E\u5185\u5BB9\u589E\u5F3A",
+        bvid: null,
+        segmentCount: null
+      };
+    }
+    updateRuntimeStatus(status) {
+      this.panel.updateRuntimeStatus(status);
     }
     shouldResetSegmentState(currentTime, state) {
       return state.lastObservedTime !== null && currentTime < state.lastObservedTime - SEGMENT_REWIND_RESET_SEC;
@@ -2127,7 +2716,10 @@
     }
     const text = [
       ...element.querySelectorAll(".bili-rich-text__content span:not(.bili-dyn-item__interaction *), .opus-paragraph-children span, .dyn-card-opus__title")
-    ].map((node) => node.textContent ?? "").join(" ");
+    ].map((node) => {
+      var _a;
+      return (_a = node.textContent) != null ? _a : "";
+    }).join(" ");
     const matches = collectPatternMatches(text, pattern);
     if (!isLikelyPromoText(text, matches, config.dynamicRegexKeywordMinMatches)) {
       return null;
@@ -2147,10 +2739,12 @@
     return match.matches.length > 0 ? `\u7591\u4F3C\u5E7F\u544A: ${match.matches.join(" / ")}` : "\u7591\u4F3C\u5E7F\u544A";
   }
   function resolveBadgeAnchor(element) {
-    return element.querySelector(".bili-dyn-title__text") ?? element.querySelector(".dyn-card-opus__title") ?? element.querySelector(".bili-dyn-item__header") ?? element.querySelector(".bili-dyn-item__main");
+    var _a, _b, _c;
+    return (_c = (_b = (_a = element.querySelector(".bili-dyn-title__text")) != null ? _a : element.querySelector(".dyn-card-opus__title")) != null ? _b : element.querySelector(".bili-dyn-item__header")) != null ? _c : element.querySelector(".bili-dyn-item__main");
   }
   function resolveContentBody(element) {
-    return element.querySelector(".bili-dyn-content") ?? element.querySelector(".dyn-card-opus") ?? element.querySelector(".bili-dyn-item__main");
+    var _a, _b;
+    return (_b = (_a = element.querySelector(".bili-dyn-content")) != null ? _a : element.querySelector(".dyn-card-opus")) != null ? _b : element.querySelector(".bili-dyn-item__main");
   }
   function createBadge(text) {
     const badge = document.createElement("div");
@@ -2175,6 +2769,18 @@
   var DynamicSponsorController = class {
     constructor(configStore) {
       this.configStore = configStore;
+      __publicField(this, "started", false);
+      __publicField(this, "currentConfig");
+      __publicField(this, "domObserver", null);
+      __publicField(this, "refreshTimerId", null);
+      __publicField(this, "stopObservingUrl", null);
+      __publicField(this, "pendingVisibleRefresh", false);
+      __publicField(this, "handleVisibilityChange", () => {
+        if (!document.hidden && this.pendingVisibleRefresh) {
+          this.pendingVisibleRefresh = false;
+          this.scheduleRefresh();
+        }
+      });
       this.currentConfig = this.configStore.getSnapshot();
       this.configStore.subscribe((config) => {
         this.currentConfig = config;
@@ -2182,18 +2788,6 @@
         this.scheduleRefresh();
       });
     }
-    started = false;
-    currentConfig;
-    domObserver = null;
-    refreshTimerId = null;
-    stopObservingUrl = null;
-    pendingVisibleRefresh = false;
-    handleVisibilityChange = () => {
-      if (!document.hidden && this.pendingVisibleRefresh) {
-        this.pendingVisibleRefresh = false;
-        this.scheduleRefresh();
-      }
-    };
     start() {
       if (this.started) {
         return;
@@ -2224,6 +2818,7 @@
       );
     }
     stop() {
+      var _a;
       if (!this.started) {
         return;
       }
@@ -2236,7 +2831,7 @@
         window.clearTimeout(this.refreshTimerId);
         this.refreshTimerId = null;
       }
-      this.domObserver?.disconnect();
+      (_a = this.domObserver) == null ? void 0 : _a.disconnect();
       this.domObserver = null;
       this.pendingVisibleRefresh = false;
       document.removeEventListener("visibilitychange", this.handleVisibilityChange);
@@ -2273,6 +2868,7 @@
       }
     }
     processDynamicItem(element) {
+      var _a;
       if (element.getAttribute(PROCESSED_ATTR) === "true") {
         return;
       }
@@ -2281,7 +2877,7 @@
         return;
       }
       const anchor = resolveBadgeAnchor(element);
-      if (!anchor?.parentElement) {
+      if (!(anchor == null ? void 0 : anchor.parentElement)) {
         return;
       }
       element.setAttribute(PROCESSED_ATTR, "true");
@@ -2300,7 +2896,7 @@
       });
       setDynamicHidden(body, toggle, true);
       body.setAttribute(HIDDEN_ATTR, "true");
-      badge.parentElement?.insertBefore(toggle, badge.nextSibling);
+      (_a = badge.parentElement) == null ? void 0 : _a.insertBefore(toggle, badge.nextSibling);
     }
     resetProcessedItems() {
       for (const element of document.querySelectorAll(`.bili-dyn-item[${PROCESSED_ATTR}='true']`)) {
@@ -2335,18 +2931,23 @@
   ];
   var COMMENT_IGNORED_SELECTORS = [`[${BADGE_ATTR}]`, `[${TOGGLE_ATTR}]`];
   function hasSponsoredGoodsLink(commentRenderer) {
-    const links = commentRenderer.shadowRoot?.querySelector("bili-rich-text")?.shadowRoot?.querySelectorAll("a[data-type='goods']");
+    var _a, _b, _c;
+    const links = (_c = (_b = (_a = commentRenderer.shadowRoot) == null ? void 0 : _a.querySelector("bili-rich-text")) == null ? void 0 : _b.shadowRoot) == null ? void 0 : _c.querySelectorAll("a[data-type='goods']");
     return Boolean(links && links.length > 0);
   }
   function extractCommentText(commentRenderer) {
+    var _a, _b, _c, _d, _e, _f;
     const richTextNodes = [
-      ...commentRenderer.shadowRoot?.querySelector("bili-rich-text")?.shadowRoot?.querySelectorAll("span, a") ?? []
+      ...(_d = (_c = (_b = (_a = commentRenderer.shadowRoot) == null ? void 0 : _a.querySelector("bili-rich-text")) == null ? void 0 : _b.shadowRoot) == null ? void 0 : _c.querySelectorAll("span, a")) != null ? _d : []
     ];
     const nodes = [
       ...richTextNodes,
-      ...commentRenderer.shadowRoot?.querySelectorAll("#content, .reply-content") ?? []
+      ...(_f = (_e = commentRenderer.shadowRoot) == null ? void 0 : _e.querySelectorAll("#content, .reply-content")) != null ? _f : []
     ];
-    return nodes.map((node) => node.textContent?.trim() ?? "").filter(Boolean).join(" ");
+    return nodes.map((node) => {
+      var _a2, _b2;
+      return (_b2 = (_a2 = node.textContent) == null ? void 0 : _a2.trim()) != null ? _b2 : "";
+    }).filter(Boolean).join(" ");
   }
   function classifyCommentRenderer(commentRenderer, config) {
     if (hasSponsoredGoodsLink(commentRenderer)) {
@@ -2389,18 +2990,20 @@
     return button;
   }
   function getMainCommentRenderer(thread) {
-    const renderer = thread.shadowRoot?.querySelector("bili-comment-renderer");
+    var _a;
+    const renderer = (_a = thread.shadowRoot) == null ? void 0 : _a.querySelector("bili-comment-renderer");
     return renderer instanceof HTMLElement && renderer.shadowRoot ? renderer : null;
   }
   function getReplyTargets(thread) {
-    const repliesRenderer = thread.shadowRoot?.querySelector("bili-comment-replies-renderer");
-    const repliesRoot = repliesRenderer?.shadowRoot;
+    var _a, _b;
+    const repliesRenderer = (_a = thread.shadowRoot) == null ? void 0 : _a.querySelector("bili-comment-replies-renderer");
+    const repliesRoot = repliesRenderer == null ? void 0 : repliesRenderer.shadowRoot;
     if (!repliesRoot) {
       return [];
     }
     const targets = [];
     for (const reply of repliesRoot.querySelectorAll("bili-comment-reply-renderer")) {
-      const renderer = reply.shadowRoot?.querySelector("bili-comment-renderer");
+      const renderer = (_b = reply.shadowRoot) == null ? void 0 : _b.querySelector("bili-comment-renderer");
       if (!(renderer instanceof HTMLElement) || !renderer.shadowRoot) {
         continue;
       }
@@ -2415,20 +3018,24 @@
     return targets;
   }
   function getBadgeAnchor(commentRenderer) {
-    const userInfo = commentRenderer.shadowRoot?.querySelector("bili-comment-user-info");
-    const infoRoot = userInfo?.shadowRoot;
-    return infoRoot?.querySelector("#user-up") ?? infoRoot?.querySelector("#user-level") ?? null;
+    var _a, _b, _c;
+    const userInfo = (_a = commentRenderer.shadowRoot) == null ? void 0 : _a.querySelector("bili-comment-user-info");
+    const infoRoot = userInfo == null ? void 0 : userInfo.shadowRoot;
+    return (_c = (_b = infoRoot == null ? void 0 : infoRoot.querySelector("#user-up")) != null ? _b : infoRoot == null ? void 0 : infoRoot.querySelector("#user-level")) != null ? _c : null;
   }
   function getContentBody(commentRenderer) {
-    return commentRenderer.shadowRoot?.querySelector("#content") ?? null;
+    var _a, _b;
+    return (_b = (_a = commentRenderer.shadowRoot) == null ? void 0 : _a.querySelector("#content")) != null ? _b : null;
   }
   function getActionAnchor(commentRenderer) {
-    const actionRenderer = commentRenderer.shadowRoot?.querySelector("#main")?.querySelector("bili-comment-action-buttons-renderer");
-    return actionRenderer?.shadowRoot?.querySelector("#reply") ?? getContentBody(commentRenderer);
+    var _a, _b, _c, _d;
+    const actionRenderer = (_b = (_a = commentRenderer.shadowRoot) == null ? void 0 : _a.querySelector("#main")) == null ? void 0 : _b.querySelector("bili-comment-action-buttons-renderer");
+    return (_d = (_c = actionRenderer == null ? void 0 : actionRenderer.shadowRoot) == null ? void 0 : _c.querySelector("#reply")) != null ? _d : getContentBody(commentRenderer);
   }
   function removeInjectedDecorations(commentRenderer) {
-    commentRenderer.shadowRoot?.querySelector("bili-comment-user-info")?.shadowRoot?.querySelectorAll(`[${BADGE_ATTR}='true']`).forEach((node) => node.remove());
-    commentRenderer.shadowRoot?.querySelector("#main")?.querySelector("bili-comment-action-buttons-renderer")?.shadowRoot?.querySelectorAll(`[${TOGGLE_ATTR}='true']`).forEach((node) => node.remove());
+    var _a, _b, _c, _d, _e, _f, _g;
+    (_c = (_b = (_a = commentRenderer.shadowRoot) == null ? void 0 : _a.querySelector("bili-comment-user-info")) == null ? void 0 : _b.shadowRoot) == null ? void 0 : _c.querySelectorAll(`[${BADGE_ATTR}='true']`).forEach((node) => node.remove());
+    (_g = (_f = (_e = (_d = commentRenderer.shadowRoot) == null ? void 0 : _d.querySelector("#main")) == null ? void 0 : _e.querySelector("bili-comment-action-buttons-renderer")) == null ? void 0 : _f.shadowRoot) == null ? void 0 : _g.querySelectorAll(`[${TOGGLE_ATTR}='true']`).forEach((node) => node.remove());
   }
   function insertAfter(anchor, node) {
     const parent = anchor.parentNode;
@@ -2443,8 +3050,9 @@
     toggle.textContent = hidden ? "\u663E\u793A\u8BC4\u8BBA\u5185\u5BB9" : "\u9690\u85CF\u8BC4\u8BBA\u5185\u5BB9";
   }
   function hideReplies(thread) {
-    const repliesRenderer = thread.shadowRoot?.querySelector("bili-comment-replies-renderer");
-    const repliesRoot = repliesRenderer?.shadowRoot;
+    var _a;
+    const repliesRenderer = (_a = thread.shadowRoot) == null ? void 0 : _a.querySelector("bili-comment-replies-renderer");
+    const repliesRoot = repliesRenderer == null ? void 0 : repliesRenderer.shadowRoot;
     if (!repliesRoot) {
       return;
     }
@@ -2454,8 +3062,9 @@
     });
   }
   function restoreReplies(thread) {
-    const repliesRenderer = thread.shadowRoot?.querySelector("bili-comment-replies-renderer");
-    const repliesRoot = repliesRenderer?.shadowRoot;
+    var _a;
+    const repliesRenderer = (_a = thread.shadowRoot) == null ? void 0 : _a.querySelector("bili-comment-replies-renderer");
+    const repliesRoot = repliesRenderer == null ? void 0 : repliesRenderer.shadowRoot;
     if (!repliesRoot) {
       return;
     }
@@ -2467,6 +3076,20 @@
   var CommentSponsorController = class {
     constructor(configStore) {
       this.configStore = configStore;
+      __publicField(this, "started", false);
+      __publicField(this, "currentConfig");
+      __publicField(this, "rootSweepIntervalId", null);
+      __publicField(this, "documentObserver", null);
+      __publicField(this, "refreshTimerId", null);
+      __publicField(this, "stopObservingUrl", null);
+      __publicField(this, "rootObservers", /* @__PURE__ */ new Map());
+      __publicField(this, "pendingVisibleRefresh", false);
+      __publicField(this, "handleVisibilityChange", () => {
+        if (!document.hidden && this.pendingVisibleRefresh) {
+          this.pendingVisibleRefresh = false;
+          this.scheduleRefresh();
+        }
+      });
       this.currentConfig = this.configStore.getSnapshot();
       this.configStore.subscribe((config) => {
         this.currentConfig = config;
@@ -2474,20 +3097,6 @@
         this.scheduleRefresh();
       });
     }
-    started = false;
-    currentConfig;
-    rootSweepIntervalId = null;
-    documentObserver = null;
-    refreshTimerId = null;
-    stopObservingUrl = null;
-    rootObservers = /* @__PURE__ */ new Map();
-    pendingVisibleRefresh = false;
-    handleVisibilityChange = () => {
-      if (!document.hidden && this.pendingVisibleRefresh) {
-        this.pendingVisibleRefresh = false;
-        this.scheduleRefresh();
-      }
-    };
     start() {
       if (this.started) {
         return;
@@ -2525,6 +3134,7 @@
       );
     }
     stop() {
+      var _a;
       if (!this.started) {
         return;
       }
@@ -2541,7 +3151,7 @@
         window.clearTimeout(this.refreshTimerId);
         this.refreshTimerId = null;
       }
-      this.documentObserver?.disconnect();
+      (_a = this.documentObserver) == null ? void 0 : _a.disconnect();
       this.documentObserver = null;
       this.disconnectRootObservers();
       this.pendingVisibleRefresh = false;
@@ -2714,30 +3324,433 @@
     }
   };
 
+  // src/api/video-label-client.ts
+  var VALID_CATEGORIES2 = /* @__PURE__ */ new Set([
+    "sponsor",
+    "selfpromo",
+    "interaction",
+    "intro",
+    "outro",
+    "preview",
+    "padding",
+    "music_offtopic",
+    "poi_highlight",
+    "exclusive_access"
+  ]);
+  function buildUrl2(serverAddress, path) {
+    return `${serverAddress.replace(/\/+$/u, "")}${path}`;
+  }
+  var VideoLabelClient = class {
+    constructor(cache) {
+      this.cache = cache;
+      __publicField(this, "inFlightRequests", /* @__PURE__ */ new Map());
+    }
+    getVideoLabel(videoId, config) {
+      return __async(this, null, function* () {
+        var _a, _b, _c;
+        const hashPrefix = yield getHashPrefix(videoId, 4);
+        const normalizedServer = (_a = normalizeServerAddress(config.serverAddress)) != null ? _a : config.serverAddress;
+        const cacheKey = `labels:${normalizedServer}:${hashPrefix}`;
+        let response;
+        if (config.enableCache) {
+          response = yield this.cache.get(cacheKey);
+        }
+        if (!response) {
+          response = yield this.fetchWithDedup(cacheKey, buildUrl2(normalizedServer, `/api/videoLabels/${hashPrefix}`));
+          if (config.enableCache && (response.status === 200 || response.status === 404)) {
+            yield this.cache.set(cacheKey, response);
+          }
+        }
+        if (response.status === 404 || !response.ok) {
+          return null;
+        }
+        let payload;
+        try {
+          payload = JSON.parse(response.responseText);
+        } catch (_error) {
+          return null;
+        }
+        if (!Array.isArray(payload)) {
+          return null;
+        }
+        const record = payload.find((entry) => entry.videoID === videoId);
+        const category = (_c = (_b = record == null ? void 0 : record.segments) == null ? void 0 : _b[0]) == null ? void 0 : _c.category;
+        return typeof category === "string" && VALID_CATEGORIES2.has(category) ? category : null;
+      });
+    }
+    fetchWithDedup(cacheKey, url) {
+      return __async(this, null, function* () {
+        const existing = this.inFlightRequests.get(cacheKey);
+        if (existing) {
+          return existing;
+        }
+        const request = gmXmlHttpRequest({
+          method: "GET",
+          url,
+          headers: {
+            Accept: "application/json"
+          },
+          timeout: REQUEST_TIMEOUT_MS
+        }).finally(() => {
+          this.inFlightRequests.delete(cacheKey);
+        });
+        this.inFlightRequests.set(cacheKey, request);
+        return request;
+      });
+    }
+  };
+
+  // src/features/thumbnail-labels.ts
+  var PROCESSED_ATTR2 = "data-bsb-thumbnail-processed";
+  var RELEVANT_SELECTORS = [
+    ".bili-video-card",
+    ".video-page-card-small",
+    ".video-card",
+    ".video-episode-card",
+    ".history-card",
+    ".bili-dyn-content",
+    ".header-history-card"
+  ];
+  var IGNORED_SELECTORS = [".sponsorThumbnailLabel"];
+  var COMMON_THUMBNAIL_TARGETS = [
+    {
+      containerSelector: ".bili-header .right-entry .v-popover-wrap:nth-of-type(3)",
+      itemSelector: "a[data-mod='top_right_bar_window_dynamic']"
+    },
+    {
+      containerSelector: ".bili-header .right-entry .v-popover-wrap:nth-of-type(4)",
+      itemSelector: "a[data-mod='top_right_bar_window_default_collection']"
+    },
+    {
+      containerSelector: ".bili-header .right-entry .v-popover-wrap:nth-of-type(5)",
+      itemSelector: "a.header-history-card"
+    }
+  ];
+  var THUMBNAIL_TARGETS = {
+    main: [
+      ...COMMON_THUMBNAIL_TARGETS,
+      { containerSelector: ".recommended-container_floor-aside .container", itemSelector: ".bili-video-card" },
+      { containerSelector: ".feed-card", itemSelector: ".bili-video-card" }
+    ],
+    history: [
+      ...COMMON_THUMBNAIL_TARGETS,
+      {
+        containerSelector: ".main-content",
+        itemSelector: ".history-card",
+        labelAnchorSelector: ".bili-cover-card__thumbnail > img"
+      }
+    ],
+    search: [...COMMON_THUMBNAIL_TARGETS, { containerSelector: ".search-page-wrapper", itemSelector: ".bili-video-card" }],
+    video: [
+      ...COMMON_THUMBNAIL_TARGETS,
+      {
+        containerSelector: ".right-container",
+        itemSelector: ".video-page-card-small",
+        labelAnchorSelector: ".b-img img"
+      }
+    ],
+    list: [...COMMON_THUMBNAIL_TARGETS, { containerSelector: ".recommend-list-container", itemSelector: ".video-card" }],
+    channel: [
+      ...COMMON_THUMBNAIL_TARGETS,
+      { containerSelector: ".space-home", itemSelector: ".bili-video-card" },
+      { containerSelector: ".space-main", itemSelector: ".bili-video-card" },
+      { containerSelector: ".bili-dyn-list", itemSelector: ".bili-dyn-content" }
+    ],
+    dynamic: [...COMMON_THUMBNAIL_TARGETS, { containerSelector: ".bili-dyn-list", itemSelector: ".bili-dyn-content" }],
+    festival: [
+      ...COMMON_THUMBNAIL_TARGETS,
+      {
+        containerSelector: ".video-sections",
+        itemSelector: ".video-episode-card",
+        labelAnchorSelector: ".activity-image-card__image"
+      }
+    ]
+  };
+  var DEFAULT_LINK_SELECTOR = "a[href]";
+  var DEFAULT_LINK_ATTRIBUTE = "href";
+  var DEFAULT_LABEL_ANCHOR_SELECTOR = "div:not(.b-img--face) > picture img:not(.bili-avatar-img), .bili-cover-card__thumbnail > img, .activity-image-card__image, .b-img img";
+  function createSbIcon() {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 565.15 568");
+    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    use.setAttribute("href", "#SponsorBlockIcon");
+    svg.appendChild(use);
+    return svg;
+  }
+  function ensureSbIconDefinition(root) {
+    if (root.querySelector("#SponsorBlockIcon")) {
+      return;
+    }
+    const SVG_NS = "http://www.w3.org/2000/svg";
+    const container = document.createElement("span");
+    const svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("viewBox", "0 0 565.15 568");
+    svg.style.display = "none";
+    const defs = document.createElementNS(SVG_NS, "defs");
+    const group = document.createElementNS(SVG_NS, "g");
+    group.id = "SponsorBlockIcon";
+    const firstPath = document.createElementNS(SVG_NS, "path");
+    firstPath.setAttribute(
+      "d",
+      "M282.58,568a65,65,0,0,1-34.14-9.66C95.41,463.94,2.54,300.46,0,121A64.91,64.91,0,0,1,34,62.91a522.56,522.56,0,0,1,497.16,0,64.91,64.91,0,0,1,34,58.12c-2.53,179.43-95.4,342.91-248.42,437.3A65,65,0,0,1,282.58,568Zm0-548.31A502.24,502.24,0,0,0,43.4,80.22a45.27,45.27,0,0,0-23.7,40.53c2.44,172.67,91.81,330,239.07,420.83a46.19,46.19,0,0,0,47.61,0C453.64,450.73,543,293.42,545.45,120.75a45.26,45.26,0,0,0-23.7-40.54A502.26,502.26,0,0,0,282.58,19.69Z"
+    );
+    const secondPath = document.createElementNS(SVG_NS, "path");
+    secondPath.setAttribute(
+      "d",
+      "M 284.70508 42.693359 A 479.9 479.9 0 0 0 54.369141 100.41992 A 22.53 22.53 0 0 0 42.669922 120.41992 C 45.069922 290.25992 135.67008 438.63977 270.83008 522.00977 A 22.48 22.48 0 0 0 294.32031 522.00977 C 429.48031 438.63977 520.08047 290.25992 522.48047 120.41992 A 22.53 22.53 0 0 0 510.7793 100.41992 A 479.9 479.9 0 0 0 284.70508 42.693359 z M 220.41016 145.74023 L 411.2793 255.93945 L 220.41016 366.14062 L 220.41016 145.74023 z "
+    );
+    group.append(firstPath, secondPath);
+    defs.appendChild(group);
+    svg.appendChild(defs);
+    container.appendChild(svg);
+    if (root instanceof Element) {
+      root.appendChild(container);
+    } else {
+      document.body.appendChild(container);
+    }
+  }
+  function collectCardLinks(card, target) {
+    var _a, _b, _c;
+    const linkSelector = (_a = target.linkSelector) != null ? _a : DEFAULT_LINK_SELECTOR;
+    const linkAttribute = (_b = target.linkAttribute) != null ? _b : DEFAULT_LINK_ATTRIBUTE;
+    const urls = /* @__PURE__ */ new Set();
+    const candidates = card.matches(linkSelector) ? [card] : [];
+    candidates.push(...Array.from(card.querySelectorAll(linkSelector)));
+    for (const link of candidates) {
+      const bvid = extractBvidFromUrl((_c = link.getAttribute(linkAttribute)) != null ? _c : "");
+      if (bvid) {
+        urls.add(bvid);
+      }
+    }
+    return [...urls];
+  }
+  function insertAfter2(anchor, node) {
+    const parent = anchor.parentNode;
+    if (!parent) {
+      return false;
+    }
+    parent.insertBefore(node, anchor.nextSibling);
+    return true;
+  }
+  function dispatchThumbnailHover(card, entering) {
+    card.dispatchEvent(
+      new PointerEvent(entering ? "pointerenter" : "pointerleave", {
+        bubbles: true
+      })
+    );
+  }
+  function resolveLabelAnchor(card, target) {
+    var _a, _b, _c;
+    return (_c = (_b = (_a = target.labelAnchorSelector ? card.querySelector(target.labelAnchorSelector) : null) != null ? _a : card.querySelector(DEFAULT_LABEL_ANCHOR_SELECTOR)) != null ? _b : card.lastElementChild instanceof HTMLElement ? card.lastElementChild : null) != null ? _c : card;
+  }
+  function getOrCreateOverlay(card, target) {
+    const existing = card.querySelector(".sponsorThumbnailLabel");
+    if (existing) {
+      const text2 = existing.querySelector("span");
+      if (text2 instanceof HTMLElement) {
+        return { overlay: existing, text: text2 };
+      }
+    }
+    const overlay = document.createElement("div");
+    overlay.className = "sponsorThumbnailLabel";
+    overlay.addEventListener("pointerenter", (event) => {
+      event.stopPropagation();
+      dispatchThumbnailHover(card, false);
+    });
+    overlay.addEventListener("pointerleave", (event) => {
+      event.stopPropagation();
+      dispatchThumbnailHover(card, true);
+    });
+    overlay.appendChild(createSbIcon());
+    const text = document.createElement("span");
+    overlay.appendChild(text);
+    const anchor = resolveLabelAnchor(card, target);
+    if (!anchor || !insertAfter2(anchor, overlay)) {
+      card.appendChild(overlay);
+    }
+    return { overlay, text };
+  }
+  function hideOverlay(card) {
+    const overlay = card.querySelector(".sponsorThumbnailLabel");
+    if (!overlay) {
+      return;
+    }
+    overlay.classList.remove("sponsorThumbnailLabelVisible");
+    overlay.removeAttribute("data-category");
+    card.removeAttribute(PROCESSED_ATTR2);
+  }
+  function applyCategoryLabel(card, target, videoId, category) {
+    const { overlay, text } = getOrCreateOverlay(card, target);
+    card.setAttribute(PROCESSED_ATTR2, videoId);
+    overlay.dataset.category = category;
+    overlay.style.setProperty("--category-color", CATEGORY_COLORS[category]);
+    overlay.style.setProperty("--category-text-color", CATEGORY_TEXT_COLORS[category]);
+    text.textContent = CATEGORY_LABELS[category];
+    overlay.classList.add("sponsorThumbnailLabelVisible");
+  }
+  var ThumbnailLabelController = class {
+    constructor(configStore, cache) {
+      this.configStore = configStore;
+      __publicField(this, "started", false);
+      __publicField(this, "refreshing", false);
+      __publicField(this, "pendingRefresh", false);
+      __publicField(this, "refreshTimerId", null);
+      __publicField(this, "domObserver", null);
+      __publicField(this, "stopObservingUrl", null);
+      __publicField(this, "currentConfig");
+      __publicField(this, "client");
+      this.currentConfig = this.configStore.getSnapshot();
+      this.client = new VideoLabelClient(cache);
+      this.configStore.subscribe((config) => {
+        this.currentConfig = config;
+        this.reset();
+        this.scheduleRefresh();
+      });
+    }
+    start() {
+      if (this.started) {
+        return;
+      }
+      this.started = true;
+      ensureSbIconDefinition(document.body);
+      this.scheduleRefresh();
+      this.stopObservingUrl = observeUrlChanges(() => {
+        this.reset();
+        this.scheduleRefresh();
+      });
+      this.domObserver = new MutationObserver((records) => {
+        if (!mutationsTouchSelectors(records, RELEVANT_SELECTORS, IGNORED_SELECTORS)) {
+          return;
+        }
+        this.scheduleRefresh();
+      });
+      this.domObserver.observe(document.documentElement, {
+        childList: true,
+        subtree: true
+      });
+    }
+    stop() {
+      var _a, _b;
+      if (!this.started) {
+        return;
+      }
+      this.started = false;
+      (_a = this.stopObservingUrl) == null ? void 0 : _a.call(this);
+      this.stopObservingUrl = null;
+      if (this.refreshTimerId !== null) {
+        window.clearTimeout(this.refreshTimerId);
+        this.refreshTimerId = null;
+      }
+      (_b = this.domObserver) == null ? void 0 : _b.disconnect();
+      this.domObserver = null;
+      this.reset();
+    }
+    scheduleRefresh() {
+      if (this.refreshTimerId !== null) {
+        return;
+      }
+      this.refreshTimerId = window.setTimeout(() => {
+        this.refreshTimerId = null;
+        void this.refresh();
+      }, 180);
+    }
+    refresh() {
+      return __async(this, null, function* () {
+        var _a;
+        if (this.refreshing) {
+          this.pendingRefresh = true;
+          return;
+        }
+        this.refreshing = true;
+        try {
+          if (!this.currentConfig.enabled || this.currentConfig.thumbnailLabelMode === "off") {
+            this.reset();
+            return;
+          }
+          const pageType = detectPageType(window.location.href);
+          const targets = (_a = THUMBNAIL_TARGETS[pageType]) != null ? _a : [];
+          if (targets.length === 0) {
+            return;
+          }
+          for (const target of targets) {
+            const containers = document.querySelectorAll(target.containerSelector);
+            for (const container of containers) {
+              const cards = container.querySelectorAll(target.itemSelector);
+              for (const card of cards) {
+                try {
+                  yield this.processCard(card, target);
+                } catch (error) {
+                  debugLog("Failed to label thumbnail", error);
+                }
+              }
+            }
+          }
+        } finally {
+          this.refreshing = false;
+          if (this.pendingRefresh) {
+            this.pendingRefresh = false;
+            this.scheduleRefresh();
+          }
+        }
+      });
+    }
+    processCard(card, target) {
+      return __async(this, null, function* () {
+        const videoIds = collectCardLinks(card, target);
+        if (videoIds.length !== 1) {
+          hideOverlay(card);
+          return;
+        }
+        const [videoId] = videoIds;
+        const lastProcessed = card.getAttribute(PROCESSED_ATTR2);
+        if (lastProcessed === videoId) {
+          return;
+        }
+        const category = yield this.client.getVideoLabel(videoId, this.currentConfig);
+        if (!category) {
+          hideOverlay(card);
+          return;
+        }
+        applyCategoryLabel(card, target, videoId, category);
+      });
+    }
+    reset() {
+      for (const overlay of document.querySelectorAll(".sponsorThumbnailLabel")) {
+        overlay.classList.remove("sponsorThumbnailLabelVisible");
+        overlay.removeAttribute("data-category");
+      }
+      for (const card of document.querySelectorAll(`[${PROCESSED_ATTR2}]`)) {
+        card.removeAttribute(PROCESSED_ATTR2);
+      }
+    }
+  };
+
   // src/runtime/lifecycle.ts
   function createRuntimeLifecycle(startup, shutdown) {
     let started = false;
     let starting = null;
-    async function start() {
-      if (started) {
-        return;
-      }
-      if (starting) {
-        return starting;
-      }
-      starting = (async () => {
-        started = true;
-        try {
-          await startup();
-        } catch (error) {
-          started = false;
-          shutdown();
-          throw error;
-        } finally {
-          starting = null;
+    function start() {
+      return __async(this, null, function* () {
+        if (started) {
+          return;
         }
-      })();
-      return starting;
+        if (starting) {
+          return starting;
+        }
+        starting = (() => __async(null, null, function* () {
+          started = true;
+          try {
+            yield startup();
+          } catch (error) {
+            started = false;
+            shutdown();
+            throw error;
+          } finally {
+            starting = null;
+          }
+        }))();
+        return starting;
+      });
     }
     function stop() {
       if (!started && !starting) {
@@ -2761,55 +3774,49 @@
 
   // src/ui/styles.ts
   var styles = `
-.bsb-tm-entry-button {
-  z-index: 2147483645;
-  border: 0;
-  border-radius: 999px;
-  padding: 8px 12px;
-  background: rgba(25, 25, 25, 0.86);
-  color: #fff;
-  font: 600 12px/1.2 "SF Pro Display", "PingFang SC", sans-serif;
-  cursor: pointer;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+:root {
+  --bsb-brand-blue: #00aeec;
+  --bsb-dark-surface: rgba(28, 28, 28, 0.92);
+  --bsb-light-surface: rgba(255, 255, 255, 0.96);
+  --bsb-shadow: 0 18px 44px rgba(15, 23, 42, 0.22);
 }
 
-.bsb-tm-entry-button.is-inline {
-  position: absolute;
-  top: 16px;
-  right: 16px;
+.bsb-tm-panel-open {
+  overflow: hidden;
 }
 
-.bsb-tm-entry-button.is-floating {
+.bsb-tm-panel-backdrop[hidden] {
+  display: none !important;
+}
+
+.bsb-tm-panel-backdrop {
   position: fixed;
-  right: 24px;
-  bottom: 24px;
+  inset: 0;
+  z-index: 2147483646;
+  background: rgba(15, 23, 42, 0.32);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
 }
 
 .bsb-tm-panel {
-  position: fixed;
-  top: 24px;
-  right: 24px;
-  z-index: 2147483646;
-  width: min(420px, calc(100vw - 32px));
-  max-height: calc(100vh - 48px);
+  width: min(720px, calc(100vw - 24px));
+  max-height: min(88vh, 860px);
   overflow: auto;
-  border-radius: 18px;
-  background: rgba(17, 19, 27, 0.96);
-  color: #f8f8f8;
-  padding: 16px;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(18px);
-  display: none;
-  font: 14px/1.45 "SF Pro Text", "PingFang SC", sans-serif;
-}
-
-.bsb-tm-panel.is-open {
-  display: block;
+  border-radius: 20px;
+  background: var(--bsb-light-surface);
+  color: #111827;
+  box-shadow: 0 32px 72px rgba(15, 23, 42, 0.28);
+  padding: 20px;
+  font: 14px/1.5 "SF Pro Text", "PingFang SC", sans-serif;
 }
 
 .bsb-tm-panel-header,
 .bsb-tm-field,
 .bsb-tm-category-row,
+.bsb-tm-summary-line,
 .bsb-tm-notice-actions {
   display: flex;
   align-items: center;
@@ -2817,43 +3824,103 @@
   gap: 12px;
 }
 
-.bsb-tm-field.stacked {
-  align-items: stretch;
-  flex-direction: column;
+.bsb-tm-panel-subtitle,
+.bsb-tm-section-description,
+.bsb-tm-field-help {
+  color: #6b7280;
+}
+
+.bsb-tm-panel-subtitle {
+  margin-top: 4px;
+  font-size: 12px;
 }
 
 .bsb-tm-panel-section + .bsb-tm-panel-section {
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(15, 23, 42, 0.08);
 }
 
+.bsb-tm-section-heading {
+  margin-bottom: 12px;
+}
+
+.bsb-tm-section-title,
+.bsb-tm-section-label,
+.bsb-tm-field-title {
+  display: block;
+  color: #111827;
+}
+
+.bsb-tm-section-description,
+.bsb-tm-field-help,
+.bsb-tm-validation-message {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+
+.bsb-tm-validation-message {
+  color: #b91c1c;
+}
+
+.bsb-tm-stats,
 .bsb-tm-form,
 .bsb-tm-categories {
   display: grid;
   gap: 12px;
 }
 
-.bsb-tm-section-label {
-  display: block;
-  margin-top: 4px;
-  color: rgba(255, 255, 255, 0.88);
+.bsb-tm-summary-line {
+  align-items: baseline;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.04);
 }
 
-.bsb-tm-validation-message {
-  margin: -4px 0 0;
-  color: #ff9db4;
-  font-size: 12px;
+.bsb-tm-summary-line strong {
+  font-size: 13px;
+}
+
+.bsb-tm-summary-line span {
+  color: #374151;
+  text-align: right;
+}
+
+.bsb-tm-field {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.bsb-tm-field.stacked {
+  align-items: stretch;
+  flex-direction: column;
+}
+
+.bsb-tm-field-copy,
+.bsb-tm-input-label {
+  display: grid;
+  gap: 4px;
+}
+
+.bsb-tm-categories {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.bsb-tm-category-row {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.04);
 }
 
 .bsb-tm-button,
 .bsb-tm-panel input,
 .bsb-tm-panel select {
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: #fff;
   color: inherit;
-  padding: 8px 10px;
+  padding: 9px 12px;
   font: inherit;
 }
 
@@ -2866,46 +3933,55 @@
 }
 
 .bsb-tm-button.primary {
-  background: #00a1d6;
-  border-color: #00a1d6;
+  background: var(--bsb-brand-blue);
+  border-color: var(--bsb-brand-blue);
+  color: #fff;
 }
 
 .bsb-tm-button.danger {
-  background: #8b2131;
-  border-color: #8b2131;
+  background: #7f1d1d;
+  border-color: #7f1d1d;
+  color: #fff;
 }
 
 .bsb-tm-button.secondary {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.bsb-tm-banner {
-  margin-bottom: 10px;
-  border-radius: 14px;
-  padding: 10px 14px;
-  background: linear-gradient(135deg, rgba(0, 161, 214, 0.12), rgba(255, 102, 153, 0.18));
-  border: 1px solid rgba(0, 161, 214, 0.24);
-  color: #0f172a;
-  font: 600 13px/1.3 "SF Pro Text", "PingFang SC", sans-serif;
+  background: rgba(15, 23, 42, 0.05);
 }
 
 .bsb-tm-notice-root {
-  position: fixed;
-  top: 24px;
-  left: 24px;
-  z-index: 2147483647;
+  position: absolute;
+  right: 10px;
+  bottom: 100px;
+  z-index: 2147483645;
   display: grid;
-  gap: 12px;
-  max-width: min(360px, calc(100vw - 32px));
+  gap: 10px;
+  width: min(360px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.bsb-tm-notice-root:empty {
+  display: none !important;
+}
+
+.bsb-tm-notice-root.is-floating {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
 }
 
 .bsb-tm-notice {
-  border-radius: 16px;
-  padding: 14px;
-  background: rgba(11, 15, 23, 0.94);
+  pointer-events: auto;
   color: #fff;
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
-  backdrop-filter: blur(18px);
+  background: var(--bsb-dark-surface);
+  border-radius: 8px;
+  box-shadow: var(--bsb-shadow);
+  overflow: hidden;
+}
+
+.bsb-tm-notice-body {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
 }
 
 .bsb-tm-notice-title {
@@ -2913,60 +3989,179 @@
 }
 
 .bsb-tm-notice-message {
-  margin-top: 6px;
-  opacity: 0.85;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.bsb-tm-notice-actions {
+  justify-content: flex-end;
+  padding: 0 14px 12px;
+}
+
+#previewbar,
+#shadowPreviewbar {
+  overflow: hidden;
+  padding: 0;
+  margin: 0;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.previewbar {
+  display: inline-block;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 2px;
+  height: 100%;
+}
+
+.previewbar[data-action-type="poi"] {
+  min-width: 3px;
+}
+
+.bsb-tm-player-host {
+  position: relative;
+}
+
+.sponsorThumbnailLabel {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  margin: 8px;
+  padding: 6px;
+  border-radius: 999px;
+  z-index: 5;
+  background: var(--category-color, #000);
+  opacity: 0.74;
+  box-shadow: 0 0 8px 2px rgba(51, 51, 51, 0.45);
+  font-size: 10px;
+  align-items: center;
+}
+
+.sponsorThumbnailLabel.sponsorThumbnailLabelVisible {
+  display: flex;
+}
+
+.sponsorThumbnailLabel svg {
+  width: 18px;
+  height: 18px;
+  fill: var(--category-text-color, #fff);
+}
+
+.sponsorThumbnailLabel span {
+  display: none;
+  padding-left: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--category-text-color, #fff);
+  white-space: nowrap;
+}
+
+.sponsorThumbnailLabel:hover {
+  border-radius: 8px;
+  opacity: 1;
+}
+
+.sponsorThumbnailLabel:hover span {
+  display: inline;
 }
 
 @media (max-width: 768px) {
-  .bsb-tm-entry-button.is-floating {
-    right: 16px;
-    bottom: 16px;
+  .bsb-tm-panel {
+    width: min(100vw - 16px, 720px);
+    max-height: calc(100vh - 16px);
+    padding: 16px;
   }
 
-  .bsb-tm-panel {
-    top: 12px;
-    right: 12px;
-    width: min(420px, calc(100vw - 24px));
-    max-height: calc(100vh - 24px);
+  .bsb-tm-categories {
+    grid-template-columns: 1fr;
   }
 
   .bsb-tm-notice-root {
-    top: 16px;
-    left: 16px;
-    max-width: calc(100vw - 32px);
+    width: min(340px, calc(100vw - 24px));
+    right: 12px;
+    bottom: 88px;
   }
 }
 `;
 
   // src/main.ts
-  async function bootstrap() {
-    if (!isSupportedLocation(window.location.href)) {
-      return;
+  function isTopLevelWindow() {
+    try {
+      return window.top === window.self;
+    } catch (_error) {
+      return false;
     }
-    gmAddStyle(styles);
-    ensurePageBridge();
-    const configStore = new ConfigStore();
-    const statsStore = new StatsStore();
-    await Promise.all([configStore.load(), statsStore.load()]);
-    const controller = new ScriptController(configStore, statsStore);
-    const dynamicSponsorController = new DynamicSponsorController(configStore);
-    const commentSponsorController = new CommentSponsorController(configStore);
-    const runtime = createRuntimeLifecycle(
-      async () => {
-        dynamicSponsorController.start();
-        commentSponsorController.start();
-        await controller.start();
-      },
-      () => {
-        dynamicSponsorController.stop();
-        commentSponsorController.stop();
-        controller.stop();
+  }
+  function safeRun(label, task) {
+    return __async(this, null, function* () {
+      try {
+        yield task();
+      } catch (error) {
+        debugLog(`${label} failed`, error);
       }
-    );
-    await runtime.start();
-    gmRegisterMenuCommand("Toggle BSB panel", () => controller.togglePanel());
-    gmRegisterMenuCommand("Clear BSB cache", () => {
-      void controller.clearCache();
+    });
+  }
+  function bootstrap() {
+    return __async(this, null, function* () {
+      if (!isTopLevelWindow()) {
+        return;
+      }
+      if (!isSupportedLocation(window.location.href)) {
+        return;
+      }
+      gmAddStyle(styles);
+      ensurePageBridge();
+      const configStore = new ConfigStore();
+      const statsStore = new StatsStore();
+      const cache = new PersistentCache();
+      yield Promise.all([configStore.load(), statsStore.load()]);
+      const controller = new ScriptController(configStore, statsStore, cache);
+      const dynamicSponsorController = new DynamicSponsorController(configStore);
+      const commentSponsorController = new CommentSponsorController(configStore);
+      const thumbnailLabelController = new ThumbnailLabelController(configStore, cache);
+      const runtime = createRuntimeLifecycle(
+        () => __async(null, null, function* () {
+          yield safeRun("dynamic controller startup", () => {
+            dynamicSponsorController.start();
+          });
+          yield safeRun("comment controller startup", () => {
+            commentSponsorController.start();
+          });
+          yield safeRun("thumbnail controller startup", () => {
+            thumbnailLabelController.start();
+          });
+          yield safeRun("video controller startup", () => __async(null, null, function* () {
+            yield controller.start();
+          }));
+        }),
+        () => {
+          void safeRun("dynamic controller shutdown", () => {
+            dynamicSponsorController.stop();
+          });
+          void safeRun("comment controller shutdown", () => {
+            commentSponsorController.stop();
+          });
+          void safeRun("thumbnail controller shutdown", () => {
+            thumbnailLabelController.stop();
+          });
+          void safeRun("video controller shutdown", () => {
+            controller.stop();
+          });
+        }
+      );
+      yield runtime.start();
+      gmRegisterMenuCommand("Open BSB settings", () => controller.openPanel());
+      gmRegisterMenuCommand("Toggle BSB settings", () => controller.togglePanel());
+      gmRegisterMenuCommand("Clear BSB cache", () => {
+        void controller.clearCache();
+      });
     });
   }
   function ready() {

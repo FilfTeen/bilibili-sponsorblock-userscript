@@ -4,14 +4,33 @@ export class NoticeCenter {
   private readonly root: HTMLDivElement;
   private readonly notices = new Map<string, HTMLDivElement>();
   private readonly timers = new Map<string, number>();
+  private host: HTMLElement | null = null;
 
   constructor() {
     this.root = document.createElement("div");
-    this.root.className = "bsb-tm-notice-root";
-    document.documentElement.appendChild(this.root);
+    this.root.className = "bsb-tm-notice-root is-floating";
+  }
+
+  private ensureAttached(): void {
+    const parent = this.host?.isConnected ? this.host : document.documentElement;
+    if (this.root.parentElement !== parent) {
+      parent.appendChild(this.root);
+    }
+    this.root.classList.toggle("is-floating", parent === document.documentElement);
+  }
+
+  setHost(host: HTMLElement | null): void {
+    this.host = host;
+    if (host) {
+      host.classList.add("bsb-tm-player-host");
+    }
+    if (this.root.isConnected && this.notices.size > 0) {
+      this.ensureAttached();
+    }
   }
 
   show(options: NoticeOptions): void {
+    this.ensureAttached();
     this.dismiss(options.id);
 
     const notice = document.createElement("div");
@@ -26,6 +45,10 @@ export class NoticeCenter {
     message.className = "bsb-tm-notice-message";
     message.textContent = options.message;
 
+    const body = document.createElement("div");
+    body.className = "bsb-tm-notice-body";
+    body.append(title, message);
+
     const actions = document.createElement("div");
     actions.className = "bsb-tm-notice-actions";
 
@@ -38,7 +61,7 @@ export class NoticeCenter {
       actions.appendChild(button);
     }
 
-    notice.append(title, message);
+    notice.appendChild(body);
     if (actions.childElementCount > 0) {
       notice.appendChild(actions);
     }
@@ -69,6 +92,9 @@ export class NoticeCenter {
 
     notice.remove();
     this.notices.delete(id);
+    if (this.notices.size === 0) {
+      this.root.remove();
+    }
   }
 
   clear(): void {

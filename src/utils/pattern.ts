@@ -16,7 +16,7 @@ export function regexFromStoredPattern(input: string): RegExp | null {
     }
 
     return new RegExp(trimmed, "giu");
-  } catch {
+  } catch (_error) {
     return null;
   }
 }

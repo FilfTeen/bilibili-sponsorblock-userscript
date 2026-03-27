@@ -25,7 +25,7 @@ export function avidToBvid(avid: number | string): string | null {
   let index = buffer.length - 1;
   let value = (MAX_AVID | BigInt(parsedAvid)) ^ XOR_CODE;
 
-  while (value > 0n && index >= 0) {
+  while (value > BigInt(0) && index >= 0) {
     buffer[index] = ALPHABET[Number(value % BASE)];
     value /= BASE;
     index -= 1;

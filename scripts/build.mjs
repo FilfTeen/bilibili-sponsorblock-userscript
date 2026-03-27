@@ -21,8 +21,17 @@ function getRepositoryUrl() {
   return "https://github.com/FilfTeen/bilibili-sponsorblock-userscript";
 }
 
+function getRawUserscriptUrl() {
+  if (process.env.GITHUB_REPOSITORY) {
+    const updateRef = process.env.BSB_USERSCRIPT_UPDATE_REF || "main";
+    return `https://raw.githubusercontent.com/${process.env.GITHUB_REPOSITORY}/${updateRef}/dist/bilibili-sponsorblock.user.js`;
+  }
+
+  return "https://raw.githubusercontent.com/FilfTeen/bilibili-sponsorblock-userscript/main/dist/bilibili-sponsorblock.user.js";
+}
+
 const repositoryUrl = getRepositoryUrl();
-const releaseAssetUrl = `${repositoryUrl}/releases/latest/download/bilibili-sponsorblock.user.js`;
+const rawUserscriptUrl = getRawUserscriptUrl();
 
 const userscriptBanner = `// ==UserScript==
 // @name         Bilibili SponsorBlock Core
@@ -37,15 +46,15 @@ const userscriptBanner = `// ==UserScript==
 // @match        https://space.bilibili.com/*
 // @grant        GM_getValue
 // @grant        GM_setValue
-// @grant        GM_deleteValue
 // @grant        GM_xmlhttpRequest
 // @grant        GM_addStyle
 // @grant        GM_registerMenuCommand
 // @connect      *
 // @run-at       document-start
-// @noframes
-// @downloadURL  ${releaseAssetUrl}
-// @updateURL    ${releaseAssetUrl}
+// @homepageURL  ${repositoryUrl}
+// @supportURL   ${repositoryUrl}/issues
+// @downloadURL  ${rawUserscriptUrl}
+// @updateURL    ${rawUserscriptUrl}
 // ==/UserScript==`;
 
 await mkdir(outDir, { recursive: true });
@@ -56,7 +65,7 @@ await esbuild.build({
   outfile: outFile,
   bundle: true,
   format: "iife",
-  target: "es2022",
+  target: "es2016",
   platform: "browser",
   sourcemap: false,
   legalComments: "none",

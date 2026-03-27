@@ -5,10 +5,12 @@ import { normalizeConfig } from "../src/core/config-store";
 describe("config normalization", () => {
   it("fills dynamic and comment filter defaults", () => {
     const config = normalizeConfig(null);
-    expect(config.dynamicFilterMode).toBe("hide");
-    expect(config.commentFilterMode).toBe("hide");
+    expect(config.dynamicFilterMode).toBe("off");
+    expect(config.commentFilterMode).toBe("off");
     expect(config.commentHideReplies).toBe(false);
     expect(config.dynamicRegexPattern).toBe(DEFAULT_DYNAMIC_REGEX_PATTERN);
+    expect(config.showPreviewBar).toBe(true);
+    expect(config.thumbnailLabelMode).toBe("overlay");
   });
 
   it("clamps dynamic regex match count and accepts new modes", () => {
@@ -28,5 +30,15 @@ describe("config normalization", () => {
     });
 
     expect(config.dynamicRegexPattern).toBe(DEFAULT_DYNAMIC_REGEX_PATTERN);
+  });
+
+  it("migrates older intrusive filter defaults back to off", () => {
+    const config = normalizeConfig({
+      dynamicFilterMode: "hide",
+      commentFilterMode: "hide"
+    });
+
+    expect(config.dynamicFilterMode).toBe("off");
+    expect(config.commentFilterMode).toBe("off");
   });
 });

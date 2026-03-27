@@ -7,6 +7,10 @@ describe("video context resolution", () => {
     expect(extractBvidFromUrl("https://www.bilibili.com/video/BV1xx411c7mD?p=2")).toBe("BV1xx411c7mD");
   });
 
+  it("extracts bvid from protocol-relative URLs", () => {
+    expect(extractBvidFromUrl("//www.bilibili.com/video/BV1xx411c7mD/")).toBe("BV1xx411c7mD");
+  });
+
   it("extracts aid from av style URLs", () => {
     expect(extractAidFromUrl("https://www.bilibili.com/video/av170001")).toBe(170001);
     expect(extractAidFromUrl("https://www.bilibili.com/list/ml123?avid=170001")).toBe(170001);

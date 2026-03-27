@@ -31,6 +31,10 @@ const video: VideoContext = {
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  vi.stubGlobal("fetch", vi.fn(async () => {
+    throw new Error("disable fetch in sponsorblock-client tests");
+  }));
 });
 
 describe("sponsorblock client", () => {

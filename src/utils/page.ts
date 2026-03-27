@@ -27,6 +27,10 @@ export function detectPageType(url: string): PageType {
       return "channel";
     }
 
+    if (parsed.pathname.startsWith("/account/history")) {
+      return "history";
+    }
+
     if (parsed.pathname.startsWith("/video/")) {
       return "video";
     }
@@ -44,7 +48,7 @@ export function detectPageType(url: string): PageType {
     }
 
     return "main";
-  } catch {
+  } catch (_error) {
     return "unknown";
   }
 }

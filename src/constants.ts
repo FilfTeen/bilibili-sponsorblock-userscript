@@ -1,4 +1,10 @@
-import type { Category, CategoryMode, ContentFilterMode, StoredConfig } from "./types";
+import type {
+  Category,
+  CategoryMode,
+  ContentFilterMode,
+  StoredConfig,
+  ThumbnailLabelMode
+} from "./types";
 
 export const SCRIPT_NAME = "Bilibili SponsorBlock Core";
 export const CONFIG_STORAGE_KEY = "bsb_tm_config_v1";
@@ -42,6 +48,32 @@ export const CATEGORY_LABELS: Record<Category, string> = {
   exclusive_access: "整视频标签"
 };
 
+export const CATEGORY_COLORS: Record<Category, string> = {
+  sponsor: "#00d400",
+  selfpromo: "#ffff00",
+  interaction: "#cc00ff",
+  intro: "#00ffff",
+  outro: "#0202ed",
+  preview: "#008fd6",
+  padding: "#222222",
+  music_offtopic: "#ff9900",
+  poi_highlight: "#ff1684",
+  exclusive_access: "#008a5c"
+};
+
+export const CATEGORY_TEXT_COLORS: Record<Category, string> = {
+  sponsor: "#ffffff",
+  selfpromo: "#111111",
+  interaction: "#ffffff",
+  intro: "#111111",
+  outro: "#ffffff",
+  preview: "#ffffff",
+  padding: "#ffffff",
+  music_offtopic: "#111111",
+  poi_highlight: "#ffffff",
+  exclusive_access: "#ffffff"
+};
+
 export const MODE_LABELS: Record<CategoryMode, string> = {
   auto: "自动",
   manual: "手动",
@@ -52,6 +84,11 @@ export const MODE_LABELS: Record<CategoryMode, string> = {
 export const CONTENT_FILTER_MODE_LABELS: Record<ContentFilterMode, string> = {
   hide: "隐藏并标记",
   label: "仅标记",
+  off: "关闭"
+};
+
+export const THUMBNAIL_LABEL_MODE_LABELS: Record<ThumbnailLabelMode, string> = {
+  overlay: "缩略图角标",
   off: "关闭"
 };
 
@@ -74,11 +111,13 @@ export const DEFAULT_CONFIG: StoredConfig = {
   enableCache: true,
   noticeDurationSec: 4,
   minDurationSec: 0,
+  showPreviewBar: true,
+  thumbnailLabelMode: "overlay",
   categoryModes: DEFAULT_CATEGORY_MODES,
-  dynamicFilterMode: "hide",
+  dynamicFilterMode: "off",
   dynamicRegexPattern: DEFAULT_DYNAMIC_REGEX_PATTERN,
   dynamicRegexKeywordMinMatches: 1,
-  commentFilterMode: "hide",
+  commentFilterMode: "off",
   commentHideReplies: false
 };
 

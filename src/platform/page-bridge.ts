@@ -26,24 +26,25 @@ function buildBridgeSource(): string {
     let playerManifest = null;
 
     try {
-      initialState = window.__INITIAL_STATE__ ?? null;
-    } catch {}
+      initialState = typeof window.__INITIAL_STATE__ === "undefined" ? null : window.__INITIAL_STATE__;
+    } catch (_error) {}
 
     try {
-      playInfo = window.__playinfo__ ?? null;
-    } catch {}
+      playInfo = typeof window.__playinfo__ === "undefined" ? null : window.__playinfo__;
+    } catch (_error) {}
 
     try {
-      const manifest = window.player?.getManifest?.();
-      if (manifest) {
+      const player = window.player;
+      const manifest = player && typeof player.getManifest === "function" ? player.getManifest() : null;
+      if (manifest && typeof manifest === "object") {
         playerManifest = {
-          aid: manifest.aid ?? null,
-          cid: manifest.cid ?? null,
-          bvid: manifest.bvid ?? null,
-          p: manifest.p ?? null
+          aid: typeof manifest.aid === "undefined" ? null : manifest.aid,
+          cid: typeof manifest.cid === "undefined" ? null : manifest.cid,
+          bvid: typeof manifest.bvid === "undefined" ? null : manifest.bvid,
+          p: typeof manifest.p === "undefined" ? null : manifest.p
         };
       }
-    } catch {}
+    } catch (_error) {}
 
     document.dispatchEvent(new CustomEvent(${JSON.stringify(RESPONSE_EVENT)}, {
       detail: {
@@ -91,7 +92,7 @@ export async function requestPageSnapshot(): Promise<PageSnapshot | null> {
       }
       window.clearTimeout(timeoutId);
       document.removeEventListener(RESPONSE_EVENT, onMessage as EventListener);
-      resolve((data.payload ?? null) as PageSnapshot | null);
+      resolve((typeof data.payload === "undefined" ? null : data.payload) as PageSnapshot | null);
     }
 
     document.addEventListener(RESPONSE_EVENT, onMessage as EventListener);

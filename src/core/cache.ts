@@ -4,7 +4,7 @@ import {
   CACHE_STORAGE_KEY,
   CACHE_TTL_MS
 } from "../constants";
-import { gmDeleteValue, gmGetValue, gmSetValue } from "../platform/gm";
+import { gmGetValue, gmSetValue } from "../platform/gm";
 import type { CacheEntry, CachePayload } from "../types";
 
 function estimateSize(value: unknown): number {
@@ -31,7 +31,7 @@ export class PersistentCache<T> {
     this.evictOverflow();
 
     if (Object.keys(this.payload.entries).length === 0) {
-      await gmDeleteValue(CACHE_STORAGE_KEY);
+      await gmSetValue(CACHE_STORAGE_KEY, null);
       return;
     }
 
@@ -102,7 +102,7 @@ export class PersistentCache<T> {
   async clear(): Promise<void> {
     this.payload = { entries: {} };
     this.loaded = true;
-    await gmDeleteValue(CACHE_STORAGE_KEY);
+    await gmSetValue(CACHE_STORAGE_KEY, null);
   }
 
   async getStats(): Promise<{ entryCount: number; sizeBytes: number }> {

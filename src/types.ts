@@ -12,12 +12,14 @@ export type Category =
 
 export type CategoryMode = "auto" | "manual" | "notice" | "off";
 export type ContentFilterMode = "hide" | "label" | "off";
+export type ThumbnailLabelMode = "overlay" | "off";
 
 export type ActionType = "skip" | "mute" | "full" | "poi";
 export type PageType =
   | "unknown"
   | "unsupported"
   | "main"
+  | "history"
   | "video"
   | "list"
   | "festival"
@@ -72,6 +74,8 @@ export interface StoredConfig {
   enableCache: boolean;
   noticeDurationSec: number;
   minDurationSec: number;
+  showPreviewBar: boolean;
+  thumbnailLabelMode: ThumbnailLabelMode;
   categoryModes: Record<Category, CategoryMode>;
   dynamicFilterMode: ContentFilterMode;
   dynamicRegexPattern: string;
@@ -83,6 +87,13 @@ export interface StoredConfig {
 export interface StoredStats {
   skipCount: number;
   minutesSaved: number;
+}
+
+export interface RuntimeStatus {
+  kind: "idle" | "pending" | "loaded" | "empty" | "error";
+  message: string;
+  bvid: string | null;
+  segmentCount: number | null;
 }
 
 export interface CacheEntry<T> {

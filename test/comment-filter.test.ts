@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ConfigStore } from "../src/core/config-store";
+import { cloneDefaultConfig, ConfigStore } from "../src/core/config-store";
 import {
   CommentSponsorController,
   classifyCommentRenderer,
@@ -96,6 +96,10 @@ describe("comment filter", () => {
   it("processes comment threads after a delayed re-scan", async () => {
     const configStore = new ConfigStore();
     const controller = new CommentSponsorController(configStore);
+    Reflect.set(controller, "currentConfig", {
+      ...cloneDefaultConfig(),
+      commentFilterMode: "hide"
+    });
     window.history.replaceState({}, "", "/video/BV1xx411c7mD");
 
     const root = document.createElement("bili-comments");
@@ -122,6 +126,10 @@ describe("comment filter", () => {
   it("processes sponsored reply renderers", () => {
     const configStore = new ConfigStore();
     const controller = new CommentSponsorController(configStore);
+    Reflect.set(controller, "currentConfig", {
+      ...cloneDefaultConfig(),
+      commentFilterMode: "hide"
+    });
     window.history.replaceState({}, "", "/video/BV1xx411c7mD");
 
     const root = document.createElement("bili-comments");
