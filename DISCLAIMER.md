@@ -7,6 +7,12 @@
 - 本项目不是 [hanydd/BilibiliSponsorBlock](https://github.com/hanydd/BilibiliSponsorBlock) 的官方发布版本
 - 本项目与原作者 `hanydd`、`mscststs`、Bilibili、SponsorBlock、Tampermonkey 均无隶属或背书关系
 
+## 3. 维护操作与本地数据
+
+脚本内提供的“清理缓存”、“恢复默认设置”等维护功能，旨在帮助用户管理本地运行状态：
+- **操作责任**：脚本通过二阶段确认等交互手段提示风险，用户最终确认执行的操作由用户自行承担后果（如本地配置丢失）。
+- **非永久性**：维护操作仅影响脚本在当前浏览器环境下的运行副本，不影响 Bilibili 账号本身或服务器端数据。
+
 ## 使用风险
 
 - 本脚本会根据 Bilibili 页面结构、播放器状态和第三方 SponsorBlock 数据执行提示、跳过或静音

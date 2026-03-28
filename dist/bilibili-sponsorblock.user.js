@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili SponsorBlock Core
 // @namespace    https://github.com/FilfTeen/bilibili-sponsorblock-userscript
-// @version      0.3.5
+// @version      0.3.6
 // @description  Tampermonkey core script for skipping sponsor segments on Bilibili.
 // @author       FilfTeen
 // @license      GPL-3.0-only
@@ -5610,7 +5610,7 @@
           }
         }
         if (!state.actionConsumed && state.lastObservedTime !== null) {
-          const jumpedIntoAd = withinSegment && Math.abs(currentTime - state.lastObservedTime) > 1.5 && (state.lastObservedTime < segment.start || state.lastObservedTime >= segment.end);
+          const jumpedIntoAd = withinSegment && Math.abs(currentTime - state.lastObservedTime) > 1.5 && (segment.end === null || state.lastObservedTime < segment.start || state.lastObservedTime >= segment.end);
           if (jumpedIntoAd && !state.suppressedUntilExit) {
             this.startSkipGrace(segment, state, "\u68C0\u6D4B\u5230\u4F60\u4E3B\u52A8\u8DF3\u8F6C\u81F3\u8BE5\u7247\u6BB5\uFF0C10\u79D2\u5185\u4E0D\u4F1A\u81EA\u52A8\u8DF3\u8FC7\u3002");
           }

@@ -37,6 +37,15 @@
 - 控制台
 - 通知浮窗
 - 标题胶囊
+-### UI 体系与交互加固
+
+为了保证在 Tampermonkey 环境下的极致稳定性，脚本实现了一套响应式但“无感”的 UI 体系：
+
+- **状态持久化反馈 (Active Feedbacks)**：使用 `activeFeedbacks` Map 跟踪各项异步操作（如清理缓存）的状态。状态信息跨越 UI 重绘周期（Re-render）持久存在，并在 3 秒后自动清理。
+- **二阶段确认逻辑 (Safety Confirmation)**：针对具有破坏性的维护操作（如重置设置），引入了 `pendingConfirmations` 机制。首次点击进入“确认中”状态，配合 `bsb-pulse` 红色动效预警；只有再次点击才会执行实际逻辑，最大限度防止误触。
+- **滚动位置保护 (Scroll Preservation)**：在 `SettingsPanel.render(preserveScroll = true)` 中，通过缓存和恢复 `scrollTop` 确保面板在状态更新后不会产生位置跳变，保证了连续操作时的视觉连贯性。
+- **原子级样式隔离**：所有的维护工具按钮使用独立定义的 CSS 变量（如 `--bsb-danger-rgb`），确保即使在 B 站原生样式大幅变动时，维护工具依然拥有高对比度的清晰视觉表现。
+
 - 紧凑顶栏
 - 预览条
 - 样式
