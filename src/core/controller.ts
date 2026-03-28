@@ -6,16 +6,25 @@ import {
 } from "../constants";
 import { ConfigStore, StatsStore } from "./config-store";
 import { PersistentCache } from "./cache";
+import { LocalVideoLabelStore } from "./local-label-store";
+import { VoteHistoryStore } from "./vote-history-store";
 import { SponsorBlockClient } from "../api/sponsorblock-client";
+import { VideoLabelClient } from "../api/video-label-client";
 import { normalizeSegments } from "./segment-filter";
+import { resolveWholeVideoLabels } from "./whole-video-label";
 import { requestPageSnapshot } from "../platform/page-bridge";
 import { NoticeCenter } from "../ui/notice-center";
 import { SettingsPanel } from "../ui/panel";
 import { PreviewBar } from "../ui/preview-bar";
+import { TitleBadge, type TitleBadgeVoteResult } from "../ui/title-badge";
+import { CompactVideoHeader } from "../ui/compact-header";
+import { scanCurrentPageCommentSignal, VIDEO_SIGNAL_EVENT } from "../features/comment-filter";
 import type {
   Category,
   CategoryMode,
   FetchResponse,
+  LocalVideoLabelRecord,
+  LocalVideoSignal,
   RuntimeStatus,
   SegmentRecord,
   StoredConfig,
@@ -24,6 +33,7 @@ import type {
 } from "../types";
 import { roundMinutes } from "../utils/number";
 import { mutationsTouchSelectors } from "../utils/mutation";
+import { inferLocalVideoSignal } from "../utils/local-video-signal";
 import { resolveVideoContext } from "../utils/video-context";
 import { debugLog, findVideoElement, formatDurationLabel, resolvePlayerHost } from "../utils/dom";
 import { observeUrlChanges } from "../utils/navigation";
@@ -36,6 +46,8 @@ type RuntimeSegmentState = {
   mutedByScript: boolean;
   poiShown: boolean;
   lastObservedTime: number | null;
+  manualSkipGraceUntil: number | null;
+  manualSkipGraceShown: boolean;
 };
 
 const VIDEO_RELEVANT_SELECTORS = [
@@ -55,6 +67,7 @@ const VIDEO_IGNORED_SELECTORS = [
   ".bsb-tm-notice-root",
   ".bsb-tm-notice"
 ] as const;
+const SKIP_GRACE_WINDOW_MS = 10_000;
 
 export class ScriptController {
   private started = false;
@@ -63,15 +76,21 @@ export class ScriptController {
   private readonly segmentStates = new Map<string, RuntimeSegmentState>();
   private readonly notices = new NoticeCenter();
   private readonly client: SponsorBlockClient;
+  private readonly videoLabelClient: VideoLabelClient;
   private readonly panel: SettingsPanel;
   private readonly previewBar = new PreviewBar();
+  private readonly titleBadge: TitleBadge;
+  private readonly compactHeader = new CompactVideoHeader();
   private tickIntervalId: number | null = null;
   private domObserver: MutationObserver | null = null;
+  private domStructureDirty = true;
   private stopObservingUrl: (() => void) | null = null;
   private currentContext: VideoContext | null = null;
   private currentVideo: HTMLVideoElement | null = null;
   private currentSignature = "";
   private currentSegments: SegmentRecord[] = [];
+  private currentFullVideoLabels: SegmentRecord[] = [];
+  private currentTitleLabel: SegmentRecord | null = null;
   private activeMuteOwners = new Set<string>();
   private previousMutedState = false;
   private refreshing = false;
@@ -90,15 +109,63 @@ export class ScriptController {
       this.scheduleRefresh(nextForceFetch);
     }
   };
+  private readonly handleVideoSignal = (event: Event) => {
+    if (!(event instanceof CustomEvent) || !this.started || !this.currentConfig.enabled || !this.currentContext) {
+      return;
+    }
+
+    const detail = event.detail as { category?: Category; source?: string; confidence?: number; reason?: string } | null;
+    if (!detail?.category || this.currentConfig.categoryModes[detail.category] === "off") {
+      return;
+    }
+    if (this.currentFullVideoLabels.length > 0 || this.localVideoLabelStore.isDismissed(this.currentContext.bvid)) {
+      return;
+    }
+
+    const existing = this.currentTitleLabel;
+    if (existing && !existing.UUID.startsWith("local-signal:")) {
+      return;
+    }
+
+    const signal: LocalVideoSignal = {
+      category: detail.category,
+      source: detail.source === "comment-goods" || detail.source === "comment-suspicion" ? detail.source : "page-heuristic",
+      confidence: detail.confidence ?? 0.76,
+      reason: detail.reason ?? "页面出现本地商业线索"
+    };
+    const signalLabel = this.buildLocalSignalSegment(this.currentContext.bvid, signal);
+
+    this.currentTitleLabel = signalLabel;
+    this.updateTitleBadge(signalLabel);
+    this.panel.setFullVideoLabels([signalLabel]);
+    this.updateRuntimeStatus({
+      kind: "loaded",
+      message: "已根据本地页面线索补充整视频标签",
+      bvid: this.currentContext.bvid,
+      segmentCount: this.currentSegments.length
+    });
+    void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal);
+  };
+  private readonly handleMbgaLiveFallback = () => {
+    this.notices.show({
+      id: "mbga-live-fallback",
+      title: "MBGA 直播增强",
+      message: "检测到最高清晰度可能不可用，已为您自动切换至播放器上选择的清晰度。",
+      durationMs: 4000
+    });
+  };
 
   constructor(
     private readonly configStore: ConfigStore,
     private readonly statsStore: StatsStore,
-    private readonly cache: PersistentCache<FetchResponse>
+    private readonly cache: PersistentCache<FetchResponse>,
+    private readonly localVideoLabelStore: LocalVideoLabelStore,
+    private readonly voteHistoryStore: VoteHistoryStore
   ) {
     this.currentConfig = this.configStore.getSnapshot();
     this.currentStats = this.statsStore.getSnapshot();
     this.client = new SponsorBlockClient(this.cache);
+    this.videoLabelClient = new VideoLabelClient(this.cache);
     this.panel = new SettingsPanel(this.currentConfig, this.currentStats, {
       onPatchConfig: async (patch) => {
         await this.configStore.update((config) => ({
@@ -119,18 +186,50 @@ export class ScriptController {
           }
         }));
       },
+      onClearCache: async () => {
+        await this.clearCache();
+        this.notices.show({
+          id: "bsb-tm-maintenance-feedback",
+          title: "维护工具",
+          message: "缓存清理已完成，相关数据已重置。",
+          durationMs: 3000
+        });
+      },
       onReset: async () => {
         await this.configStore.reset();
+        this.notices.show({
+          id: "bsb-tm-maintenance-feedback",
+          title: "维护工具",
+          message: "所有脚本设置已恢复为初始默认值。",
+          durationMs: 4000
+        });
       }
     });
+    this.titleBadge = new TitleBadge({
+      onVote: async (segment, type) => {
+        return await this.submitVote(segment, type);
+      },
+      onLocalDecision: async (segment, decision) => {
+        await this.handleLocalBadgeDecision(segment, decision);
+      },
+      onOpenSettings: () => {
+        this.panel.open("help");
+      }
+    });
+    this.titleBadge.setColorOverrides(this.currentConfig.categoryColorOverrides);
+    this.previewBar.setCategoryColorOverrides(this.currentConfig.categoryColorOverrides);
 
     this.configStore.subscribe((config) => {
       this.currentConfig = config;
       this.panel.updateConfig(config);
       this.previewBar.setEnabled(config.enabled && config.showPreviewBar);
+      this.previewBar.setCategoryColorOverrides(config.categoryColorOverrides);
+      this.titleBadge.setColorOverrides(config.categoryColorOverrides);
+      this.syncCompactVideoHeader();
       if (!config.enabled) {
         this.notices.clear();
         this.restoreMuteState();
+        this.titleBadge.clear();
       }
       this.scheduleRefresh(true);
     });
@@ -149,10 +248,16 @@ export class ScriptController {
     this.started = true;
     await this.cache.load();
     this.previewBar.setEnabled(this.currentConfig.enabled && this.currentConfig.showPreviewBar);
+    this.syncCompactVideoHeader();
     this.updateRuntimeStatus(this.buildIdleStatus());
+    document.addEventListener("visibilitychange", this.handleVisibilityChange);
+    this.panel.mount();
+    window.addEventListener(VIDEO_SIGNAL_EVENT, this.handleVideoSignal as EventListener);
+    window.addEventListener("bsb_mbga_live_fallback", this.handleMbgaLiveFallback as EventListener);
     await this.refreshCurrentVideo(true);
 
     this.stopObservingUrl = observeUrlChanges(() => {
+      this.syncCompactVideoHeader();
       this.scheduleRefresh(true);
     });
 
@@ -164,14 +269,13 @@ export class ScriptController {
       if (!mutationsTouchSelectors(records, VIDEO_RELEVANT_SELECTORS, VIDEO_IGNORED_SELECTORS)) {
         return;
       }
+      this.domStructureDirty = true;
       this.scheduleRefresh();
     });
     this.domObserver.observe(document.documentElement, {
       childList: true,
       subtree: true
     });
-    document.addEventListener("visibilitychange", this.handleVisibilityChange);
-
     window.addEventListener(
       "pagehide",
       () => {
@@ -187,6 +291,10 @@ export class ScriptController {
 
   openPanel(): void {
     this.panel.open();
+  }
+
+  openHelp(): void {
+    this.panel.open("help");
   }
 
   async clearCache(): Promise<void> {
@@ -226,6 +334,8 @@ export class ScriptController {
     this.domObserver?.disconnect();
     this.domObserver = null;
     document.removeEventListener("visibilitychange", this.handleVisibilityChange);
+    window.removeEventListener(VIDEO_SIGNAL_EVENT, this.handleVideoSignal as EventListener);
+    this.syncCompactVideoHeader();
     this.clearRuntimeState(true);
   }
 
@@ -263,6 +373,7 @@ export class ScriptController {
     this.refreshing = true;
 
     try {
+      this.syncCompactVideoHeader();
       if (!supportsVideoFeatures(window.location.href)) {
         this.clearRuntimeState();
         return;
@@ -306,6 +417,8 @@ export class ScriptController {
         if (this.currentSegments.length > 0) {
           this.previewBar.setSegments(this.currentSegments);
         }
+        this.panel.setFullVideoLabels(this.currentFullVideoLabels);
+        this.updateTitleBadge(this.currentTitleLabel);
         return;
       }
 
@@ -320,6 +433,7 @@ export class ScriptController {
       this.previewBar.setEnabled(this.currentConfig.enabled && this.currentConfig.showPreviewBar);
 
       if (!this.currentConfig.enabled) {
+        this.titleBadge.clear();
         this.updateRuntimeStatus({
           kind: "idle",
           message: "脚本已停用",
@@ -336,9 +450,27 @@ export class ScriptController {
         segmentCount: null
       });
 
-      const segments = await this.client.getSegments(context, this.currentConfig);
+      const [segments, videoLabelCategory] = await Promise.all([
+        this.client.getSegments(context, this.currentConfig),
+        this.videoLabelClient.getVideoLabel(context.bvid, this.currentConfig)
+      ]);
       this.currentSegments = normalizeSegments(segments, this.currentConfig, context.cid);
-      this.panel.setFullVideoLabels(this.currentSegments.filter((segment) => segment.actionType === "full"));
+      this.currentFullVideoLabels = resolveWholeVideoLabels(
+        context.bvid,
+        this.currentSegments,
+        videoLabelCategory,
+        this.currentConfig
+      );
+      const localTitleLabel = await this.resolveLocalTitleLabel(context);
+      this.currentTitleLabel = this.currentFullVideoLabels[0] ?? localTitleLabel;
+      this.panel.setFullVideoLabels(
+        this.currentFullVideoLabels.length > 0
+          ? this.currentFullVideoLabels
+          : this.currentTitleLabel
+            ? [this.currentTitleLabel]
+            : []
+      );
+      this.updateTitleBadge(this.currentTitleLabel);
       this.previewBar.setSegments(this.currentSegments);
       if (this.currentSegments.length > 0) {
         this.updateRuntimeStatus({
@@ -356,6 +488,20 @@ export class ScriptController {
             durationMs: 2400
           });
         }
+      } else if (this.currentFullVideoLabels.length > 0) {
+        this.updateRuntimeStatus({
+          kind: "loaded",
+          message: `已识别 ${this.currentFullVideoLabels.length} 个整视频标签`,
+          bvid: context.bvid,
+          segmentCount: 0
+        });
+      } else if (this.currentTitleLabel) {
+        this.updateRuntimeStatus({
+          kind: "loaded",
+          message: "已根据本地页面线索补充整视频标签",
+          bvid: context.bvid,
+          segmentCount: 0
+        });
       } else if (segments.length > 0) {
         this.updateRuntimeStatus({
           kind: "empty",
@@ -389,6 +535,7 @@ export class ScriptController {
         message: error instanceof Error ? error.message : "未知错误",
         durationMs: 4000
       });
+      this.titleBadge.clear();
     } finally {
       this.refreshing = false;
       if (this.pendingRefresh) {
@@ -405,9 +552,13 @@ export class ScriptController {
       return;
     }
 
-    if (this.currentConfig.showPreviewBar) {
-      this.previewBar.bind(this.currentVideo);
-      this.previewBar.setSegments(this.currentSegments);
+    if (this.domStructureDirty) {
+      this.domStructureDirty = false;
+      if (this.currentConfig.showPreviewBar) {
+        this.previewBar.bind(this.currentVideo);
+        this.previewBar.setSegments(this.currentSegments);
+      }
+      this.syncCompactVideoHeader();
     }
 
     const currentTime = this.currentVideo.currentTime;
@@ -426,10 +577,43 @@ export class ScriptController {
         continue;
       }
       const state = this.getSegmentState(segment.UUID);
+      const withinSegment =
+        segment.end !== null &&
+        currentTime >= segment.start &&
+        currentTime < segment.end;
       // Re-arming state on rewind keeps manual actions and notices correct after backward seeks.
       if (this.shouldResetSegmentState(currentTime, state)) {
-        this.resetSegmentState(segment.UUID, state);
+        const rewoundIntoAutoSkippedSegment =
+          segment.actionType === "skip" &&
+          segment.mode === "auto" &&
+          state.actionConsumed &&
+          withinSegment;
+        const rewoundWithinKeptSegment =
+          segment.actionType === "skip" &&
+          segment.mode === "auto" &&
+          state.suppressedUntilExit &&
+          withinSegment;
+        if (rewoundIntoAutoSkippedSegment) {
+          this.rearmSegmentState(segment.UUID, state, state.manualSkipGraceShown);
+          this.startSkipGrace(segment, state, "检测到你回到了该片段，10 秒内不会再次自动跳过。");
+        } else if (rewoundWithinKeptSegment) {
+          this.dismissSkipGrace(segment);
+        } else {
+          this.resetSegmentState(segment.UUID, state);
+        }
       }
+
+      if (!state.actionConsumed && state.lastObservedTime !== null) {
+        const jumpedIntoAd =
+          withinSegment &&
+          Math.abs(currentTime - state.lastObservedTime) > 1.5 &&
+          (segment.end === null || state.lastObservedTime < segment.start || state.lastObservedTime >= segment.end);
+
+        if (jumpedIntoAd && !state.suppressedUntilExit) {
+          this.startSkipGrace(segment, state, "检测到你主动跳转至该片段，10秒内不会自动跳过。");
+        }
+      }
+
       this.processSegment(segment, currentTime);
       state.lastObservedTime = currentTime;
     }
@@ -441,6 +625,7 @@ export class ScriptController {
 
     if (currentTime < resetThreshold) {
       this.dismissSegmentNotice(segment);
+      this.dismissSkipGrace(segment);
       if (state.mutedByScript) {
         this.deactivateMute(segment.UUID);
         state.mutedByScript = false;
@@ -449,6 +634,8 @@ export class ScriptController {
       state.noticeShown = false;
       state.suppressedUntilExit = false;
       state.poiShown = false;
+      state.manualSkipGraceUntil = null;
+      state.manualSkipGraceShown = false;
       return;
     }
 
@@ -465,8 +652,11 @@ export class ScriptController {
     if (!active) {
       if (currentTime >= segment.end) {
         this.dismissSegmentNotice(segment);
+        this.dismissSkipGrace(segment);
         state.noticeShown = true;
         state.suppressedUntilExit = false;
+        state.manualSkipGraceUntil = null;
+        state.manualSkipGraceShown = false;
         if (state.mutedByScript) {
           this.deactivateMute(segment.UUID);
           state.mutedByScript = false;
@@ -485,6 +675,14 @@ export class ScriptController {
   }
 
   private processSkipSegment(segment: SegmentRecord, state: RuntimeSegmentState): void {
+    if (state.manualSkipGraceUntil !== null && Date.now() >= state.manualSkipGraceUntil) {
+      state.manualSkipGraceUntil = null;
+      this.dismissSkipGrace(segment);
+    }
+    if (this.isSkipGraceActive(state)) {
+      return;
+    }
+
     if (segment.mode === "auto") {
       if (!state.actionConsumed && !state.suppressedUntilExit) {
         this.performSkip(segment, "自动跳过");
@@ -639,6 +837,7 @@ export class ScriptController {
     const start = segment.start;
     const end = segment.end;
     this.dismissSegmentNotice(segment);
+    this.dismissSkipGrace(segment);
     this.currentVideo.currentTime = Math.max(end, this.currentVideo.currentTime);
 
     void this.statsStore.recordSkip(roundMinutes(end - start));
@@ -655,14 +854,17 @@ export class ScriptController {
             if (!this.currentVideo) {
               return;
             }
-            this.currentVideo.currentTime = Math.max(0, start);
             const state = this.getSegmentState(segment.UUID);
-            state.suppressedUntilExit = true;
+            this.rearmSegmentState(segment.UUID, state, state.manualSkipGraceShown);
+            this.currentVideo.currentTime = start;
+            this.startSkipGrace(segment, state, "已回到广告开始处，10 秒内不会再次自动跳过。");
           }
         }
       ]
     });
   }
+
+  private userMuteListener: (() => void) | null = null;
 
   private activateMute(owner: string): void {
     if (!this.currentVideo) {
@@ -670,6 +872,7 @@ export class ScriptController {
     }
     if (this.activeMuteOwners.size === 0) {
       this.previousMutedState = this.currentVideo.muted;
+      this.attachUserMuteListener();
     }
     this.activeMuteOwners.add(owner);
     this.currentVideo.muted = true;
@@ -681,15 +884,44 @@ export class ScriptController {
     }
     this.activeMuteOwners.delete(owner);
     if (this.activeMuteOwners.size === 0) {
+      this.detachUserMuteListener();
       this.currentVideo.muted = this.previousMutedState;
     }
   }
 
   private restoreMuteState(): void {
+    this.detachUserMuteListener();
     if (this.currentVideo && this.activeMuteOwners.size > 0) {
       this.currentVideo.muted = this.previousMutedState;
     }
     this.activeMuteOwners.clear();
+  }
+
+  private attachUserMuteListener(): void {
+    if (this.userMuteListener || !this.currentVideo) {
+      return;
+    }
+    const video = this.currentVideo;
+    this.userMuteListener = () => {
+      // If the script just muted (all owners active), ignore the event.
+      // Otherwise, the user changed mute state manually — respect their intent on restore.
+      if (this.activeMuteOwners.size > 0 && !video.muted) {
+        // User unmuted during a sponsor-mute segment — update saved state.
+        this.previousMutedState = false;
+      } else if (this.activeMuteOwners.size > 0 && video.muted) {
+        // Could be the script or the user; save muted as the intent to be safe.
+        this.previousMutedState = true;
+      }
+    };
+    video.addEventListener("volumechange", this.userMuteListener);
+  }
+
+  private detachUserMuteListener(): void {
+    if (!this.userMuteListener) {
+      return;
+    }
+    this.currentVideo?.removeEventListener("volumechange", this.userMuteListener);
+    this.userMuteListener = null;
   }
 
   private getSegmentState(id: string): RuntimeSegmentState {
@@ -704,7 +936,9 @@ export class ScriptController {
       suppressedUntilExit: false,
       mutedByScript: false,
       poiShown: false,
-      lastObservedTime: null
+      lastObservedTime: null,
+      manualSkipGraceUntil: null,
+      manualSkipGraceShown: false
     };
     this.segmentStates.set(id, created);
     return created;
@@ -722,22 +956,43 @@ export class ScriptController {
     return `segment-result:${segment.UUID}`;
   }
 
+  private skipGraceNoticeIdForSegment(segment: SegmentRecord): string {
+    return `segment-grace:${segment.UUID}`;
+  }
+
+  private updateTitleBadge(segment: SegmentRecord | null): void {
+    if (!segment) {
+      this.titleBadge.clear();
+      return;
+    }
+
+    this.titleBadge.setSegment(segment, {
+      voteLocked: this.voteHistoryStore.has(segment.UUID)
+    });
+  }
+
   private clearRuntimeState(detachUi = false): void {
     this.restoreMuteState();
     this.notices.clear();
     this.segmentStates.clear();
     this.lastTickTime = null;
     this.currentSegments = [];
+    this.currentFullVideoLabels = [];
+    this.currentTitleLabel = null;
     this.currentSignature = "";
     this.currentContext = null;
     this.currentVideo = null;
     this.panel.setFullVideoLabels([]);
     this.previewBar.clear();
     this.previewBar.bind(null);
+    this.titleBadge.clear();
     this.notices.setHost(null);
     if (detachUi) {
       this.panel.unmount();
+      this.titleBadge.destroy();
+      this.compactHeader.destroy();
     } else {
+      this.syncCompactVideoHeader();
       this.updateRuntimeStatus(this.buildIdleStatus());
     }
   }
@@ -773,12 +1028,224 @@ export class ScriptController {
     this.panel.updateRuntimeStatus(status);
   }
 
+  private syncCompactVideoHeader(): void {
+    const shouldCompact =
+      this.started &&
+      this.currentConfig.enabled &&
+      this.currentConfig.compactVideoHeader &&
+      supportsVideoFeatures(window.location.href);
+    if (shouldCompact) {
+      this.compactHeader.mount();
+      return;
+    }
+    this.compactHeader.unmount();
+  }
+
+  private resolveFullVideoSegment(): SegmentRecord | null {
+    return this.currentTitleLabel;
+  }
+
+  private buildLocalSignalSegment(
+    bvid: string,
+    signal: Pick<LocalVideoSignal, "category" | "source" | "reason"> | Pick<LocalVideoLabelRecord, "category" | "source" | "reason">
+  ): SegmentRecord {
+    const category = signal.category ?? "sponsor";
+    return {
+      UUID: `local-signal:${bvid}:${signal.source}:${category}`,
+      category,
+      actionType: "full",
+      segment: [0, 0],
+      start: 0,
+      end: 0,
+      duration: 0,
+      mode: this.currentConfig.categoryModes[category]
+    };
+  }
+
+  private async resolveLocalTitleLabel(context: VideoContext): Promise<SegmentRecord | null> {
+    const learned = this.localVideoLabelStore.getResolved(context.bvid);
+    if (learned?.category && this.currentConfig.categoryModes[learned.category] !== "off") {
+      return this.buildLocalSignalSegment(context.bvid, learned);
+    }
+
+    if (this.localVideoLabelStore.isDismissed(context.bvid)) {
+      return null;
+    }
+
+    const commentSignal = scanCurrentPageCommentSignal(this.currentConfig);
+    const pageSignal = inferLocalVideoSignal(context);
+    const localSignal = this.pickPreferredLocalSignal(commentSignal, pageSignal);
+    if (!localSignal || this.currentConfig.categoryModes[localSignal.category] === "off") {
+      return null;
+    }
+
+    if (localSignal.confidence >= 0.72) {
+      await this.localVideoLabelStore.rememberSignal(context.bvid, localSignal);
+    }
+
+    return this.buildLocalSignalSegment(context.bvid, localSignal);
+  }
+
+  private pickPreferredLocalSignal(
+    commentSignal: LocalVideoSignal | null,
+    pageSignal: LocalVideoSignal | null
+  ): LocalVideoSignal | null {
+    if (commentSignal && pageSignal) {
+      return commentSignal.confidence >= pageSignal.confidence ? commentSignal : pageSignal;
+    }
+
+    return commentSignal ?? pageSignal;
+  }
+
+  private async handleLocalBadgeDecision(segment: SegmentRecord, decision: "confirm" | "dismiss"): Promise<void> {
+    if (!this.currentContext || !segment.UUID.startsWith("local-signal:")) {
+      return;
+    }
+
+    if (decision === "confirm") {
+      await this.localVideoLabelStore.rememberManual(this.currentContext.bvid, segment.category, `手动保留 ${CATEGORY_LABELS[segment.category]}`);
+      this.currentTitleLabel = this.buildLocalSignalSegment(this.currentContext.bvid, {
+        category: segment.category,
+        source: "manual",
+        reason: `手动保留 ${CATEGORY_LABELS[segment.category]}`
+      });
+      this.updateTitleBadge(this.currentTitleLabel);
+      this.panel.setFullVideoLabels([this.currentTitleLabel]);
+      this.notices.show({
+        id: `local-label-confirm:${this.currentContext.bvid}`,
+        title: "已保留本地标签",
+        message: `后续会继续把这个视频视作“${CATEGORY_LABELS[segment.category]}”。`,
+        durationMs: 2800
+      });
+      return;
+    }
+
+    await this.localVideoLabelStore.dismiss(this.currentContext.bvid, `手动忽略 ${CATEGORY_LABELS[segment.category]}`);
+    this.currentTitleLabel = null;
+    this.titleBadge.clear();
+    this.panel.setFullVideoLabels([]);
+    this.updateRuntimeStatus({
+      kind: this.currentSegments.length > 0 ? "loaded" : "empty",
+      message: this.currentSegments.length > 0 ? `已加载 ${this.currentSegments.length} 个可处理片段` : "当前视频暂无可显示的整视频标签",
+      bvid: this.currentContext.bvid,
+      segmentCount: this.currentSegments.length
+    });
+    this.notices.show({
+      id: `local-label-dismiss:${this.currentContext.bvid}`,
+      title: "已忽略本地标签",
+      message: "当前视频后续不会继续显示这条本地商业提示。",
+      durationMs: 2800
+    });
+  }
+
+  private async submitVote(segment: SegmentRecord, type: 0 | 1): Promise<TitleBadgeVoteResult> {
+    const response = await this.client.vote(segment.UUID, type, this.currentConfig);
+    if (response.successType === 1) {
+      await this.voteHistoryStore.remember(segment.UUID);
+      if (this.currentTitleLabel?.UUID === segment.UUID) {
+        this.updateTitleBadge(this.currentTitleLabel);
+      }
+      this.notices.show({
+        id: `segment-vote:${segment.UUID}:${type}`,
+        title: "反馈已提交",
+        message: type === 1 ? "已标记为“正确”，感谢反馈。" : "已标记为“有误”，感谢反馈。",
+        durationMs: 2600
+      });
+      return "submitted";
+    }
+
+    if (response.successType === 0) {
+      await this.voteHistoryStore.remember(segment.UUID);
+      if (this.currentTitleLabel?.UUID === segment.UUID) {
+        this.updateTitleBadge(this.currentTitleLabel);
+      }
+      this.notices.show({
+        id: `segment-vote-duplicate:${segment.UUID}:${type}`,
+        title: "已提交过反馈",
+        message: "这个整视频标签你之前已经投过票了。",
+        durationMs: 2800
+      });
+      return "duplicate";
+    }
+
+    this.notices.show({
+      id: `segment-vote-error:${segment.UUID}:${type}`,
+      title: "反馈提交失败",
+      message:
+        response.statusCode === 403
+          ? "服务端拒绝了这次反馈，稍后可再试一次。"
+          : response.statusCode === -1
+            ? "请求没有送达 SponsorBlock 服务，请检查网络或 Tampermonkey 授权。"
+            : response.responseText || `SponsorBlock API returned ${response.statusCode}`,
+      durationMs: 3600
+    });
+    return "error";
+  }
+
   private shouldResetSegmentState(currentTime: number, state: RuntimeSegmentState): boolean {
     return state.lastObservedTime !== null && currentTime < state.lastObservedTime - SEGMENT_REWIND_RESET_SEC;
   }
 
-  private resetSegmentState(id: string, state: RuntimeSegmentState): void {
+  private isSkipGraceActive(state: RuntimeSegmentState): boolean {
+    return state.manualSkipGraceUntil !== null && Date.now() < state.manualSkipGraceUntil;
+  }
+
+  private dismissSkipGrace(segment: SegmentRecord): void {
+    this.notices.dismiss(this.skipGraceNoticeIdForSegment(segment));
+  }
+
+  private suppressAutoSkipForCurrentSegment(segment: SegmentRecord): void {
+    const state = this.getSegmentState(segment.UUID);
+    state.manualSkipGraceUntil = null;
+    state.manualSkipGraceShown = true;
+    state.suppressedUntilExit = true;
+    state.noticeShown = true;
+    this.dismissSkipGrace(segment);
+  }
+
+  private startSkipGrace(segment: SegmentRecord, state: RuntimeSegmentState, message: string): void {
+    state.manualSkipGraceUntil = Date.now() + SKIP_GRACE_WINDOW_MS;
+    if (state.manualSkipGraceShown) {
+      return;
+    }
+
+    state.manualSkipGraceShown = true;
+    this.notices.show({
+      id: this.skipGraceNoticeIdForSegment(segment),
+      title: `${CATEGORY_LABELS[segment.category]}片段`,
+      message,
+      durationMs: SKIP_GRACE_WINDOW_MS,
+      actions: [
+        {
+          label: "保留本段",
+          variant: "secondary",
+          onClick: () => {
+            this.suppressAutoSkipForCurrentSegment(segment);
+          }
+        },
+        {
+          label: "立即跳过",
+          variant: "primary",
+          onClick: () => {
+            const nextState = this.getSegmentState(segment.UUID);
+            nextState.manualSkipGraceUntil = null;
+            this.dismissSkipGrace(segment);
+            this.performSkip(segment, "继续跳过");
+            nextState.actionConsumed = true;
+            nextState.noticeShown = true;
+            nextState.suppressedUntilExit = true;
+          }
+        }
+      ]
+    });
+  }
+
+  private rearmSegmentState(id: string, state: RuntimeSegmentState, preserveSkipGraceShown = false): void {
     this.notices.dismiss(`segment:${id}`);
+    this.notices.dismiss(`segment-result:${id}`);
+    if (!preserveSkipGraceShown) {
+      this.notices.dismiss(`segment-grace:${id}`);
+    }
     if (state.mutedByScript) {
       this.deactivateMute(id);
     }
@@ -788,5 +1255,13 @@ export class ScriptController {
     state.mutedByScript = false;
     state.poiShown = false;
     state.lastObservedTime = null;
+    state.manualSkipGraceUntil = null;
+    if (!preserveSkipGraceShown) {
+      state.manualSkipGraceShown = false;
+    }
+  }
+
+  private resetSegmentState(id: string, state: RuntimeSegmentState): void {
+    this.rearmSegmentState(id, state);
   }
 }

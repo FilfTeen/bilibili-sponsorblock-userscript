@@ -1,10 +1,17 @@
 import type { DynamicSponsorMatch, StoredConfig } from "../types";
 import { ConfigStore } from "../core/config-store";
 import { collectPatternMatches, isLikelyPromoText, regexFromStoredPattern } from "../utils/pattern";
+import { analyzeCommercialIntent } from "../utils/commercial-intent";
 import { debugLog } from "../utils/dom";
 import { mutationsTouchSelectors } from "../utils/mutation";
 import { observeUrlChanges } from "../utils/navigation";
 import { supportsDynamicFilters } from "../utils/page";
+import {
+  createInlineBadge,
+  createInlineToggle,
+  setInlineToggleState,
+  type InlineTone
+} from "../ui/inline-feedback";
 
 const PROCESSED_ATTR = "data-bsb-dynamic-processed";
 const BADGE_SELECTOR = "[data-bsb-dynamic-badge]";
@@ -38,23 +45,40 @@ export function classifyDynamicItem(
   }
 
   const pattern = regexFromStoredPattern(config.dynamicRegexPattern);
-  if (!pattern) {
-    return null;
-  }
-
   const text = [
     ...element.querySelectorAll(".bili-rich-text__content span:not(.bili-dyn-item__interaction *), .opus-paragraph-children span, .dyn-card-opus__title")
   ]
     .map((node) => node.textContent ?? "")
     .join(" ");
-  const matches = collectPatternMatches(text, pattern);
-  if (!isLikelyPromoText(text, matches, config.dynamicRegexKeywordMinMatches)) {
+  const storedMatches = pattern ? collectPatternMatches(text, pattern) : [];
+  if (pattern && !isLikelyPromoText(text, storedMatches, config.dynamicRegexKeywordMinMatches)) {
+    const assessment = analyzeCommercialIntent(text, {
+      storedMatches,
+      minMatches: config.dynamicRegexKeywordMinMatches
+    });
+    if (!assessment.category) {
+      return null;
+    }
+
+    return {
+      category:
+        assessment.category === "selfpromo" ? "dynamicSponsor_forward_sponsor" : "dynamicSponsor_suspicion_sponsor",
+      matches: storedMatches.length > 0 ? storedMatches : assessment.matches
+    };
+  }
+
+  const assessment = analyzeCommercialIntent(text, {
+    storedMatches,
+    minMatches: config.dynamicRegexKeywordMinMatches
+  });
+  if (!assessment.category) {
     return null;
   }
 
   return {
-    category: "dynamicSponsor_suspicion_sponsor",
-    matches
+    category:
+      assessment.category === "selfpromo" ? "dynamicSponsor_forward_sponsor" : "dynamicSponsor_suspicion_sponsor",
+    matches: storedMatches.length > 0 ? storedMatches : assessment.matches
   };
 }
 
@@ -66,6 +90,17 @@ function getBadgeText(match: DynamicSponsorMatch): string {
     return "带货动态";
   }
   return match.matches.length > 0 ? `疑似广告: ${match.matches.join(" / ")}` : "疑似广告";
+}
+
+function getBadgeTone(match: DynamicSponsorMatch): InlineTone {
+  switch (match.category) {
+    case "dynamicSponsor_forward_sponsor":
+      return "warning";
+    case "dynamicSponsor_suspicion_sponsor":
+      return "warning";
+    default:
+      return "danger";
+  }
 }
 
 function resolveBadgeAnchor(element: HTMLElement): HTMLElement | null {
@@ -85,29 +120,21 @@ function resolveContentBody(element: HTMLElement): HTMLElement | null {
   );
 }
 
-function createBadge(text: string): HTMLElement {
-  const badge = document.createElement("div");
-  badge.dataset.bsbDynamicBadge = "true";
-  badge.style.cssText =
-    "display:inline-flex;align-items:center;gap:6px;margin-top:8px;padding:6px 10px;border-radius:999px;background:rgba(255,102,153,.14);border:1px solid rgba(255,102,153,.28);color:#c2185b;font:600 12px/1.2 'SF Pro Text','PingFang SC',sans-serif;";
-  badge.textContent = text;
-  return badge;
+function createBadge(text: string, tone: InlineTone): HTMLElement {
+  return createInlineBadge("data-bsb-dynamic-badge", text, tone, "stack");
 }
 
 function createToggleButton(onClick: () => void): HTMLButtonElement {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.dataset.bsbDynamicToggle = "true";
-  button.style.cssText =
-    "margin-top:8px;border:0;border-radius:999px;padding:7px 12px;background:rgba(15,23,42,.08);color:#0f172a;font:600 12px/1.2 'SF Pro Text','PingFang SC',sans-serif;cursor:pointer;";
-  button.textContent = "显示内容";
-  button.addEventListener("click", onClick);
-  return button;
+  return createInlineToggle("data-bsb-dynamic-toggle", onClick, "stack");
 }
 
 function setDynamicHidden(body: HTMLElement, button: HTMLButtonElement, hidden: boolean): void {
   body.style.display = hidden ? "none" : "";
-  button.textContent = hidden ? "显示内容" : "隐藏内容";
+  body.setAttribute(HIDDEN_ATTR, String(hidden));
+  setInlineToggleState(button, hidden ? "hidden" : "shown", {
+    hidden: "显示动态内容",
+    shown: "再次隐藏动态"
+  });
 }
 
 export class DynamicSponsorController {
@@ -245,7 +272,7 @@ export class DynamicSponsorController {
 
     element.setAttribute(PROCESSED_ATTR, "true");
 
-    const badge = createBadge(getBadgeText(match));
+    const badge = createBadge(getBadgeText(match), getBadgeTone(match));
     anchor.parentElement.insertBefore(badge, anchor.nextSibling);
 
     if (this.currentConfig.dynamicFilterMode !== "hide") {
@@ -262,7 +289,6 @@ export class DynamicSponsorController {
       setDynamicHidden(body, toggle, !hidden);
     });
     setDynamicHidden(body, toggle, true);
-    body.setAttribute(HIDDEN_ATTR, "true");
     badge.parentElement?.insertBefore(toggle, badge.nextSibling);
   }
 

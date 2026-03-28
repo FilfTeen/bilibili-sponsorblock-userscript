@@ -1,7 +1,4 @@
-const STRONG_PROMO_INTENT_PATTERN =
-  /评论区(?:置顶)?|优惠(?:券|卷|劵)|无门槛|折扣|下单|购买|蓝链|链接|扫码|同款|密令|红包|福利|领(?:取|券|红包)|抢(?:券|红包)?|淘宝|京东|拼多多|天猫|满\d+|大促|金主|恰饭|商品卡/iu;
-const BENIGN_PROMO_CONTEXT_PATTERN =
-  /广告位|广告学|推广曲|推广大使|外卖(?:到了|真香|好吃|骑手)|同款(?:bgm|BGM|音乐|滤镜)/iu;
+import { analyzeCommercialIntent, isBenignCommercialContext } from "./commercial-intent";
 
 export function regexFromStoredPattern(input: string): RegExp | null {
   const trimmed = input.trim();
@@ -56,11 +53,15 @@ export function isLikelyPromoText(text: string, matches: string[], minMatches: n
     return false;
   }
 
-  if (BENIGN_PROMO_CONTEXT_PATTERN.test(normalizedText)) {
+  if (isBenignCommercialContext(normalizedText)) {
     return false;
   }
 
-  const strongIntent = STRONG_PROMO_INTENT_PATTERN.test(normalizedText);
-  const effectiveThreshold = strongIntent ? Math.max(1, minMatches) : Math.max(2, minMatches);
-  return matches.length >= effectiveThreshold;
+  const effectiveThreshold = Math.max(1, minMatches);
+  const assessment = analyzeCommercialIntent(normalizedText, {
+    storedMatches: matches,
+    minMatches: effectiveThreshold
+  });
+
+  return Boolean(assessment.category);
 }

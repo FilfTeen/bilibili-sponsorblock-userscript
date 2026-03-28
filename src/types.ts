@@ -13,6 +13,13 @@ export type Category =
 export type CategoryMode = "auto" | "manual" | "notice" | "off";
 export type ContentFilterMode = "hide" | "label" | "off";
 export type ThumbnailLabelMode = "overlay" | "off";
+export type CategoryColorOverrides = Partial<Record<Category, string>>;
+export type LocalVideoLabelSource =
+  | "comment-goods"
+  | "comment-suspicion"
+  | "page-heuristic"
+  | "manual"
+  | "manual-dismiss";
 
 export type ActionType = "skip" | "mute" | "full" | "poi";
 export type PageType =
@@ -75,13 +82,23 @@ export interface StoredConfig {
   noticeDurationSec: number;
   minDurationSec: number;
   showPreviewBar: boolean;
+  compactVideoHeader: boolean;
   thumbnailLabelMode: ThumbnailLabelMode;
   categoryModes: Record<Category, CategoryMode>;
+  categoryColorOverrides: CategoryColorOverrides;
   dynamicFilterMode: ContentFilterMode;
   dynamicRegexPattern: string;
   dynamicRegexKeywordMinMatches: number;
   commentFilterMode: ContentFilterMode;
+  commentLocationEnabled: boolean;
   commentHideReplies: boolean;
+  commentIpColor?: string;
+  commentAdColor?: string;
+  mbgaEnabled: boolean;
+  mbgaBlockTracking: boolean;
+  mbgaDisablePcdn: boolean;
+  mbgaCleanUrl: boolean;
+  mbgaSimplifyUi: boolean;
 }
 
 export interface StoredStats {
@@ -113,6 +130,12 @@ export interface FetchResponse {
   ok: boolean;
 }
 
+export interface VoteResponse {
+  successType: number;
+  statusCode: number;
+  responseText: string;
+}
+
 export interface NoticeAction {
   label: string;
   onClick: () => void;
@@ -131,4 +154,19 @@ export interface NoticeOptions {
 export interface DynamicSponsorMatch {
   category: "dynamicSponsor_sponsor" | "dynamicSponsor_forward_sponsor" | "dynamicSponsor_suspicion_sponsor";
   matches: string[];
+}
+
+export interface LocalVideoLabelRecord {
+  category: Category | null;
+  source: LocalVideoLabelSource;
+  confidence: number;
+  updatedAt: number;
+  reason?: string;
+}
+
+export interface LocalVideoSignal {
+  category: Category;
+  source: Exclude<LocalVideoLabelSource, "manual" | "manual-dismiss">;
+  confidence: number;
+  reason: string;
 }

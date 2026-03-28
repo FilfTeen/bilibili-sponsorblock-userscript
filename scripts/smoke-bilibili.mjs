@@ -8,9 +8,6 @@ const browserPath =
   process.env.BSB_SMOKE_BROWSER_PATH ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const captureDir = process.env.BSB_SMOKE_CAPTURE_DIR ? path.resolve(rootDir, process.env.BSB_SMOKE_CAPTURE_DIR) : null;
 
-const FIXTURE_SEGMENT_PREFIX = "ba5f";
-const FIXTURE_LABEL_PREFIX = "f0f6";
-
 function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
@@ -36,8 +33,13 @@ async function captureLocator(locator, name) {
 
   await mkdir(captureDir, { recursive: true });
   try {
+    await locator.waitFor({
+      state: "visible",
+      timeout: 2500
+    });
     await locator.screenshot({
-      path: path.join(captureDir, `${name}.png`)
+      path: path.join(captureDir, `${name}.png`),
+      timeout: 2500
     });
   } catch (error) {
     console.warn(`Skipping locator capture for ${name}: ${error instanceof Error ? error.message : String(error)}`);
@@ -48,7 +50,7 @@ async function installGmShims(page, options = {}) {
   const { failSegmentRequests = false, initialStore = {} } = options;
 
   await page.exposeFunction("__bsbNodeRequest", async (details) => {
-    if (details.url.includes(`/api/skipSegments/${FIXTURE_SEGMENT_PREFIX}`)) {
+    if (details.url.includes("/api/skipSegments/")) {
       if (failSegmentRequests) {
         return {
           status: 500,
@@ -67,6 +69,12 @@ async function installGmShims(page, options = {}) {
                 category: "sponsor",
                 actionType: "skip",
                 segment: [65.7, 86.1]
+              },
+              {
+                UUID: "fixture-full-video",
+                category: "exclusive_access",
+                actionType: "full",
+                segment: [0, 120]
               }
             ]
           }
@@ -74,7 +82,7 @@ async function installGmShims(page, options = {}) {
       };
     }
 
-    if (details.url.includes(`/api/videoLabels/${FIXTURE_LABEL_PREFIX}`)) {
+    if (details.url.includes("/api/videoLabels/")) {
       return {
         status: 200,
         responseText: JSON.stringify([
@@ -83,6 +91,13 @@ async function installGmShims(page, options = {}) {
             segments: [{ category: "sponsor" }]
           }
         ])
+      };
+    }
+
+    if (details.url.includes("/api/voteOnSponsorTime")) {
+      return {
+        status: 200,
+        responseText: JSON.stringify({ ok: true })
       };
     }
 
@@ -172,9 +187,17 @@ async function verifyHomePage(page) {
   await page.evaluate(() => {
     const section = document.createElement("section");
     section.className = "recommended-container_floor-aside";
+    section.style.position = "fixed";
+    section.style.top = "96px";
+    section.style.left = "24px";
+    section.style.zIndex = "9999";
+    section.style.padding = "12px";
+    section.style.background = "rgba(255,255,255,0.94)";
+    section.style.borderRadius = "20px";
+    section.style.boxShadow = "0 20px 40px rgba(15,23,42,0.12)";
     section.innerHTML = `
       <div class="container">
-        <article class="bili-video-card" data-bsb-smoke-card="home">
+        <article class="bili-video-card" data-bsb-smoke-card="home" style="width:280px;">
           <a class="bili-video-card__cover" href="//www.bilibili.com/video/BV17x411w7KC/">
             <img src="https://example.com/a.jpg" alt="cover">
           </a>
@@ -185,21 +208,48 @@ async function verifyHomePage(page) {
   });
   await page.waitForTimeout(900);
   await capture(page, "home-thumbnail-labels");
-  await captureLocator(page.locator("[data-bsb-smoke-card='home']").first(), "home-thumbnail-label-card");
+  await captureLocator(
+    page.locator("[data-bsb-smoke-card='home'] .sponsorThumbnailLabelVisible").first(),
+    "home-thumbnail-label-badge"
+  );
+  await page.evaluate(() => {
+    document.querySelector("[data-bsb-smoke-card='home']")?.setAttribute("data-bsb-hover", "true");
+  });
+  await page.waitForTimeout(160);
+  await captureLocator(
+    page.locator("[data-bsb-smoke-card='home'] .sponsorThumbnailLabelVisible").first(),
+    "home-thumbnail-label-badge-expanded"
+  );
 
-  const result = await page.evaluate(() => ({
-    overlayCount: document.querySelectorAll(".sponsorThumbnailLabelVisible").length,
-    requestCount: (window.__bsbRequestLog ?? []).filter((entry) => entry.url.includes("/api/videoLabels/")).length,
-    hasLegacyButton: Boolean(document.querySelector(".bsb-tm-entry-button")),
-    panelMounted: Boolean(document.querySelector(".bsb-tm-panel-backdrop")),
-    panelOpen: document.documentElement.classList.contains("bsb-tm-panel-open")
-  }));
+  const result = await page.evaluate(() => {
+    const overlay = document.querySelector("[data-bsb-smoke-card='home'] .sponsorThumbnailLabelVisible");
+    const cover = document.querySelector("[data-bsb-smoke-card='home'] .bili-video-card__cover");
+    const overlayRect = overlay?.getBoundingClientRect();
+    const coverRect = cover?.getBoundingClientRect();
+    return {
+      overlayCount: document.querySelectorAll(".sponsorThumbnailLabelVisible").length,
+      requestCount: (window.__bsbRequestLog ?? []).filter((entry) => entry.url.includes("/api/videoLabels/")).length,
+      hasLegacyButton: Boolean(document.querySelector(".bsb-tm-entry-button")),
+      panelMounted: Boolean(document.querySelector(".bsb-tm-panel-backdrop")),
+      panelOpen: document.documentElement.classList.contains("bsb-tm-panel-open"),
+      overlayCenterOffset:
+        overlayRect && coverRect
+          ? Math.abs(overlayRect.left + overlayRect.width / 2 - (coverRect.left + coverRect.width / 2))
+          : 999,
+      overlayAboveCard:
+        overlayRect && coverRect
+          ? overlayRect.top + overlayRect.height / 2 < coverRect.top + 12
+          : false
+    };
+  });
 
   assert(result.overlayCount > 0, "Home page did not render any thumbnail labels.");
   assert(result.requestCount > 0, "Home page did not request thumbnail label data.");
   assert(!result.hasLegacyButton, "Legacy floating button is still being rendered.");
   assert(!result.panelMounted, "Home page mounted the settings panel before the user explicitly opened it.");
   assert(!result.panelOpen, "Home page left the document in panel-open mode.");
+  assert(result.overlayCenterOffset <= 18, "Home page thumbnail label is no longer centered above the cover.");
+  assert(result.overlayAboveCard, "Home page thumbnail label did not sit above the cover area.");
 }
 
 async function verifySearchPage(browser) {
@@ -215,9 +265,21 @@ async function verifySearchPage(browser) {
     await injectUserscript(page, userscript);
 
     await page.evaluate(() => {
+      const wrapper = document.createElement("section");
+      wrapper.className = "search-page-wrapper";
+      wrapper.style.position = "fixed";
+      wrapper.style.top = "96px";
+      wrapper.style.left = "24px";
+      wrapper.style.zIndex = "9999";
+      wrapper.style.padding = "12px";
+      wrapper.style.background = "rgba(255,255,255,0.94)";
+      wrapper.style.borderRadius = "20px";
+      wrapper.style.boxShadow = "0 20px 40px rgba(15,23,42,0.12)";
+
       const card = document.createElement("article");
       card.className = "bili-video-card";
       card.setAttribute("data-bsb-smoke-card", "search");
+      card.style.width = "280px";
       card.innerHTML = `
         <a class="bili-video-card__cover" href="https://www.bilibili.com/video/BV17x411w7KC/">
           <img src="https://example.com/search-fixture.jpg" alt="search cover">
@@ -227,27 +289,32 @@ async function verifySearchPage(browser) {
         </div>
       `;
 
-      const wrapper = document.querySelector(".search-page-wrapper");
-      if (wrapper) {
-        wrapper.prepend(card);
-        return;
-      }
-
-      const fallback = document.createElement("section");
-      fallback.className = "search-page-wrapper";
-      fallback.appendChild(card);
-      document.body.prepend(fallback);
+      wrapper.appendChild(card);
+      document.body.prepend(wrapper);
     });
     await page.waitForTimeout(900);
     await capture(page, "search-thumbnail-labels");
-    await captureLocator(page.locator("[data-bsb-smoke-card='search']").first(), "search-thumbnail-label-card");
+    await captureLocator(page.locator("[data-bsb-smoke-card='search'] .sponsorThumbnailLabelVisible").first(), "search-thumbnail-label-badge");
 
     const result = await page.evaluate(() => {
+      const card = document.querySelector("[data-bsb-smoke-card='search']");
+      const cover = document.querySelector("[data-bsb-smoke-card='search'] .bili-video-card__cover");
+      const label = document.querySelector("[data-bsb-smoke-card='search'] .sponsorThumbnailLabelVisible");
+      const coverRect = cover?.getBoundingClientRect();
+      const labelRect = label?.getBoundingClientRect();
       return {
-        visibleLabelCount: document.querySelectorAll(".search-page-wrapper .sponsorThumbnailLabelVisible").length,
+        visibleLabelCount: card instanceof Element ? card.querySelectorAll(".sponsorThumbnailLabelVisible").length : 0,
         requestCount: (window.__bsbRequestLog ?? []).filter((entry) => entry.url.includes("/api/videoLabels/")).length,
         panelMounted: Boolean(document.querySelector(".bsb-tm-panel-backdrop")),
-        fixtureExists: Boolean(document.querySelector("[data-bsb-smoke-card='search']"))
+        fixtureExists: Boolean(document.querySelector("[data-bsb-smoke-card='search']")),
+        centered:
+          coverRect && labelRect
+            ? Math.abs(labelRect.left + labelRect.width / 2 - (coverRect.left + coverRect.width / 2)) <= 18
+            : false,
+        aboveCover:
+          coverRect && labelRect
+            ? labelRect.top + labelRect.height / 2 < coverRect.top + 12
+            : false
       };
     });
 
@@ -255,6 +322,69 @@ async function verifySearchPage(browser) {
     assert(result.visibleLabelCount > 0, "Search page did not render any thumbnail labels.");
     assert(result.requestCount > 0, "Search page did not request thumbnail label data.");
     assert(!result.panelMounted, "Search page mounted the settings panel before user interaction.");
+    assert(result.centered, "Search page thumbnail label is no longer centered above the cover.");
+    assert(result.aboveCover, "Search page thumbnail label did not stay above the cover.");
+  } finally {
+    await context.close();
+  }
+}
+
+async function verifyHistoryMenuBadge(browser) {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await installGmShims(page);
+
+  try {
+    await page.goto("https://www.bilibili.com/", { waitUntil: "domcontentloaded" });
+    const userscript = await readFile(scriptPath, "utf8");
+    await injectUserscript(page, userscript);
+
+    await page.evaluate(() => {
+      const wrapper = document.createElement("section");
+      wrapper.className = "bsb-history-fixture";
+      wrapper.style.position = "fixed";
+      wrapper.style.top = "96px";
+      wrapper.style.right = "24px";
+      wrapper.style.zIndex = "9999";
+      wrapper.style.padding = "12px";
+      wrapper.style.background = "rgba(255,255,255,0.94)";
+      wrapper.style.borderRadius = "20px";
+      wrapper.style.boxShadow = "0 20px 40px rgba(15,23,42,0.12)";
+      wrapper.innerHTML = `
+        <a class="header-history-card" data-bsb-smoke-card="history" href="https://www.bilibili.com/video/BV17x411w7KC/" style="display:grid;gap:10px;width:220px;text-decoration:none;color:inherit;">
+          <span class="header-history-card__cover" style="display:block;position:relative;width:220px;height:124px;border-radius:18px;overflow:hidden;background:#111827;">
+            <img src="https://example.com/history-fixture.jpg" alt="history cover" style="width:100%;height:100%;object-fit:cover;">
+          </span>
+          <span>历史记录场景卡片</span>
+        </a>
+      `;
+      document.body.prepend(wrapper);
+    });
+    await page.waitForTimeout(900);
+    await capture(page, "history-thumbnail-labels");
+    await captureLocator(page.locator("[data-bsb-smoke-card='history'] .sponsorThumbnailLabelVisible").first(), "history-thumbnail-label-badge");
+
+    const result = await page.evaluate(() => {
+      const cover = document.querySelector("[data-bsb-smoke-card='history'] .header-history-card__cover");
+      const label = document.querySelector("[data-bsb-smoke-card='history'] .sponsorThumbnailLabelVisible");
+      const coverRect = cover?.getBoundingClientRect();
+      const labelRect = label?.getBoundingClientRect();
+      return {
+        visibleLabelCount: document.querySelectorAll("[data-bsb-smoke-card='history'] .sponsorThumbnailLabelVisible").length,
+        centered:
+          coverRect && labelRect
+            ? Math.abs(labelRect.left + labelRect.width / 2 - (coverRect.left + coverRect.width / 2)) <= 18
+            : false,
+        aboveCover:
+          coverRect && labelRect
+            ? labelRect.top + labelRect.height / 2 < coverRect.top + 14
+            : false
+      };
+    });
+
+    assert(result.visibleLabelCount > 0, "History-like cards did not render any thumbnail labels.");
+    assert(result.centered, "History-like thumbnail label is no longer centered on the cover anchor.");
+    assert(result.aboveCover, "History-like thumbnail label did not stay above the cover anchor.");
   } finally {
     await context.close();
   }
@@ -307,7 +437,12 @@ async function verifyDynamicLabelMode(browser) {
 }
 
 async function verifyVideoPage(browser) {
-  const context = await browser.newContext();
+  const context = await browser.newContext({
+    viewport: {
+      width: 1180,
+      height: 640
+    }
+  });
   const page = await context.newPage();
   await installGmShims(page, {
     initialStore: {
@@ -407,6 +542,54 @@ async function verifyVideoPage(browser) {
       }, 260);
     });
     await page.waitForTimeout(3000);
+    await page.evaluate(() => {
+      const fixtureRoot = document.createElement("section");
+      fixtureRoot.className = "right-container";
+      fixtureRoot.setAttribute("data-bsb-sidebar-fixture", "true");
+      fixtureRoot.style.position = "fixed";
+      fixtureRoot.style.top = "176px";
+      fixtureRoot.style.right = "24px";
+      fixtureRoot.style.zIndex = "9999";
+      fixtureRoot.style.width = "240px";
+      fixtureRoot.innerHTML = `
+        <article class="video-page-card-small" data-bsb-smoke-card="video-sidebar" style="position:relative;">
+          <a class="b-img" href="https://www.bilibili.com/video/BV17x411w7KC/" style="display:block;position:relative;width:168px;height:94px;border-radius:16px;overflow:hidden;background:#111827;">
+            <img src="https://example.com/sidebar-cover.jpg" alt="sidebar cover" style="width:100%;height:100%;object-fit:cover;">
+          </a>
+        </article>
+      `;
+      document.body.appendChild(fixtureRoot);
+    });
+    await page.waitForTimeout(700);
+    await page.waitForFunction(
+      () => (document.querySelector(".bsb-tm-title-pill")?.textContent ?? "").trim().length > 0,
+      undefined,
+      { timeout: 12000 }
+    );
+    await page.evaluate(() => {
+      document.querySelector(".bsb-tm-title-pill")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await page.waitForTimeout(450);
+    await captureLocator(page.locator(".bsb-tm-video-header-shell").first(), "video-compact-header");
+    await captureLocator(page.locator(".bsb-tm-title-popover").first(), "video-title-popover");
+    await captureLocator(page.locator(".video-info-container, .video-title-container").first(), "video-title-area");
+    const titlePopoverState = await page.evaluate(() => ({
+      titlePopoverVisible: (() => {
+        const popover = document.querySelector(".bsb-tm-title-popover");
+        return popover instanceof HTMLElement && !popover.hidden && popover.classList.contains("open");
+      })(),
+      titlePopoverButtonLabels: Array.from(
+        document.querySelectorAll(".bsb-tm-title-popover .bsb-tm-pill-action:not([hidden])")
+      ).map((node) => node.textContent ?? "")
+    }));
+
+    await page.evaluate(() => {
+      const button = document.querySelector(".bsb-tm-pill-action.positive");
+      if (button instanceof HTMLButtonElement) {
+        button.click();
+      }
+    });
+    await page.waitForTimeout(350);
 
     await page.evaluate(async () => {
       const video = document.querySelector("video");
@@ -422,6 +605,51 @@ async function verifyVideoPage(browser) {
     await page.waitForTimeout(2200);
     await capture(page, "video-preview-and-comment-filter");
     await captureLocator(page.locator(".bpx-player-container, #bilibili-player, #playerWrap").first(), "video-player-notice");
+    await captureLocator(page.locator(".bsb-tm-title-pill-wrap").first(), "video-title-pill");
+    await captureLocator(page.locator("[data-bsb-smoke-card='video-sidebar'] .sponsorThumbnailLabelVisible").first(), "video-sidebar-thumbnail-label");
+    const skipNoticeSeen = await page.evaluate(() => {
+      return Array.from(document.querySelectorAll(".bsb-tm-notice-title")).some((node) => {
+        return (node.textContent ?? "").includes("自动跳过");
+      });
+    });
+
+    await page.setViewportSize({ width: 1100, height: 540 });
+    await page.evaluate(() => {
+      document
+        .querySelector(".bsb-tm-pill-action.subtle")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await page.waitForTimeout(300);
+    await page.click("[data-tab='behavior']");
+    await page.waitForTimeout(200);
+    const behaviorTabWasActive = await page.locator("[data-tab='behavior']").evaluate((element) =>
+      element.classList.contains("active")
+    );
+    const behaviorPanelHeight = await page.locator(".bsb-tm-panel").first().evaluate((element) => element.getBoundingClientRect().height);
+    await captureLocator(page.locator(".bsb-tm-panel").first(), "video-settings-panel");
+    await page.evaluate(() => {
+      const content = document.querySelector(".bsb-tm-panel-content");
+      if (content instanceof HTMLElement) {
+        content.scrollTop = content.scrollHeight;
+      }
+    });
+    await page.waitForTimeout(150);
+    await page.evaluate(() => {
+      const lastSelect = Array.from(document.querySelectorAll(".bsb-tm-category-row select")).at(-1);
+      if (!(lastSelect instanceof HTMLSelectElement)) {
+        return;
+      }
+      lastSelect.value = lastSelect.value === "off" ? "notice" : "off";
+      lastSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await page.waitForTimeout(260);
+    await captureLocator(page.locator(".bsb-tm-panel").first(), "video-settings-panel-bottom");
+    await page.click("[data-tab='filters']");
+    await page.waitForTimeout(180);
+    const filtersPanelHeight = await page.locator(".bsb-tm-panel").first().evaluate((element) => element.getBoundingClientRect().height);
+    await page.click("[data-tab='help']");
+    await page.waitForTimeout(180);
+    const helpPanelHeight = await page.locator(".bsb-tm-panel").first().evaluate((element) => element.getBoundingClientRect().height);
 
     const result = await page.evaluate(() => ({
       bridgeReady: Boolean(window.__BSB_TM_PAGE_BRIDGE__),
@@ -429,6 +657,38 @@ async function verifyVideoPage(browser) {
       requestCount: (window.__bsbRequestLog ?? []).filter((entry) => entry.url.includes("/api/skipSegments/")).length,
       currentTime: document.querySelector("video")?.currentTime ?? 0,
       noticeTitles: Array.from(document.querySelectorAll(".bsb-tm-notice-title")).map((node) => node.textContent ?? ""),
+      titlePillText: document.querySelector(".bsb-tm-title-pill")?.textContent ?? "",
+      titlePillActions: Array.from(document.querySelectorAll(".bsb-tm-pill-action")).map((node) => node.textContent ?? ""),
+      playerButtonCount: document.querySelectorAll(".bsb-tm-player-button").length,
+      headerButtonCount: document.querySelectorAll(".bsb-tm-title-accessories .bsb-tm-player-button").length,
+      playerAreaButtonCount:
+        document.querySelectorAll(
+          ".bpx-player-control-bottom-right .bsb-tm-player-button, .bpx-player-control-bottom-center-right .bsb-tm-player-button"
+        ).length,
+      voteRequestCount: (window.__bsbRequestLog ?? []).filter((entry) => entry.url.includes("/api/voteOnSponsorTime")).length,
+      panelOpen: document.documentElement.classList.contains("bsb-tm-panel-open"),
+      panelHeight: document.querySelector(".bsb-tm-panel")?.getBoundingClientRect().height ?? 0,
+      viewportHeight: window.innerHeight,
+      panelContentClientHeight: (() => {
+        const content = document.querySelector(".bsb-tm-panel-content");
+        return content instanceof HTMLElement ? content.clientHeight : 0;
+      })(),
+      panelContentScrollHeight: (() => {
+        const content = document.querySelector(".bsb-tm-panel-content");
+        return content instanceof HTMLElement ? content.scrollHeight : 0;
+      })(),
+      panelContentScrollTop: (() => {
+        const content = document.querySelector(".bsb-tm-panel-content");
+        if (!(content instanceof HTMLElement)) {
+          return 0;
+        }
+        content.scrollTop = content.scrollHeight;
+        return content.scrollTop;
+      })(),
+      panelScrollTopAfterConfigChange: (() => {
+        const content = document.querySelector(".bsb-tm-panel-content");
+        return content instanceof HTMLElement ? content.scrollTop : 0;
+      })(),
       commentBadgeCount:
         document.querySelector("#bsb-smoke-comments")?.shadowRoot?.querySelectorAll("[data-bsb-comment-processed='true']").length ?? 0,
       replyBadgeCount:
@@ -437,16 +697,109 @@ async function verifyVideoPage(browser) {
           ?.shadowRoot?.querySelector("bili-comment-thread-renderer")
           ?.shadowRoot?.querySelector("bili-comment-replies-renderer")
           ?.shadowRoot?.querySelectorAll("[data-bsb-comment-reply-processed='true']").length ?? 0
+      ,
+      compactHeaderClass: document.documentElement.classList.contains("bsb-tm-video-header-compact"),
+      compactHeaderLeftHidden: (() => {
+        const nativeHeader = document.querySelector(".bili-header.fixed-header");
+        if (!(nativeHeader instanceof HTMLElement)) {
+          return true;
+        }
+        const style = getComputedStyle(nativeHeader);
+        return style.opacity === "0" || style.visibility === "hidden" || style.pointerEvents === "none";
+      })(),
+      compactHeaderSearchWidth: (() => {
+        const element =
+          document.querySelector(".bsb-tm-video-header-search") ??
+          document.querySelector(".bsb-tm-video-header-fallback-search");
+        return element instanceof HTMLElement ? element.getBoundingClientRect().width : 0;
+      })(),
+      compactHeaderShellCount: document.querySelectorAll(".bsb-tm-video-header-shell").length,
+      compactHeaderAvatarCount: document.querySelectorAll(".bsb-tm-video-header-avatar").length,
+      compactHeaderProfileCount: (() => {
+        const profile = document.querySelector(".bsb-tm-video-header-profile");
+        if (!(profile instanceof HTMLElement)) {
+          return 0;
+        }
+        return Array.from(profile.children).filter((node) => {
+          return node instanceof HTMLElement && getComputedStyle(node).display !== "none";
+        }).length;
+      })(),
+      compactHeaderGapToTitle: (() => {
+        const header = document.querySelector(".bsb-tm-video-header-shell");
+        const title = document.querySelector(".video-info-container, .video-title-container");
+        if (!(header instanceof HTMLElement) || !(title instanceof HTMLElement)) {
+          return 0;
+        }
+        return title.getBoundingClientRect().top - header.getBoundingClientRect().bottom;
+      })(),
+      sidebarBadgeState: (() => {
+        const cover = document.querySelector("[data-bsb-smoke-card='video-sidebar'] .b-img");
+        const label = document.querySelector("[data-bsb-smoke-card='video-sidebar'] .sponsorThumbnailLabelVisible");
+        const coverRect = cover?.getBoundingClientRect();
+        const labelRect = label?.getBoundingClientRect();
+        return {
+          visibleLabelCount: document.querySelectorAll("[data-bsb-smoke-card='video-sidebar'] .sponsorThumbnailLabelVisible").length,
+          centered:
+            coverRect && labelRect
+              ? Math.abs(labelRect.left + labelRect.width / 2 - (coverRect.left + coverRect.width / 2)) <= 18
+              : false,
+          aboveCover:
+            coverRect && labelRect
+              ? labelRect.top + labelRect.height / 2 < coverRect.top + 12
+              : false
+        };
+      })()
     }));
 
     assert(result.bridgeReady, "Page bridge was not initialized on the video page.");
     assert(result.previewBarCount > 0, "Video page did not render preview bar segments.");
     assert(result.requestCount > 0, "Video page did not request SponsorBlock segments.");
     assert(result.currentTime > 86, "Video page did not auto-skip the fixture sponsor segment.");
+    assert(result.titlePillText.trim().length > 0, "Video page did not render any title pill.");
+    assert(titlePopoverState.titlePopoverVisible, "Video page did not keep the title-pill popover visibly open.");
+    const hasVoteAction = result.titlePillActions.some((text) => text.includes("标记正确"));
+    const hasLocalLearningAction = result.titlePillActions.some((text) => text.includes("保留本地标签"));
     assert(
-      result.noticeTitles.some((title) => title.includes("自动跳过")),
-      "Video page did not surface the player skip notice."
+      hasVoteAction || hasLocalLearningAction,
+      "Video page did not expose title-pill feedback or local-learning actions."
     );
+    assert(
+      titlePopoverState.titlePopoverButtonLabels.some(
+        (text) => text.includes("标记正确") || text.includes("保留本地标签")
+      ),
+      "Video page did not visibly render the primary title-pill action."
+    );
+    assert(result.playerButtonCount === 0, "Video page still rendered a standalone quick-access button when a title pill exists.");
+    assert(result.headerButtonCount === 0, "Video page should not place a duplicate quick-access button beside the title pill.");
+    assert(result.playerAreaButtonCount === 0, "Video page still rendered the quick-access button inside the player controls.");
+    if (hasVoteAction) {
+      assert(result.voteRequestCount > 0, "Video page did not submit a vote request from the title badge.");
+    }
+    assert(result.panelOpen, "Video page did not open the settings panel from the title-pill settings action.");
+    assert(behaviorTabWasActive, "Video page did not switch the settings panel to the behavior tab.");
+    assert(result.panelHeight <= result.viewportHeight - 8, "Settings panel exceeded the reduced viewport height.");
+    assert(
+      result.panelContentScrollHeight > result.panelContentClientHeight + 32,
+      "Settings panel content did not become scrollable under a reduced viewport."
+    );
+    assert(result.panelContentScrollTop > 0, "Settings panel content could not scroll to the lower settings.");
+    assert(result.panelScrollTopAfterConfigChange > 0, "Changing a setting reset the settings panel back to the top.");
+    assert(
+      Math.max(behaviorPanelHeight, filtersPanelHeight, helpPanelHeight) -
+        Math.min(behaviorPanelHeight, filtersPanelHeight, helpPanelHeight) <=
+        2,
+      "Settings panel height still jumps between tabs."
+    );
+    assert(result.compactHeaderClass, "Video page did not enable the compact header class.");
+    assert(result.compactHeaderLeftHidden, "Video page compact header still exposed extra personal-area entries.");
+    assert(result.compactHeaderShellCount === 1, "Video page rendered duplicate compact header shells.");
+    assert(result.compactHeaderSearchWidth > 220, "Video page compact header did not keep the search bar visible.");
+    assert(result.compactHeaderProfileCount > 0, "Video page compact header did not keep a personal-area entry.");
+    assert(result.compactHeaderGapToTitle < 36, "Video page compact header still leaves an oversized blank gap above the title area.");
+    assert(result.sidebarBadgeState.visibleLabelCount > 0, "Video sidebar cards did not render thumbnail labels.");
+    assert(result.sidebarBadgeState.centered, "Video sidebar badge is no longer centered above the cover.");
+    assert(result.sidebarBadgeState.aboveCover, "Video sidebar badge did not stay above the cover.");
+    assert(skipNoticeSeen, "Video page did not surface the player skip notice.");
     assert(result.commentBadgeCount > 0, "Comment filter did not process injected sponsored comment.");
     assert(result.replyBadgeCount > 0, "Comment filter did not process injected sponsored reply.");
   } finally {
@@ -495,6 +848,7 @@ async function main() {
     await verifyHomePage(page);
     await context.close();
     await verifySearchPage(browser);
+    await verifyHistoryMenuBadge(browser);
     await verifyDynamicLabelMode(browser);
     await verifyVideoPage(browser);
     await verifyFailureHandling(browser);

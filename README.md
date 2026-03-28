@@ -1,15 +1,27 @@
 # Bilibili SponsorBlock Core
 
-一个面向 Tampermonkey 的 Bilibili SponsorBlock 核心脚本。  
-它保留了日常最实用的能力: 读取 SponsorBlock 片段、自动或手动跳过、静音片段、播放器进度条标记、缩略图整视频角标、首页/动态页广告过滤、评论区广告过滤，以及本地持久化配置。
+一个面向 Tampermonkey 的 Bilibili SponsorBlock 核心脚本。
+
+这一版的目标不是“能跑就行”，而是在 Safari + Tampermonkey 的真实使用链路里，把视频跳过、整视频标签、评论/动态增强、设置控制台和本地辅助判断做成一套尽量稳定、低侵入、可解释的实现。
+
+## 文档导航
+
+- 项目概览与安装: [README.md](./README.md)
+- 使用手册: [docs/USER_GUIDE.md](./docs/USER_GUIDE.md)
+- 能力说明: [docs/CAPABILITIES.md](./docs/CAPABILITIES.md)
+- 技术文档: [docs/TECHNICAL.md](./docs/TECHNICAL.md)
+- 误差与可靠性说明: [docs/RELIABILITY.md](./docs/RELIABILITY.md)
+- 免责声明: [DISCLAIMER.md](./DISCLAIMER.md)
+- Attribution: [NOTICE.md](./NOTICE.md)
 
 ## 致谢
 
-本项目是对 [hanydd/BilibiliSponsorBlock](https://github.com/hanydd/BilibiliSponsorBlock) 的派生实现。
+本项目是对 [hanydd/BilibiliSponsorBlock](https://github.com/hanydd/BilibiliSponsorBlock) 的派生实现，并额外吸收了其他开源 userscript 的单点能力。
 
 - 原项目作者: `hanydd`
 - 原项目许可证: `GPL-3.0`
 - 本项目沿用了原项目的分类语义、片段请求思路和核心使用场景，但将运行时重写为 Tampermonkey userscript
+- 评论区属地显示（开盒）功能参考并适配了 [mscststs / B站评论区开盒](https://greasyfork.org/zh-CN/scripts/448434-b%E7%AB%99%E8%AF%84%E8%AE%BA%E5%8C%BA%E5%BC%80%E7%9B%92) 的公开实现思路，原脚本许可证为 `ISC`
 
 更多 attribution 请见 [NOTICE.md](./NOTICE.md)。
 
@@ -20,6 +32,7 @@
 简要说明:
 
 - 这是非官方派生脚本，不隶属于原作者、Bilibili、SponsorBlock 或 Tampermonkey
+- 评论区属地显示功能只会读取 Bilibili 当前评论 payload 或页面已经公开提供的属地字段，不会额外探测或推断用户真实地理位置
 - 脚本可能因 Bilibili 页面结构、接口、第三方服务或浏览器策略变化而失效
 - 脚本只会根据配置访问 SponsorBlock 服务地址并在本地保存配置/缓存
 - 由此脚本造成的误跳过、误静音、兼容性问题或账号/浏览体验风险，需要由使用者自行判断和承担
@@ -33,10 +46,14 @@
 - `poi_highlight` 高光点提示与跳转
 - 视频页进度条片段预览条
 - 首页、搜索页、播放页推荐区等位置的整视频缩略图角标
-- `full` 整视频标签提示
+- 视频页标题前的 `full` 整视频标签胶囊
+- 整视频标签的 `标记正确 / 标记有误` 反馈入口
+- 播放器控制栏内的 SponsorBlock 盾牌按钮
 - 首页、动态页和空间页的可疑带货动态识别
 - 评论区商品卡广告、可疑广告评论和可疑广告回复识别
-- Tampermonkey 菜单打开的轻量设置面板
+- 评论区属地显示（开盒），默认开启
+- 统一商业意图知识库驱动的页面/评论/动态本地识别与本地学习
+- 分栏式设置 / 帮助控制台
 - 本地配置、统计和 TTL 缓存
 - 评论/动态过滤的 `隐藏并标记 / 仅标记 / 关闭`
 - 单文件发布产物: `dist/bilibili-sponsorblock.user.js`
@@ -44,10 +61,10 @@
 ## 不包含的能力
 
 - 片段投稿
-- 投票
+- 通用片段投票和投稿
 - 弹幕跳转
 - 快捷键
-- popup/options 独立页面
+- 浏览器扩展专属的 popup/options 独立页面
 
 ## 安装
 
@@ -58,7 +75,7 @@
    [bilibili-sponsorblock.user.js](https://github.com/FilfTeen/bilibili-sponsorblock-userscript/raw/main/dist/bilibili-sponsorblock.user.js)
 3. 当 Tampermonkey 弹出安装确认页时，点击 `Install`。
 4. 打开任意支持的 Bilibili 视频页。
-5. 如需修改设置，在 Tampermonkey 菜单中选择 `Open BSB settings`。
+5. 进入视频页后，可以通过播放器控制栏里的 SponsorBlock 盾牌按钮，或 Tampermonkey 菜单里的 `打开 BSB 控制台` 进入设置。
 
 如果 Safari 直接把脚本当作普通文本页打开，没有弹出安装确认页:
 
@@ -110,6 +127,9 @@ URL 解析额外兼容:
 - `dynamicRegexKeywordMinMatches`
 - `commentFilterMode`
 - `commentHideReplies`
+- `commentLocationEnabled`
+
+更完整的配置解释见 [docs/USER_GUIDE.md](./docs/USER_GUIDE.md)。
 
 统计单独保存在 `bsb_tm_stats_v1`:
 
@@ -122,27 +142,38 @@ URL 解析额外兼容:
 | --- | --- | --- |
 | 分发形式 | 浏览器扩展 | Tampermonkey 单文件脚本 |
 | 运行模型 | background + content scripts | 页内脚本 + 页面桥接 |
-| 设置入口 | popup / options 页面 | Tampermonkey 菜单 + 轻量设置面板 |
-| 投稿/投票 | 支持 | 不支持 |
+| 设置入口 | popup / options 页面 | Tampermonkey 菜单 + 分栏式控制台 + 播放器按钮 |
+| 投稿/投票 | 支持 | 支持整视频标签反馈，暂不支持完整投稿工作流 |
 | 评论/动态过滤 | 支持 | 支持核心过滤与标记 |
 | 预览条 | 支持 | 支持核心进度条标记 |
 | 缩略图整视频角标 | 支持 | 支持核心角标模式 |
+| 标题区商业标签 | 支持 | 支持 |
 
 ## 过滤说明
 
 - 评论区过滤目前支持两类信号: 商品卡链接，以及基于关键词/正则的可疑广告文案。
+- 评论区属地显示默认开启，但只会在 Bilibili 当前评论数据本身包含属地字段时显示；如果页面返回里没有该字段，脚本不会伪造或猜测属地信息。
 - 当 Bilibili 当前评论组件结构允许时，回复楼层也会沿用同样的识别与隐藏逻辑。
 - 动态过滤同样基于商品卡和可疑广告文案两类信号。
 - 这部分是启发式过滤，不保证零误判；建议先用 `仅标记` 模式观察，再决定是否启用 `隐藏并标记`。
+- 本地判断、自学习记录、评论/动态线索与 SponsorBlock 社区标签之间可能出现阶段性不一致，详见 [docs/RELIABILITY.md](./docs/RELIABILITY.md)。
+
+## 当前 UI 说明
+
+- 首页、搜索页和视频页右侧推荐区的整视频商业标签，会以左上角 SponsorBlock 盾牌角标的形式出现。
+- 当整个视频被社区标记为某个商业分类时，视频标题前会显示彩色胶囊。点击胶囊可以打开说明和反馈按钮。
+- 视频播放器控制栏会插入 SponsorBlock 盾牌按钮，用于快速打开当前脚本的设置 / 帮助控制台。
+- 评论区和动态过滤默认关闭，建议先在控制台中切到 `仅标记，不隐藏` 观察效果，再决定是否启用隐藏。
 
 ## 工程说明
 
 - URL 变化监听同时使用 `history` patch、`popstate/hashchange`、`Navigation API` 和低频 fallback，尽量兼容 Bilibili 的 SPA 路由。
-- 评论区和回复区大量使用 `shadow DOM`，脚本内部对 `bili-comments` 根节点做增量监听和周期补扫，避免漏处理延迟渲染内容。
+- 评论区和回复区大量使用 `shadow DOM`，脚本内部对 `bili-comments` 根节点做增量监听，并在根节点尚未出现时使用短时退避补扫，避免长期高频轮询。
 - 运行时额外处理了 `pagehide/pageshow` 生命周期，避免 Safari `BFCache` 恢复后脚本失活。
-- CI 默认跑 `tsc + vitest + build`，真实页面 smoke test 保留为本地回归命令。
+- 运行时代码避免 `innerHTML`、`eval`、`new Function` 这类高风险路径，主要通过 DOM API 和 Tampermonkey 授权接口工作。
+- CI 默认跑 `tsc + vitest + build`，Safari 本机回归额外提供 `validate:safari` 脚本。
 
-更完整的开发/测试约定见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
+更完整的开发/测试约定见 [CONTRIBUTING.md](./CONTRIBUTING.md) 和 [docs/TECHNICAL.md](./docs/TECHNICAL.md)。
 
 ## 本地构建
 
@@ -153,12 +184,14 @@ npm test
 npm run build
 npm run smoke:bilibili
 npm run capture:bilibili
+npm run validate:safari
 ```
 
 构建输出:
 
 - `dist/bilibili-sponsorblock.user.js`
 - `output/playwright/*.png` `仅当运行 capture 命令时生成`
+- `output/safari/*` `仅当运行 Safari 验证命令时生成`
 
 ## GitHub 发布
 

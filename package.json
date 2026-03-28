@@ -16,6 +16,7 @@
     "smoke:bilibili": "node ./scripts/smoke-bilibili.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
+    "validate:safari": "python3 ./scripts/safari-validate.py",
     "verify:compat": "node ./scripts/verify-compat.mjs"
   },
   "devDependencies": {

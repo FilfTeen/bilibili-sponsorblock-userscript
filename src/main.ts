@@ -2,12 +2,15 @@ import { gmAddStyle, gmRegisterMenuCommand } from "./platform/gm";
 import { ensurePageBridge } from "./platform/page-bridge";
 import { ConfigStore, StatsStore } from "./core/config-store";
 import { PersistentCache } from "./core/cache";
+import { LocalVideoLabelStore } from "./core/local-label-store";
+import { VoteHistoryStore } from "./core/vote-history-store";
 import { ScriptController } from "./core/controller";
 import { DynamicSponsorController } from "./features/dynamic-filter";
 import { CommentSponsorController } from "./features/comment-filter";
 import { ThumbnailLabelController } from "./features/thumbnail-labels";
+import { mountMbga, mountMbgaUi } from "./features/mbga";
 import { createRuntimeLifecycle } from "./runtime/lifecycle";
-import { styles } from "./ui/styles";
+import { mbgaStyles, styles } from "./ui/styles";
 import { debugLog, isSupportedLocation } from "./utils/dom";
 import type { FetchResponse } from "./types";
 
@@ -41,12 +44,23 @@ async function bootstrap(): Promise<void> {
   const configStore = new ConfigStore();
   const statsStore = new StatsStore();
   const cache = new PersistentCache<FetchResponse>();
-  await Promise.all([configStore.load(), statsStore.load()]);
+  const localVideoLabelStore = new LocalVideoLabelStore();
+  const voteHistoryStore = new VoteHistoryStore();
+  await Promise.all([configStore.load(), statsStore.load(), localVideoLabelStore.load(), voteHistoryStore.load()]);
 
-  const controller = new ScriptController(configStore, statsStore, cache);
+  // Handle MBGA features early
+  const currentConfig = configStore.getSnapshot();
+  mountMbga(currentConfig);
+
+  if (currentConfig.mbgaEnabled && currentConfig.mbgaSimplifyUi) {
+    gmAddStyle(mbgaStyles);
+    mountMbgaUi(currentConfig);
+  }
+
+  const controller = new ScriptController(configStore, statsStore, cache, localVideoLabelStore, voteHistoryStore);
   const dynamicSponsorController = new DynamicSponsorController(configStore);
   const commentSponsorController = new CommentSponsorController(configStore);
-  const thumbnailLabelController = new ThumbnailLabelController(configStore, cache);
+  const thumbnailLabelController = new ThumbnailLabelController(configStore, cache, localVideoLabelStore);
   const runtime = createRuntimeLifecycle(
     async () => {
       await safeRun("dynamic controller startup", () => {
@@ -79,9 +93,10 @@ async function bootstrap(): Promise<void> {
   );
   await runtime.start();
 
-  gmRegisterMenuCommand("Open BSB settings", () => controller.openPanel());
-  gmRegisterMenuCommand("Toggle BSB settings", () => controller.togglePanel());
-  gmRegisterMenuCommand("Clear BSB cache", () => {
+  gmRegisterMenuCommand("打开 BSB 控制台", () => controller.openPanel());
+  gmRegisterMenuCommand("打开 BSB 帮助", () => controller.openHelp());
+  gmRegisterMenuCommand("切换 BSB 控制台", () => controller.togglePanel());
+  gmRegisterMenuCommand("清理 BSB 缓存", () => {
     void controller.clearCache();
   });
 }

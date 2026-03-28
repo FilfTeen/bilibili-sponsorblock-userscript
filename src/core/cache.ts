@@ -26,16 +26,29 @@ export class PersistentCache<T> {
     await this.persist();
   }
 
-  private async persist(): Promise<void> {
-    this.cleanupExpired();
-    this.evictOverflow();
+  private persistPromise: Promise<void> | null = null;
 
-    if (Object.keys(this.payload.entries).length === 0) {
-      await gmSetValue(CACHE_STORAGE_KEY, null);
-      return;
+  private async persist(): Promise<void> {
+    if (this.persistPromise) {
+      return this.persistPromise;
     }
 
-    await gmSetValue(CACHE_STORAGE_KEY, this.payload);
+    this.persistPromise = new Promise<void>((resolve) => {
+      window.setTimeout(async () => {
+        this.persistPromise = null;
+        this.cleanupExpired();
+        this.evictOverflow();
+
+        if (Object.keys(this.payload.entries).length === 0) {
+          await gmSetValue(CACHE_STORAGE_KEY, null);
+        } else {
+          await gmSetValue(CACHE_STORAGE_KEY, this.payload);
+        }
+        resolve();
+      }, 200);
+    });
+
+    return this.persistPromise;
   }
 
   private cleanupExpired(): void {

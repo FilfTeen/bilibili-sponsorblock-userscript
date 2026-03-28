@@ -1,4 +1,5 @@
 import type { NoticeOptions } from "../types";
+import { createCloseIcon } from "./icons";
 
 export class NoticeCenter {
   private readonly root: HTMLDivElement;
@@ -62,6 +63,12 @@ export class NoticeCenter {
     }
 
     notice.appendChild(body);
+
+    const closeBtn = document.createElement("button");
+    closeBtn.className = "bsb-tm-notice-close";
+    closeBtn.appendChild(createCloseIcon());
+    closeBtn.addEventListener("click", () => this.dismiss(options.id));
+    notice.appendChild(closeBtn);
     if (actions.childElementCount > 0) {
       notice.appendChild(actions);
     }

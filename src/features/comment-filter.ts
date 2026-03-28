@@ -1,32 +1,59 @@
-import type { StoredConfig } from "../types";
+import type { Category, LocalVideoSignal, StoredConfig } from "../types";
 import { ConfigStore } from "../core/config-store";
 import { collectPatternMatches, isLikelyPromoText, regexFromStoredPattern } from "../utils/pattern";
+import { analyzeCommercialIntent } from "../utils/commercial-intent";
 import { debugLog } from "../utils/dom";
 import { mutationsTouchSelectors } from "../utils/mutation";
 import { observeUrlChanges } from "../utils/navigation";
 import { supportsCommentFilters } from "../utils/page";
+import {
+  createInlineBadge,
+  createInlineToggle,
+  ensureInlineFeedbackStyles,
+  setInlineToggleState,
+  type InlineTone
+} from "../ui/inline-feedback";
 
 const THREAD_PROCESSED_ATTR = "data-bsb-comment-processed";
 const REPLY_PROCESSED_ATTR = "data-bsb-comment-reply-processed";
 const BADGE_ATTR = "data-bsb-comment-badge";
 const TOGGLE_ATTR = "data-bsb-comment-toggle";
+const LOCATION_ATTR = "data-bsb-comment-location";
 const HIDDEN_ATTR = "data-bsb-comment-hidden";
 const REPLIES_HIDDEN_ATTR = "data-bsb-comment-replies-hidden";
-const ROOT_REFRESH_INTERVAL_MS = 900;
+const LOCATION_STATE_ATTR = "data-bsb-comment-location-state";
+const VUE_LOCATION_MARK_ATTR = "data-bsb-comment-location-settled";
+const NO_LOCATION_MARK = "__empty__";
+const ROOT_SWEEP_DELAYS_MS = [120, 240, 420, 760, 1200, 1800] as const;
+export const VIDEO_SIGNAL_EVENT = "bsb:video-signal";
 const COMMENT_RELEVANT_SELECTORS = [
   "bili-comments",
   "bili-comment-thread-renderer",
   "bili-comment-renderer",
   "bili-comment-reply-renderer",
   "bili-comment-replies-renderer",
-  "bili-rich-text"
+  "bili-rich-text",
+  ".browser-pc",
+  ".reply-item",
+  ".sub-reply-item",
+  ".reply-time",
+  ".sub-reply-time"
 ] as const;
-const COMMENT_IGNORED_SELECTORS = [`[${BADGE_ATTR}]`, `[${TOGGLE_ATTR}]`] as const;
+const COMMENT_IGNORED_SELECTORS = [`[${BADGE_ATTR}]`, `[${TOGGLE_ATTR}]`, `[${LOCATION_ATTR}]`] as const;
 
-type CommentRenderer = HTMLElement & { shadowRoot: ShadowRoot };
+type ReplyLocationPayload = {
+  reply_control?: {
+    location?: string | null;
+  } | null;
+} | null | undefined;
+
+type CommentRenderer = HTMLElement & {
+  shadowRoot: ShadowRoot;
+  data?: ReplyLocationPayload & Record<string, unknown>;
+};
 type CommentSponsorMatch =
-  | { reason: "goods"; matches: [] }
-  | { reason: "suspicion"; matches: string[] };
+  | { reason: "goods"; category: "sponsor"; matches: [] }
+  | { reason: "suspicion"; category: Extract<Category, "sponsor" | "selfpromo" | "exclusive_access">; matches: string[] };
 type CommentTarget = {
   host: HTMLElement;
   renderer: CommentRenderer;
@@ -35,11 +62,86 @@ type CommentTarget = {
   kind: "comment" | "reply";
 };
 
+function getActionRendererNode(commentRenderer: CommentRenderer): HTMLElement | null {
+  return (
+    commentRenderer.shadowRoot?.querySelector<HTMLElement>("bili-comment-action-buttons-renderer") ??
+    commentRenderer.shadowRoot?.querySelector<HTMLElement>("#main bili-comment-action-buttons-renderer") ??
+    commentRenderer.shadowRoot?.querySelector<HTMLElement>("#footer bili-comment-action-buttons-renderer") ??
+    null
+  );
+}
+
+function getReplyRendererHost(replyHost: HTMLElement): CommentRenderer | null {
+  const nestedRenderer = replyHost.shadowRoot?.querySelector("bili-comment-renderer");
+  if (nestedRenderer instanceof HTMLElement && nestedRenderer.shadowRoot) {
+    return nestedRenderer as CommentRenderer;
+  }
+
+  const replyRoot = replyHost.shadowRoot;
+  if (!replyRoot) {
+    return null;
+  }
+
+  const looksLikeFlatReplyRenderer = Boolean(
+    replyRoot.querySelector("bili-comment-user-info") &&
+      replyRoot.querySelector("bili-rich-text") &&
+      getActionRendererNode(replyHost as CommentRenderer)
+  );
+  return looksLikeFlatReplyRenderer ? (replyHost as CommentRenderer) : null;
+}
+
+export function normalizeCommentLocationText(location: string | null | undefined): string | null {
+  const value = String(location ?? "")
+    .replace(/\s+/gu, " ")
+    .trim();
+  if (!value) {
+    return null;
+  }
+
+  if (/^IP\s*属地/iu.test(value)) {
+    return value.replace(/^IP\s*属地\s*[:：]?\s*/iu, "IP属地：");
+  }
+
+  return `IP属地：${value}`;
+}
+
+export function extractCommentLocation(reply: ReplyLocationPayload): string | null {
+  return normalizeCommentLocationText(reply?.reply_control?.location ?? null);
+}
+
+const GOODS_STRUCTURAL_PATTERNS = {
+  pricePattern: /[¥￥]\s*\d+(?:\.\d+)?/u,
+  ecomDomains: /(?:jd\.com|taobao\.com|tmall\.com|pinduoduo\.com|pdd\.com|item\.m\.jd\.com)/iu,
+  dataAttrKeywords: /goods|product|commodity|item/iu
+};
+
 export function hasSponsoredGoodsLink(commentRenderer: CommentRenderer): boolean {
-  const links = commentRenderer.shadowRoot
-    ?.querySelector("bili-rich-text")
-    ?.shadowRoot?.querySelectorAll<HTMLAnchorElement>("a[data-type='goods']");
-  return Boolean(links && links.length > 0);
+  const richTextRoot = commentRenderer.shadowRoot?.querySelector("bili-rich-text")?.shadowRoot;
+  if (!richTextRoot) {
+    return false;
+  }
+
+  for (const link of richTextRoot.querySelectorAll<HTMLAnchorElement>("a")) {
+    if (link.dataset.type === "goods" || link.getAttribute("data-type") === "goods") {
+      return true;
+    }
+
+    const href = link.href || link.getAttribute("href") || "";
+    if (href && GOODS_STRUCTURAL_PATTERNS.ecomDomains.test(href)) {
+      return true;
+    }
+
+    const dataType = link.dataset.type || link.getAttribute("data-type") || link.dataset.jumpType || link.getAttribute("data-jump-type") || "";
+    if (dataType && GOODS_STRUCTURAL_PATTERNS.dataAttrKeywords.test(dataType)) {
+      return true;
+    }
+
+    if (GOODS_STRUCTURAL_PATTERNS.pricePattern.test(link.textContent || "")) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 export function extractCommentText(commentRenderer: CommentRenderer): string {
@@ -63,49 +165,148 @@ export function classifyCommentRenderer(
   if (hasSponsoredGoodsLink(commentRenderer)) {
     return {
       reason: "goods",
+      category: "sponsor",
       matches: []
     };
   }
 
   const pattern = regexFromStoredPattern(config.dynamicRegexPattern);
-  if (!pattern) {
-    return null;
+  const text = extractCommentText(commentRenderer);
+  const storedMatches = pattern ? collectPatternMatches(text, pattern) : [];
+  if (pattern && !isLikelyPromoText(text, storedMatches, config.dynamicRegexKeywordMinMatches)) {
+    const assessment = analyzeCommercialIntent(text, {
+      storedMatches,
+      minMatches: config.dynamicRegexKeywordMinMatches
+    });
+    if (!assessment.category) {
+      return null;
+    }
+
+    return {
+      reason: "suspicion",
+      category: assessment.category,
+      matches: storedMatches.length > 0 ? storedMatches : assessment.matches
+    };
   }
 
-  const text = extractCommentText(commentRenderer);
-  const matches = collectPatternMatches(text, pattern);
-  if (!isLikelyPromoText(text, matches, config.dynamicRegexKeywordMinMatches)) {
+  const assessment = analyzeCommercialIntent(text, {
+    storedMatches,
+    minMatches: config.dynamicRegexKeywordMinMatches
+  });
+  if (!assessment.category) {
     return null;
   }
 
   return {
     reason: "suspicion",
-    matches
+    category: assessment.category,
+    matches: storedMatches.length > 0 ? storedMatches : assessment.matches
+  };
+}
+
+export function commentMatchToVideoSignal(match: CommentSponsorMatch): LocalVideoSignal {
+  return {
+    source: match.reason === "goods" ? "comment-goods" : "comment-suspicion",
+    category: match.category,
+    confidence:
+      match.reason === "goods"
+        ? 0.96
+        : match.category === "sponsor"
+          ? 0.87
+          : match.category === "exclusive_access"
+            ? 0.8
+            : 0.79,
+    reason:
+      match.reason === "goods"
+        ? "评论区命中商品卡广告"
+        : `评论区命中商业线索：${match.matches.join(" / ")}`
   };
 }
 
 function getBadgeText(match: CommentSponsorMatch): string {
-  return match.reason === "goods" ? "评论区商品广告" : `疑似广告评论: ${match.matches.join(" / ")}`;
+  if (match.reason === "goods") {
+    return "评论区商品广告";
+  }
+  if (match.category === "selfpromo") {
+    return `疑似导流评论: ${match.matches.join(" / ")}`;
+  }
+  if (match.category === "exclusive_access") {
+    return `疑似抢先体验评论: ${match.matches.join(" / ")}`;
+  }
+  return `疑似广告评论: ${match.matches.join(" / ")}`;
 }
 
-function createBadge(text: string): HTMLElement {
-  const badge = document.createElement("div");
-  badge.setAttribute(BADGE_ATTR, "true");
-  badge.style.cssText =
-    "display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;background:rgba(255,102,153,.15);border:1px solid rgba(255,102,153,.28);color:#c2185b;font:600 11px/1.2 'SF Pro Text','PingFang SC',sans-serif;";
-  badge.textContent = text;
-  return badge;
+function getBadgeTone(match: CommentSponsorMatch): InlineTone {
+  if (match.reason === "goods" || match.category === "sponsor") {
+    return "danger";
+  }
+  if (match.category === "exclusive_access") {
+    return "info";
+  }
+  return "warning";
+}
+
+function dispatchVideoSignal(match: CommentSponsorMatch): void {
+  const detail = {
+    ...commentMatchToVideoSignal(match),
+    matches: match.matches
+  };
+
+  window.dispatchEvent(
+    new CustomEvent(VIDEO_SIGNAL_EVENT, {
+      detail
+    })
+  );
+}
+
+function getBadgeRoot(commentRenderer: CommentRenderer): ShadowRoot | null {
+  return commentRenderer.shadowRoot?.querySelector("bili-comment-user-info")?.shadowRoot ?? null;
+}
+
+function getActionRoot(commentRenderer: CommentRenderer): ShadowRoot | null {
+  return getActionRendererNode(commentRenderer)?.shadowRoot ?? null;
+}
+
+export function scanCurrentPageCommentSignal(
+  config: Pick<StoredConfig, "dynamicRegexPattern" | "dynamicRegexKeywordMinMatches">
+): LocalVideoSignal | null {
+  const host = document.querySelector("bili-comments");
+  const root = host?.shadowRoot;
+  if (!root) {
+    return null;
+  }
+
+  for (const thread of root.querySelectorAll<HTMLElement>("bili-comment-thread-renderer")) {
+    const mainRenderer = getMainCommentRenderer(thread);
+    if (mainRenderer) {
+      const match = classifyCommentRenderer(mainRenderer, config);
+      if (match) {
+        return commentMatchToVideoSignal(match);
+      }
+    }
+
+    for (const replyTarget of getReplyTargets(thread)) {
+      const match = classifyCommentRenderer(replyTarget.renderer, config);
+      if (match) {
+        return commentMatchToVideoSignal(match);
+      }
+    }
+  }
+
+  return null;
+}
+
+function createBadge(text: string, tone: InlineTone, color?: string): HTMLElement {
+  return createInlineBadge(BADGE_ATTR, text, tone, "inline", color);
 }
 
 function createToggleButton(onClick: () => void): HTMLButtonElement {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.setAttribute(TOGGLE_ATTR, "true");
-  button.style.cssText =
-    "margin-left:8px;border:0;border-radius:999px;padding:6px 10px;background:rgba(15,23,42,.08);color:#0f172a;font:600 12px/1.2 'SF Pro Text','PingFang SC',sans-serif;cursor:pointer;";
-  button.textContent = "显示评论内容";
-  button.addEventListener("click", onClick);
+  const button = createInlineToggle(TOGGLE_ATTR, onClick, "inline");
   return button;
+}
+
+function createLocationBadge(text: string, color?: string): HTMLDivElement {
+  return createInlineBadge(LOCATION_ATTR, text, "info", "inline", color);
 }
 
 function getMainCommentRenderer(thread: HTMLElement): CommentRenderer | null {
@@ -122,14 +323,14 @@ function getReplyTargets(thread: HTMLElement): CommentTarget[] {
 
   const targets: CommentTarget[] = [];
   for (const reply of repliesRoot.querySelectorAll<HTMLElement>("bili-comment-reply-renderer")) {
-    const renderer = reply.shadowRoot?.querySelector("bili-comment-renderer");
-    if (!(renderer instanceof HTMLElement) || !renderer.shadowRoot) {
+    const renderer = getReplyRendererHost(reply);
+    if (!renderer) {
       continue;
     }
 
     targets.push({
       host: reply,
-      renderer: renderer as CommentRenderer,
+      renderer,
       processedAttr: REPLY_PROCESSED_ATTR,
       thread,
       kind: "reply"
@@ -145,25 +346,128 @@ function getBadgeAnchor(commentRenderer: CommentRenderer): HTMLElement | null {
 }
 
 function getContentBody(commentRenderer: CommentRenderer): HTMLElement | null {
-  return commentRenderer.shadowRoot?.querySelector<HTMLElement>("#content") ?? null;
+  return (
+    commentRenderer.shadowRoot?.querySelector<HTMLElement>("#content") ??
+    commentRenderer.shadowRoot?.querySelector<HTMLElement>(".reply-content") ??
+    commentRenderer.shadowRoot?.querySelector<HTMLElement>("bili-rich-text") ??
+    null
+  );
 }
 
 function getActionAnchor(commentRenderer: CommentRenderer): HTMLElement | null {
-  const actionRenderer = commentRenderer.shadowRoot
-    ?.querySelector("#main")
-    ?.querySelector("bili-comment-action-buttons-renderer");
-  return actionRenderer?.shadowRoot?.querySelector<HTMLElement>("#reply") ?? getContentBody(commentRenderer);
+  return getActionRoot(commentRenderer)?.querySelector<HTMLElement>("#reply") ?? getContentBody(commentRenderer);
+}
+
+function getLocationAnchor(commentRenderer: CommentRenderer): HTMLElement | null {
+  return getActionRoot(commentRenderer)?.getElementById("pubdate") ?? getActionAnchor(commentRenderer);
+}
+
+function cleanupActionRootLocationNodes(actionRoot: ShadowRoot): void {
+  actionRoot
+    .querySelectorAll<HTMLElement>(`[${LOCATION_ATTR}='true'], #location, .reply-location`)
+    .forEach((node) => node.remove());
+}
+
+export function resolveCommentRendererLocation(commentRenderer: CommentRenderer): string | null {
+  const fromReplyData = extractCommentLocation(commentRenderer.data);
+  if (fromReplyData) {
+    return fromReplyData;
+  }
+
+  const actionRoot = getActionRoot(commentRenderer);
+  const legacyText =
+    actionRoot?.getElementById("location")?.textContent ??
+    actionRoot?.querySelector<HTMLElement>(".reply-location")?.textContent ??
+    null;
+  return normalizeCommentLocationText(legacyText);
+}
+
+function injectCommentLocation(commentRenderer: CommentRenderer, color?: string): void {
+  const actionRoot = getActionRoot(commentRenderer);
+  const anchor = getLocationAnchor(commentRenderer);
+  if (!actionRoot || !anchor) {
+    return;
+  }
+
+  const text = resolveCommentRendererLocation(commentRenderer);
+  const locationState = text ?? NO_LOCATION_MARK;
+  if (commentRenderer.getAttribute(LOCATION_STATE_ATTR) === locationState) {
+    return;
+  }
+
+  const existing = actionRoot.querySelector<HTMLElement>(`[${LOCATION_ATTR}='true']`);
+  if (existing && existing.textContent?.trim() === text) {
+    commentRenderer.setAttribute(LOCATION_STATE_ATTR, locationState);
+    return;
+  }
+
+  cleanupActionRootLocationNodes(actionRoot);
+  if (!text) {
+    commentRenderer.setAttribute(LOCATION_STATE_ATTR, NO_LOCATION_MARK);
+    return;
+  }
+
+  ensureInlineFeedbackStyles(actionRoot);
+  insertAfter(anchor, createLocationBadge(text, color));
+  commentRenderer.setAttribute(LOCATION_STATE_ATTR, text);
+}
+
+function extractVueReplyPayload(node: Element): ReplyLocationPayload {
+  const component = Reflect.get(node, "__vueParentComponent") as
+    | { props?: { reply?: ReplyLocationPayload; subReply?: ReplyLocationPayload } }
+    | undefined;
+  return component?.props?.reply ?? component?.props?.subReply ?? null;
+}
+
+export function resolveVueCommentLocation(node: Element): string | null {
+  const fromReply = extractCommentLocation(extractVueReplyPayload(node));
+  if (fromReply) {
+    return fromReply;
+  }
+
+  const legacyText = node.parentElement?.querySelector<HTMLElement>(".reply-location")?.textContent ?? null;
+  return normalizeCommentLocationText(legacyText);
+}
+
+function cleanupVueLocationNodes(scope: ParentNode = document): void {
+  scope
+    .querySelectorAll<HTMLElement>(`.reply-location, [${LOCATION_ATTR}='true']`)
+    .forEach((node) => node.remove());
+  scope
+    .querySelectorAll<HTMLElement>(`[${VUE_LOCATION_MARK_ATTR}]`)
+    .forEach((node) => node.removeAttribute(VUE_LOCATION_MARK_ATTR));
+}
+
+function injectVueCommentLocation(node: HTMLElement, color?: string): void {
+  const text = resolveVueCommentLocation(node);
+  const nextMarker = text ?? NO_LOCATION_MARK;
+  const currentMarker = node.getAttribute(VUE_LOCATION_MARK_ATTR);
+  if (currentMarker && currentMarker === nextMarker) {
+    return;
+  }
+
+  const siblingLocations = Array.from(node.parentElement?.children ?? []).filter((child) => {
+    if (!(child instanceof HTMLElement) || child === node) {
+      return false;
+    }
+    return child.classList.contains("reply-location") || child.getAttribute(LOCATION_ATTR) === "true";
+  });
+  siblingLocations.forEach((child) => child.remove());
+
+  if (!text) {
+    node.setAttribute(VUE_LOCATION_MARK_ATTR, NO_LOCATION_MARK);
+    return;
+  }
+
+  const badge = createLocationBadge(text, color);
+  node.insertAdjacentElement("afterend", badge);
+  node.setAttribute(VUE_LOCATION_MARK_ATTR, text);
 }
 
 function removeInjectedDecorations(commentRenderer: CommentRenderer): void {
-  commentRenderer.shadowRoot
-    ?.querySelector("bili-comment-user-info")
-    ?.shadowRoot?.querySelectorAll<HTMLElement>(`[${BADGE_ATTR}='true']`)
-    .forEach((node) => node.remove());
-  commentRenderer.shadowRoot
-    ?.querySelector("#main")
-    ?.querySelector("bili-comment-action-buttons-renderer")
-    ?.shadowRoot?.querySelectorAll<HTMLElement>(`[${TOGGLE_ATTR}='true']`)
+  getBadgeRoot(commentRenderer)?.querySelectorAll<HTMLElement>(`[${BADGE_ATTR}='true']`).forEach((node) => node.remove());
+  getActionRoot(commentRenderer)
+    ?.querySelectorAll<HTMLElement>(`[${TOGGLE_ATTR}='true'], [${LOCATION_ATTR}='true'], #location, .reply-location`)
     .forEach((node) => node.remove());
 }
 
@@ -179,7 +483,12 @@ function insertAfter(anchor: Node, node: Node): boolean {
 
 function setCommentHidden(content: HTMLElement, toggle: HTMLButtonElement, hidden: boolean): void {
   content.style.display = hidden ? "none" : "";
-  toggle.textContent = hidden ? "显示评论内容" : "隐藏评论内容";
+  content.setAttribute(HIDDEN_ATTR, String(hidden));
+  toggle.setAttribute("data-bsb-comment-hidden", String(hidden));
+  setInlineToggleState(toggle, hidden ? "hidden" : "shown", {
+    hidden: "显示评论内容",
+    shown: "再次隐藏评论"
+  });
 }
 
 function hideReplies(thread: HTMLElement): void {
@@ -211,7 +520,8 @@ function restoreReplies(thread: HTMLElement): void {
 export class CommentSponsorController {
   private started = false;
   private currentConfig: StoredConfig;
-  private rootSweepIntervalId: number | null = null;
+  private rootSweepTimerId: number | null = null;
+  private rootSweepAttempt = 0;
   private documentObserver: MutationObserver | null = null;
   private refreshTimerId: number | null = null;
   private stopObservingUrl: (() => void) | null = null;
@@ -240,25 +550,21 @@ export class CommentSponsorController {
 
     this.started = true;
     this.scheduleRefresh();
+    this.scheduleRootSweep(true);
 
     this.stopObservingUrl = observeUrlChanges(() => {
       this.resetProcessedThreads();
+      this.rootSweepAttempt = 0;
       this.scheduleRefresh();
+      this.scheduleRootSweep(true);
     });
-
-    this.rootSweepIntervalId = window.setInterval(() => {
-      if (document.hidden) {
-        this.pendingVisibleRefresh = true;
-        return;
-      }
-      this.refresh();
-    }, ROOT_REFRESH_INTERVAL_MS);
 
     this.documentObserver = new MutationObserver((records) => {
       if (!mutationsTouchSelectors(records, COMMENT_RELEVANT_SELECTORS, COMMENT_IGNORED_SELECTORS)) {
         return;
       }
       this.scheduleRefresh();
+      this.scheduleRootSweep(true);
     });
     this.documentObserver.observe(document.documentElement, {
       childList: true,
@@ -285,9 +591,9 @@ export class CommentSponsorController {
       this.stopObservingUrl();
       this.stopObservingUrl = null;
     }
-    if (this.rootSweepIntervalId !== null) {
-      window.clearInterval(this.rootSweepIntervalId);
-      this.rootSweepIntervalId = null;
+    if (this.rootSweepTimerId !== null) {
+      window.clearTimeout(this.rootSweepTimerId);
+      this.rootSweepTimerId = null;
     }
     if (this.refreshTimerId !== null) {
       window.clearTimeout(this.refreshTimerId);
@@ -297,8 +603,39 @@ export class CommentSponsorController {
     this.documentObserver = null;
     this.disconnectRootObservers();
     this.pendingVisibleRefresh = false;
+    this.rootSweepAttempt = 0;
     document.removeEventListener("visibilitychange", this.handleVisibilityChange);
     this.resetProcessedThreads();
+  }
+
+  private scheduleRootSweep(force = false): void {
+    if (!this.started) {
+      return;
+    }
+
+    // Keep a short adaptive retry window for comment roots instead of a permanent
+    // polling loop. Once roots appear, shadow-root observers take over.
+    if (force) {
+      this.rootSweepAttempt = 0;
+      if (this.rootSweepTimerId !== null) {
+        window.clearTimeout(this.rootSweepTimerId);
+        this.rootSweepTimerId = null;
+      }
+    } else if (this.rootSweepTimerId !== null) {
+      return;
+    }
+
+    const index = Math.min(this.rootSweepAttempt, ROOT_SWEEP_DELAYS_MS.length - 1);
+    const delay = ROOT_SWEEP_DELAYS_MS[index];
+    this.rootSweepTimerId = window.setTimeout(() => {
+      this.rootSweepTimerId = null;
+      if (!this.started || document.hidden) {
+        this.pendingVisibleRefresh = true;
+        return;
+      }
+      this.refresh();
+      this.rootSweepAttempt += 1;
+    }, delay);
   }
 
   private scheduleRefresh(): void {
@@ -313,7 +650,13 @@ export class CommentSponsorController {
 
     this.refreshTimerId = window.setTimeout(() => {
       this.refreshTimerId = null;
-      this.refresh();
+      const schedule =
+        typeof requestIdleCallback === "function"
+          ? requestIdleCallback
+          : (cb: () => void) => window.setTimeout(cb, 0);
+      schedule(() => {
+        this.refresh();
+      });
     }, 160);
   }
 
@@ -325,7 +668,7 @@ export class CommentSponsorController {
 
     if (
       !this.currentConfig.enabled ||
-      this.currentConfig.commentFilterMode === "off" ||
+      (this.currentConfig.commentFilterMode === "off" && !this.currentConfig.commentLocationEnabled) ||
       !supportsCommentFilters(window.location.href)
     ) {
       this.disconnectRootObservers();
@@ -334,6 +677,15 @@ export class CommentSponsorController {
     }
 
     const roots = Array.from(document.querySelectorAll<HTMLElement>("bili-comments"));
+    if (roots.length === 0) {
+      this.scheduleRootSweep();
+    } else {
+      this.rootSweepAttempt = 0;
+      if (this.rootSweepTimerId !== null) {
+        window.clearTimeout(this.rootSweepTimerId);
+        this.rootSweepTimerId = null;
+      }
+    }
     this.syncRootObservers(roots);
     for (const root of roots) {
       try {
@@ -342,30 +694,47 @@ export class CommentSponsorController {
         debugLog("Failed to process comment root", error);
       }
     }
+    this.processVueComments();
   }
 
   private syncRootObservers(roots: HTMLElement[]): void {
     const liveRoots = new Set(roots);
+    const subRoots = new Set<HTMLElement>();
+
+    // Collect all reply renderers that have shadow roots
+    for (const root of roots) {
+      const feedRoot = root.shadowRoot;
+      if (!feedRoot) continue;
+      
+      feedRoot.querySelectorAll<HTMLElement>("bili-comment-thread-renderer").forEach(thread => {
+        const repliesRenderer = thread.shadowRoot?.querySelector<HTMLElement>("bili-comment-replies-renderer");
+        if (repliesRenderer?.shadowRoot) {
+          subRoots.add(repliesRenderer);
+        }
+      });
+    }
+
+    const allTargetRoots = new Set([...liveRoots, ...subRoots]);
+
     for (const [root, observer] of this.rootObservers) {
-      if (!liveRoots.has(root) || !document.contains(root)) {
+      if (!allTargetRoots.has(root) || !document.contains(root)) {
         observer.disconnect();
         this.rootObservers.delete(root);
       }
     }
 
-    for (const root of roots) {
+    for (const root of allTargetRoots) {
       if (this.rootObservers.has(root) || !root.shadowRoot) {
         continue;
       }
 
-      // Comment threads often render entirely inside nested shadow roots, so
-      // document-level observers miss the follow-up mutations after the host appears.
       const observer = new MutationObserver((records) => {
         if (!mutationsTouchSelectors(records, COMMENT_RELEVANT_SELECTORS, COMMENT_IGNORED_SELECTORS)) {
           return;
         }
         this.scheduleRefresh();
       });
+      
       observer.observe(root.shadowRoot, {
         childList: true,
         subtree: true
@@ -406,6 +775,10 @@ export class CommentSponsorController {
   }
 
   private processTarget(target: CommentTarget): void {
+    if (this.currentConfig.commentLocationEnabled) {
+      injectCommentLocation(target.renderer, this.currentConfig.commentIpColor);
+    }
+
     if (target.host.getAttribute(target.processedAttr) === "true") {
       return;
     }
@@ -415,13 +788,23 @@ export class CommentSponsorController {
       return;
     }
 
+    if (target.kind === "comment") {
+      dispatchVideoSignal(match);
+    }
+
     const badgeAnchor = getBadgeAnchor(target.renderer);
     if (!badgeAnchor) {
       return;
     }
 
     target.host.setAttribute(target.processedAttr, "true");
-    if (!insertAfter(badgeAnchor, createBadge(getBadgeText(match)))) {
+    const badgeRoot = getBadgeRoot(target.renderer);
+    if (badgeRoot) {
+      ensureInlineFeedbackStyles(badgeRoot);
+    }
+
+    const badge = createBadge(getBadgeText(match), getBadgeTone(match), this.currentConfig.commentAdColor);
+    if (!insertAfter(badgeAnchor, badge)) {
       target.host.removeAttribute(target.processedAttr);
       return;
     }
@@ -436,6 +819,11 @@ export class CommentSponsorController {
       return;
     }
 
+    const actionRoot = getActionRoot(target.renderer);
+    if (actionRoot) {
+      ensureInlineFeedbackStyles(actionRoot);
+    }
+
     const toggle = createToggleButton(() => {
       const hidden = content.style.display === "none";
       setCommentHidden(content, toggle, !hidden);
@@ -448,13 +836,28 @@ export class CommentSponsorController {
       }
     });
     setCommentHidden(content, toggle, true);
-    content.setAttribute(HIDDEN_ATTR, "true");
     if (!insertAfter(actionAnchor, toggle)) {
       return;
     }
 
     if (target.kind === "comment" && this.currentConfig.commentHideReplies) {
       hideReplies(target.thread);
+    }
+  }
+
+  private processVueComments(): void {
+    if (!this.currentConfig.commentLocationEnabled) {
+      cleanupVueLocationNodes(document);
+      return;
+    }
+
+    const nodes = document.querySelectorAll<HTMLElement>(".browser-pc .reply-item .reply-time, .browser-pc .sub-reply-item .sub-reply-time");
+    for (const node of nodes) {
+      try {
+        injectVueCommentLocation(node, this.currentConfig.commentIpColor);
+      } catch (error) {
+        debugLog("Failed to inject Vue comment location", error);
+      }
     }
   }
 
@@ -467,9 +870,12 @@ export class CommentSponsorController {
 
       for (const thread of feedRoot.querySelectorAll<HTMLElement>("bili-comment-thread-renderer")) {
         const mainRenderer = getMainCommentRenderer(thread);
+        if (mainRenderer) {
+          removeInjectedDecorations(mainRenderer);
+          mainRenderer.removeAttribute(LOCATION_STATE_ATTR);
+        }
         if (thread.getAttribute(THREAD_PROCESSED_ATTR) === "true" && mainRenderer) {
           thread.removeAttribute(THREAD_PROCESSED_ATTR);
-          removeInjectedDecorations(mainRenderer);
           const content = getContentBody(mainRenderer);
           if (content) {
             content.style.display = "";
@@ -478,12 +884,13 @@ export class CommentSponsorController {
         }
 
         for (const replyTarget of getReplyTargets(thread)) {
+          removeInjectedDecorations(replyTarget.renderer);
+          replyTarget.renderer.removeAttribute(LOCATION_STATE_ATTR);
           if (replyTarget.host.getAttribute(REPLY_PROCESSED_ATTR) !== "true") {
             continue;
           }
 
           replyTarget.host.removeAttribute(REPLY_PROCESSED_ATTR);
-          removeInjectedDecorations(replyTarget.renderer);
           const content = getContentBody(replyTarget.renderer);
           if (content) {
             content.style.display = "";
@@ -494,6 +901,7 @@ export class CommentSponsorController {
         restoreReplies(thread);
       }
     }
+    cleanupVueLocationNodes(document);
     debugLog("Comment sponsor state reset");
   }
 }

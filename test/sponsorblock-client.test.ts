@@ -91,4 +91,25 @@ describe("sponsorblock client", () => {
     expect(result.map((segment) => segment.UUID)).toEqual(["cached-segment"]);
     expect((globalThis.GM_xmlhttpRequest as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
   });
+
+  it("submits votes through the SponsorBlock API with duplicate-vote handling", async () => {
+    vi.stubGlobal("GM_getValue", vi.fn(async () => "user-123"));
+    vi.stubGlobal("GM_setValue", vi.fn());
+    const gmRequest = vi.fn((options: { url: string; onload?: (response: { status: number; responseText: string }) => void }) => {
+      options.onload?.({ status: 405, responseText: "duplicate vote" });
+    });
+    vi.stubGlobal("GM_xmlhttpRequest", gmRequest);
+
+    const { client } = createClient();
+    const response = await client.vote("segment-1", 0, DEFAULT_CONFIG as StoredConfig);
+
+    expect(response.successType).toBe(0);
+    expect(response.statusCode).toBe(405);
+    expect(gmRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "POST",
+        url: expect.stringContaining("/api/voteOnSponsorTime?UUID=segment-1&userID=user-123&type=0")
+      })
+    );
+  });
 });

@@ -1,5 +1,4 @@
 import type { PageType } from "../types";
-import { extractAidFromUrl, extractBvidFromUrl } from "./video-context";
 
 const SUPPORTED_HOSTS = new Set([
   "www.bilibili.com",
@@ -27,7 +26,7 @@ export function detectPageType(url: string): PageType {
       return "channel";
     }
 
-    if (parsed.pathname.startsWith("/account/history")) {
+    if (parsed.pathname.startsWith("/account/history") || parsed.pathname.startsWith("/history")) {
       return "history";
     }
 
@@ -65,9 +64,7 @@ export function supportsVideoFeatures(url: string): boolean {
     pageType === "list" ||
     pageType === "festival" ||
     pageType === "anime" ||
-    pageType === "opus" ||
-    extractBvidFromUrl(url) !== null ||
-    extractAidFromUrl(url) !== null
+    pageType === "opus"
   );
 }
 

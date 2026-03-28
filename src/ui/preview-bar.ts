@@ -1,5 +1,5 @@
-import { CATEGORY_COLORS } from "../constants";
-import type { SegmentRecord } from "../types";
+import type { CategoryColorOverrides, SegmentRecord } from "../types";
+import { resolveCategoryAccent } from "../utils/color";
 
 type PreviewParents = {
   main: HTMLElement;
@@ -36,6 +36,7 @@ export class PreviewBar {
   private boundParents: PreviewParents | null = null;
   private segments: SegmentRecord[] = [];
   private enabled = true;
+  private categoryColorOverrides: CategoryColorOverrides = {};
   private readonly handleDurationChange = () => {
     this.render();
   };
@@ -65,6 +66,11 @@ export class PreviewBar {
 
   setEnabled(enabled: boolean): void {
     this.enabled = enabled;
+    this.render();
+  }
+
+  setCategoryColorOverrides(overrides: CategoryColorOverrides): void {
+    this.categoryColorOverrides = { ...overrides };
     this.render();
   }
 
@@ -162,7 +168,7 @@ export class PreviewBar {
     bar.dataset.actionType = segment.actionType;
     bar.style.left = `${(start / duration) * 100}%`;
     bar.style.right = `${100 - (end / duration) * 100}%`;
-    bar.style.backgroundColor = CATEGORY_COLORS[segment.category];
+    bar.style.backgroundColor = resolveCategoryAccent(segment.category, this.categoryColorOverrides);
     bar.style.opacity = segment.actionType === "poi" ? "0.9" : "0.7";
     return bar;
   }

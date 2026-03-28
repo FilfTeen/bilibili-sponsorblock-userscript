@@ -131,25 +131,30 @@ export async function gmXmlHttpRequest(options: {
   headers?: Record<string, string>;
   timeout?: number;
 }): Promise<FetchResponse> {
-  try {
-    return await fetchViaWindow(options);
-  } catch (fetchError) {
-    const fn = assertFunction<typeof GM_xmlhttpRequest>("GM_xmlhttpRequest");
-
-    return new Promise<FetchResponse>((resolve, reject) => {
-      fn({
-        ...options,
-        onload: (response) => {
-          resolve({
-            responseText: response.responseText,
-            status: response.status,
-            ok: response.status >= 200 && response.status < 300
-          });
-        },
-        onerror: () =>
-          reject(fetchError instanceof Error ? fetchError : new Error(`Request failed: ${options.method} ${options.url}`)),
-        ontimeout: () => reject(new Error(`Request timed out: ${options.method} ${options.url}`))
+  const fn = resolveGrantedFunction("GM_xmlhttpRequest");
+  if (typeof fn === "function") {
+    try {
+      return await new Promise<FetchResponse>((resolve, reject) => {
+        (fn as typeof GM_xmlhttpRequest)({
+          ...options,
+          onload: (response) => {
+            resolve({
+              responseText: response.responseText,
+              status: response.status,
+              ok: response.status >= 200 && response.status < 300
+            });
+          },
+          onerror: () => reject(new Error(`Request failed: ${options.method} ${options.url}`)),
+          ontimeout: () => reject(new Error(`Request timed out: ${options.method} ${options.url}`))
+        });
       });
-    });
+    } catch (error) {
+      if (typeof fetch === "function") {
+        return fetchViaWindow(options);
+      }
+      throw error;
+    }
   }
+
+  return fetchViaWindow(options);
 }

@@ -9,6 +9,7 @@ import { gmGetValue, gmSetValue } from "../platform/gm";
 import type { CategoryMode, StoredConfig, StoredStats, ThumbnailLabelMode } from "../types";
 import { clampNumber } from "../utils/number";
 import { regexFromStoredPattern } from "../utils/pattern";
+import { normalizeHexColor } from "../utils/color";
 import { normalizeServerAddress } from "../utils/url";
 
 type ConfigListener = (config: StoredConfig) => void;
@@ -25,7 +26,8 @@ function isThumbnailLabelMode(value: string): value is ThumbnailLabelMode {
 export function cloneDefaultConfig(): StoredConfig {
   return {
     ...DEFAULT_CONFIG,
-    categoryModes: { ...DEFAULT_CONFIG.categoryModes }
+    categoryModes: { ...DEFAULT_CONFIG.categoryModes },
+    categoryColorOverrides: { ...DEFAULT_CONFIG.categoryColorOverrides }
   };
 }
 
@@ -36,11 +38,13 @@ export function normalizeConfig(input: Partial<StoredConfig> | null | undefined)
   }
 
   const migratedFromOlderBuild =
-    typeof input.showPreviewBar !== "boolean" || typeof input.thumbnailLabelMode !== "string";
+    typeof input.showPreviewBar !== "boolean" ||
+    typeof input.thumbnailLabelMode !== "string";
 
   next.enabled = input.enabled ?? next.enabled;
   next.enableCache = input.enableCache ?? next.enableCache;
   next.showPreviewBar = input.showPreviewBar ?? next.showPreviewBar;
+  next.compactVideoHeader = input.compactVideoHeader ?? next.compactVideoHeader;
   next.noticeDurationSec = clampNumber(
     Number.isFinite(input.noticeDurationSec) ? Number(input.noticeDurationSec) : next.noticeDurationSec,
     1,
@@ -59,7 +63,15 @@ export function normalizeConfig(input: Partial<StoredConfig> | null | undefined)
     input.commentFilterMode === "hide" || input.commentFilterMode === "label" || input.commentFilterMode === "off"
       ? input.commentFilterMode
       : next.commentFilterMode;
+  next.commentLocationEnabled = input.commentLocationEnabled ?? next.commentLocationEnabled;
   next.commentHideReplies = input.commentHideReplies ?? next.commentHideReplies;
+  next.commentIpColor = normalizeHexColor(input.commentIpColor) ?? next.commentIpColor;
+  next.commentAdColor = normalizeHexColor(input.commentAdColor) ?? next.commentAdColor;
+  next.mbgaEnabled = input.mbgaEnabled ?? next.mbgaEnabled;
+  next.mbgaBlockTracking = input.mbgaBlockTracking ?? next.mbgaBlockTracking;
+  next.mbgaDisablePcdn = input.mbgaDisablePcdn ?? next.mbgaDisablePcdn;
+  next.mbgaCleanUrl = input.mbgaCleanUrl ?? next.mbgaCleanUrl;
+  next.mbgaSimplifyUi = input.mbgaSimplifyUi ?? next.mbgaSimplifyUi;
   if (typeof input.thumbnailLabelMode === "string" && isThumbnailLabelMode(input.thumbnailLabelMode)) {
     next.thumbnailLabelMode = input.thumbnailLabelMode;
   }
@@ -97,6 +109,11 @@ export function normalizeConfig(input: Partial<StoredConfig> | null | undefined)
     if (value && isCategoryMode(value)) {
       next.categoryModes[category] = value;
     }
+
+    const categoryColor = normalizeHexColor(input.categoryColorOverrides?.[category]);
+    if (categoryColor) {
+      next.categoryColorOverrides[category] = categoryColor;
+    }
   }
 
   return next;
@@ -114,7 +131,8 @@ export class ConfigStore {
   getSnapshot(): StoredConfig {
     return {
       ...this.config,
-      categoryModes: { ...this.config.categoryModes }
+      categoryModes: { ...this.config.categoryModes },
+      categoryColorOverrides: { ...this.config.categoryColorOverrides }
     };
   }
 

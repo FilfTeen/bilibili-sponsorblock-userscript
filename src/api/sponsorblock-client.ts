@@ -7,11 +7,13 @@ import type {
   SponsorTime,
   SponsorTimeHashedID,
   StoredConfig,
-  VideoContext
+  VideoContext,
+  VoteResponse
 } from "../types";
 import { getHashPrefix } from "../utils/hash";
 import { PersistentCache } from "../core/cache";
 import { normalizeServerAddress } from "../utils/url";
+import { ensureUserId } from "../core/user-id";
 
 const VALID_CATEGORIES = new Set<Category>([
   "sponsor",
@@ -116,6 +118,51 @@ export class SponsorBlockClient {
     const records = payload.filter(isSegmentRecord);
     const record = records.find((entry) => entry.videoID === video.bvid);
     return sanitizeSegments(record?.segments ?? []);
+  }
+
+  async vote(uuid: string, type: 0 | 1, config: StoredConfig): Promise<VoteResponse> {
+    const normalizedServer = normalizeServerAddress(config.serverAddress) ?? config.serverAddress;
+    const userId = await ensureUserId();
+    const url = buildUrl(
+      normalizedServer,
+      `/api/voteOnSponsorTime?UUID=${encodeURIComponent(uuid)}&userID=${encodeURIComponent(userId)}&type=${type}`
+    );
+
+    try {
+      const response = await gmXmlHttpRequest({
+        method: "POST",
+        url,
+        timeout: REQUEST_TIMEOUT_MS
+      });
+
+      if (response.ok || response.status === 429) {
+        return {
+          successType: 1,
+          statusCode: response.status,
+          responseText: response.responseText
+        };
+      }
+
+      if (response.status === 405) {
+        return {
+          successType: 0,
+          statusCode: response.status,
+          responseText: response.responseText
+        };
+      }
+
+      return {
+        successType: -1,
+        statusCode: response.status,
+        responseText: response.responseText
+      };
+    } catch (error) {
+      return {
+        successType: -1,
+        statusCode: -1,
+        responseText: error instanceof Error ? error.message : "Vote request failed"
+      };
+    }
   }
 
   private async fetchWithDedup(cacheKey: string, url: string): Promise<FetchResponse> {
