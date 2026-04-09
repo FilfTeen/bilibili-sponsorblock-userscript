@@ -1,6 +1,13 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { cloneDefaultConfig } from "../src/core/config-store";
 import { SettingsPanel } from "../src/ui/panel";
+import { styles } from "../src/ui/styles";
+
+beforeEach(() => {
+  const style = document.createElement("style");
+  style.textContent = styles;
+  document.head.appendChild(style);
+});
 
 describe("settings panel", () => {
   it("mounts globally and toggles a hidden modal", () => {
@@ -33,6 +40,45 @@ describe("settings panel", () => {
 
     expect(document.querySelector<HTMLElement>("[data-section='help']")?.hidden).toBe(false);
     expect(document.querySelector<HTMLButtonElement>("[data-tab='help']")?.classList.contains("active")).toBe(true);
+  });
+
+  it("keeps inactive sections hidden after opening a tab", () => {
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig: vi.fn(async () => {}),
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.open("filters");
+
+    const hiddenSections = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-panel-section")).filter(
+      (section) => section.dataset.section !== "filters"
+    );
+    expect(hiddenSections.length).toBeGreaterThan(0);
+    for (const section of hiddenSections) {
+      expect(section.hidden).toBe(true);
+      expect(section.getAttribute("aria-hidden")).toBe("true");
+      expect(window.getComputedStyle(section).display).toBe("none");
+    }
+  });
+
+  it("shows exactly one visible section after tab switches", () => {
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig: vi.fn(async () => {}),
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.open("overview");
+    document.querySelector<HTMLButtonElement>("[data-tab='behavior']")?.click();
+
+    const visibleSections = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-panel-section")).filter(
+      (section) => !section.hidden && window.getComputedStyle(section).display !== "none"
+    );
+    expect(visibleSections).toHaveLength(1);
+    expect(visibleSections[0]?.dataset.section).toBe("behavior");
   });
 
   it("computes a stable panel height token when opened", () => {

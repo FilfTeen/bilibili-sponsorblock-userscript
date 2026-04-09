@@ -264,6 +264,10 @@ export const styles = `
   padding-bottom: 16px;
 }
 
+.bsb-tm-panel-section[hidden] {
+  display: none !important;
+}
+
 .bsb-tm-section-heading {
   display: grid;
   gap: 6px;

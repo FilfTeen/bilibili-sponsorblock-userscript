@@ -157,4 +157,50 @@ describe("script controller", () => {
     expect(showSpy).toHaveBeenCalledTimes(1);
     expect(state.manualSkipGraceShown).toBe(true);
   });
+
+  it("restores an open settings panel after stop/start", async () => {
+    const controller = createController();
+    vi.spyOn(controller as any, "refreshCurrentVideo").mockImplementation(async () => {});
+
+    await controller.start();
+    controller.openPanel();
+    expect(document.querySelector<HTMLElement>(".bsb-tm-panel-backdrop")?.hidden).toBe(false);
+
+    controller.stop();
+    expect(document.querySelector(".bsb-tm-panel-backdrop")).toBeNull();
+
+    await controller.start();
+    expect(document.querySelector<HTMLElement>(".bsb-tm-panel-backdrop")?.hidden).toBe(false);
+    expect(document.querySelector<HTMLElement>("[data-section='overview']")?.hidden).toBe(false);
+  });
+
+  it("restores the help tab after stop/start when opened from the menu", async () => {
+    const controller = createController();
+    vi.spyOn(controller as any, "refreshCurrentVideo").mockImplementation(async () => {});
+
+    await controller.start();
+    controller.openHelp();
+    expect(document.querySelector<HTMLElement>("[data-section='help']")?.hidden).toBe(false);
+
+    controller.stop();
+    await controller.start();
+
+    expect(document.querySelector<HTMLElement>(".bsb-tm-panel-backdrop")?.hidden).toBe(false);
+    expect(document.querySelector<HTMLElement>("[data-section='help']")?.hidden).toBe(false);
+    expect(document.querySelector<HTMLButtonElement>("[data-tab='help']")?.classList.contains("active")).toBe(true);
+  });
+
+  it("does not restore a panel opened via toggle after stop/start", async () => {
+    const controller = createController();
+    vi.spyOn(controller as any, "refreshCurrentVideo").mockImplementation(async () => {});
+
+    await controller.start();
+    controller.togglePanel();
+    expect(document.querySelector<HTMLElement>(".bsb-tm-panel-backdrop")?.hidden).toBe(false);
+
+    controller.stop();
+    await controller.start();
+
+    expect(document.querySelector<HTMLElement>(".bsb-tm-panel-backdrop")?.hidden).toBe(true);
+  });
 });

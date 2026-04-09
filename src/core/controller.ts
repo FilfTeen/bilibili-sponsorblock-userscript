@@ -14,7 +14,7 @@ import { normalizeSegments } from "./segment-filter";
 import { resolveWholeVideoLabels } from "./whole-video-label";
 import { requestPageSnapshot } from "../platform/page-bridge";
 import { NoticeCenter } from "../ui/notice-center";
-import { SettingsPanel } from "../ui/panel";
+import { SettingsPanel, type PanelTab } from "../ui/panel";
 import { PreviewBar } from "../ui/preview-bar";
 import { TitleBadge, type TitleBadgeVoteResult } from "../ui/title-badge";
 import { CompactVideoHeader } from "../ui/compact-header";
@@ -99,6 +99,7 @@ export class ScriptController {
   private pendingRefresh = false;
   private pendingForceFetch = false;
   private pendingVisibleRefresh = false;
+  private pendingPanelOpenTab: PanelTab | null = null;
   private lastTickTime: number | null = null;
   private lastAnnouncedSignature = "";
   private readonly handleVisibilityChange = () => {
@@ -107,6 +108,9 @@ export class ScriptController {
       const nextForceFetch = this.pendingForceFetch;
       this.pendingForceFetch = false;
       this.scheduleRefresh(nextForceFetch);
+    }
+    if (!document.hidden) {
+      this.restorePendingPanelOpen();
     }
   };
   private readonly handleVideoSignal = (event: Event) => {
@@ -203,6 +207,11 @@ export class ScriptController {
           message: "所有脚本设置已恢复为初始默认值。",
           durationMs: 4000
         });
+      },
+      onClose: (reason) => {
+        if (reason === "user") {
+          this.pendingPanelOpenTab = null;
+        }
       }
     });
     this.titleBadge = new TitleBadge({
@@ -255,6 +264,7 @@ export class ScriptController {
     window.addEventListener(VIDEO_SIGNAL_EVENT, this.handleVideoSignal as EventListener);
     window.addEventListener("bsb_mbga_live_fallback", this.handleMbgaLiveFallback as EventListener);
     await this.refreshCurrentVideo(true);
+    this.restorePendingPanelOpen();
 
     this.stopObservingUrl = observeUrlChanges(() => {
       this.syncCompactVideoHeader();
@@ -286,15 +296,16 @@ export class ScriptController {
   }
 
   togglePanel(): void {
+    this.pendingPanelOpenTab = null;
     this.panel.toggle();
   }
 
   openPanel(): void {
-    this.panel.open();
+    this.openPanelWithIntent("overview");
   }
 
   openHelp(): void {
-    this.panel.open("help");
+    this.openPanelWithIntent("help");
   }
 
   async clearCache(): Promise<void> {
@@ -360,6 +371,20 @@ export class ScriptController {
       this.pendingForceFetch = false;
       void this.refreshCurrentVideo(nextForceFetch);
     }, 120);
+  }
+
+  private openPanelWithIntent(tab: PanelTab): void {
+    this.pendingPanelOpenTab = tab;
+    this.restorePendingPanelOpen();
+  }
+
+  private restorePendingPanelOpen(): void {
+    if (!this.pendingPanelOpenTab || !this.started || document.hidden) {
+      return;
+    }
+
+    const tab = this.pendingPanelOpenTab;
+    this.panel.open(tab);
   }
 
   private async refreshCurrentVideo(forceFetch = false): Promise<void> {
