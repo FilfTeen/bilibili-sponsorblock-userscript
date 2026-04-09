@@ -35,6 +35,34 @@ describe("settings panel", () => {
     expect(document.querySelector<HTMLButtonElement>("[data-tab='help']")?.classList.contains("active")).toBe(true);
   });
 
+  it("renders a dedicated transparency tab with all tag toggles defaulting to off", () => {
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig: vi.fn(async () => {}),
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("transparency");
+
+    expect(document.querySelector<HTMLElement>("[data-section='transparency']")?.hidden).toBe(false);
+    expect(document.querySelector<HTMLButtonElement>("[data-tab='transparency']")?.classList.contains("active")).toBe(true);
+
+    for (const text of [
+      "标题商业标签使用透明模式",
+      "封面胶囊标签使用透明模式",
+      "评论广告标签使用透明模式",
+      "评论属地标签使用透明模式",
+      "动态页商业标签使用透明模式"
+    ]) {
+      const field = Array.from(document.querySelectorAll<HTMLLabelElement>(".bsb-tm-field-toggle")).find((candidate) =>
+        candidate.textContent?.includes(text)
+      );
+      expect(field?.querySelector<HTMLInputElement>("input[type='checkbox']")?.checked).toBe(false);
+    }
+  });
+
   it("computes a stable panel height token when opened", () => {
     const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
       onPatchConfig: vi.fn(async () => {}),

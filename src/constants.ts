@@ -2,6 +2,7 @@ import type {
   Category,
   CategoryMode,
   ContentFilterMode,
+  LabelTransparencyConfig,
   StoredConfig,
   ThumbnailLabelMode
 } from "./types";
@@ -134,6 +135,14 @@ export const DEFAULT_CATEGORY_MODES: Record<Category, CategoryMode> = {
   exclusive_access: "notice"
 };
 
+export const DEFAULT_LABEL_TRANSPARENCY: LabelTransparencyConfig = {
+  titleBadge: false,
+  thumbnailLabel: false,
+  commentBadge: false,
+  commentLocation: false,
+  dynamicBadge: false
+};
+
 export const DEFAULT_CONFIG: StoredConfig = {
   enabled: true,
   serverAddress: "https://www.bsbsb.top",
@@ -147,6 +156,7 @@ export const DEFAULT_CONFIG: StoredConfig = {
   thumbnailLabelMode: "overlay",
   categoryModes: DEFAULT_CATEGORY_MODES,
   categoryColorOverrides: {},
+  labelTransparency: DEFAULT_LABEL_TRANSPARENCY,
   dynamicFilterMode: "off",
   dynamicRegexPattern: DEFAULT_DYNAMIC_REGEX_PATTERN,
   dynamicRegexKeywordMinMatches: 1,

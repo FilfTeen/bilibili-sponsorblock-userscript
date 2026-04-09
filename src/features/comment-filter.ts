@@ -40,6 +40,10 @@ const COMMENT_RELEVANT_SELECTORS = [
   ".sub-reply-time"
 ] as const;
 const COMMENT_IGNORED_SELECTORS = [`[${BADGE_ATTR}]`, `[${TOGGLE_ATTR}]`, `[${LOCATION_ATTR}]`] as const;
+const currentInlineBadgeAppearance = {
+  commentBadge: false,
+  commentLocation: false
+};
 
 type ReplyLocationPayload = {
   reply_control?: {
@@ -297,7 +301,14 @@ export function scanCurrentPageCommentSignal(
 }
 
 function createBadge(text: string, tone: InlineTone, color?: string): HTMLElement {
-  return createInlineBadge(BADGE_ATTR, text, tone, "inline", color);
+  return createInlineBadge(
+    BADGE_ATTR,
+    text,
+    tone,
+    "inline",
+    color,
+    currentInlineBadgeAppearance.commentBadge ? "glass" : "solid"
+  );
 }
 
 function createToggleButton(onClick: () => void): HTMLButtonElement {
@@ -306,7 +317,14 @@ function createToggleButton(onClick: () => void): HTMLButtonElement {
 }
 
 function createLocationBadge(text: string, color?: string): HTMLDivElement {
-  return createInlineBadge(LOCATION_ATTR, text, "info", "inline", color);
+  return createInlineBadge(
+    LOCATION_ATTR,
+    text,
+    "info",
+    "inline",
+    color,
+    currentInlineBadgeAppearance.commentLocation ? "glass" : "solid"
+  );
 }
 
 function getMainCommentRenderer(thread: HTMLElement): CommentRenderer | null {
@@ -536,8 +554,12 @@ export class CommentSponsorController {
 
   constructor(private readonly configStore: ConfigStore) {
     this.currentConfig = this.configStore.getSnapshot();
+    currentInlineBadgeAppearance.commentBadge = this.currentConfig.labelTransparency.commentBadge;
+    currentInlineBadgeAppearance.commentLocation = this.currentConfig.labelTransparency.commentLocation;
     this.configStore.subscribe((config) => {
       this.currentConfig = config;
+      currentInlineBadgeAppearance.commentBadge = config.labelTransparency.commentBadge;
+      currentInlineBadgeAppearance.commentLocation = config.labelTransparency.commentLocation;
       this.resetProcessedThreads();
       this.scheduleRefresh();
     });

@@ -27,7 +27,8 @@ export function cloneDefaultConfig(): StoredConfig {
   return {
     ...DEFAULT_CONFIG,
     categoryModes: { ...DEFAULT_CONFIG.categoryModes },
-    categoryColorOverrides: { ...DEFAULT_CONFIG.categoryColorOverrides }
+    categoryColorOverrides: { ...DEFAULT_CONFIG.categoryColorOverrides },
+    labelTransparency: { ...DEFAULT_CONFIG.labelTransparency }
   };
 }
 
@@ -71,6 +72,13 @@ export function normalizeConfig(input: Partial<StoredConfig> | null | undefined)
   next.commentHideReplies = input.commentHideReplies ?? next.commentHideReplies;
   next.commentIpColor = normalizeHexColor(input.commentIpColor) ?? next.commentIpColor;
   next.commentAdColor = normalizeHexColor(input.commentAdColor) ?? next.commentAdColor;
+  next.labelTransparency = {
+    titleBadge: input.labelTransparency?.titleBadge ?? next.labelTransparency.titleBadge,
+    thumbnailLabel: input.labelTransparency?.thumbnailLabel ?? next.labelTransparency.thumbnailLabel,
+    commentBadge: input.labelTransparency?.commentBadge ?? next.labelTransparency.commentBadge,
+    commentLocation: input.labelTransparency?.commentLocation ?? next.labelTransparency.commentLocation,
+    dynamicBadge: input.labelTransparency?.dynamicBadge ?? next.labelTransparency.dynamicBadge
+  };
   next.mbgaEnabled = input.mbgaEnabled ?? next.mbgaEnabled;
   next.mbgaBlockTracking = input.mbgaBlockTracking ?? next.mbgaBlockTracking;
   next.mbgaDisablePcdn = input.mbgaDisablePcdn ?? next.mbgaDisablePcdn;
@@ -136,7 +144,8 @@ export class ConfigStore {
     return {
       ...this.config,
       categoryModes: { ...this.config.categoryModes },
-      categoryColorOverrides: { ...this.config.categoryColorOverrides }
+      categoryColorOverrides: { ...this.config.categoryColorOverrides },
+      labelTransparency: { ...this.config.labelTransparency }
     };
   }
 

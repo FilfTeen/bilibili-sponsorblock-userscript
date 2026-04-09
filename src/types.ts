@@ -14,6 +14,13 @@ export type CategoryMode = "auto" | "manual" | "notice" | "off";
 export type ContentFilterMode = "hide" | "label" | "off";
 export type ThumbnailLabelMode = "overlay" | "off";
 export type CategoryColorOverrides = Partial<Record<Category, string>>;
+export interface LabelTransparencyConfig {
+  titleBadge: boolean;
+  thumbnailLabel: boolean;
+  commentBadge: boolean;
+  commentLocation: boolean;
+  dynamicBadge: boolean;
+}
 export type LocalVideoLabelSource =
   | "comment-goods"
   | "comment-suspicion"
@@ -88,6 +95,7 @@ export interface StoredConfig {
   thumbnailLabelMode: ThumbnailLabelMode;
   categoryModes: Record<Category, CategoryMode>;
   categoryColorOverrides: CategoryColorOverrides;
+  labelTransparency: LabelTransparencyConfig;
   dynamicFilterMode: ContentFilterMode;
   dynamicRegexPattern: string;
   dynamicRegexKeywordMinMatches: number;
