@@ -13,6 +13,13 @@ describe("config normalization", () => {
     expect(config.showPreviewBar).toBe(true);
     expect(config.compactVideoHeader).toBe(true);
     expect(config.thumbnailLabelMode).toBe("overlay");
+    expect(config.labelTransparency).toEqual({
+      titleBadge: false,
+      thumbnailLabel: false,
+      commentBadge: false,
+      commentLocation: false,
+      dynamicBadge: false
+    });
   });
 
   it("clamps dynamic regex match count and accepts new modes", () => {

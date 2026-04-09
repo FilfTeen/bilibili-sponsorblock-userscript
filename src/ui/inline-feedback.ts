@@ -1,6 +1,7 @@
 export type InlineTone = "danger" | "warning" | "success" | "info";
 export type InlineLayout = "inline" | "stack";
 export type InlineToggleState = "hidden" | "shown";
+export type InlineBadgeAppearance = "solid" | "glass";
 
 type InlineToggleLabels = {
   hidden: string;
@@ -53,6 +54,42 @@ export const inlineFeedbackStyles = `
   text-overflow: ellipsis;
 }
 
+.bsb-tm-inline-chip[data-appearance="glass"] {
+  --bsb-inline-text: #0f172a;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.035));
+  border: 1px solid color-mix(in srgb, var(--bsb-inline-accent) 28%, rgba(255, 255, 255, 0.42));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.74),
+    inset 0 -1px 0 color-mix(in srgb, var(--bsb-inline-accent) 18%, rgba(148, 163, 184, 0.05)),
+    0 2px 6px rgba(15, 23, 42, 0.035),
+    0 0 0 1px rgba(255, 255, 255, 0.08);
+  backdrop-filter: none;
+}
+
+.bsb-tm-inline-chip[data-appearance="glass"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 16% -12%, color-mix(in srgb, var(--bsb-inline-accent) 28%, rgba(255, 255, 255, 0.44)) 0%, transparent 32%),
+    radial-gradient(circle at 82% 120%, color-mix(in srgb, var(--bsb-inline-accent) 18%, rgba(15, 23, 42, 0.14)) 0%, transparent 46%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.38), rgba(255, 255, 255, 0.05) 32%, transparent 56%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--bsb-inline-accent) 14%, rgba(255, 255, 255, 0.1)),
+      color-mix(in srgb, var(--bsb-inline-accent) 22%, rgba(231, 238, 245, 0.07))
+    ),
+    linear-gradient(112deg, transparent 22%, rgba(255, 255, 255, 0.18) 30%, transparent 44%);
+  opacity: 0.76;
+  backdrop-filter: saturate(144%) brightness(1.03);
+  mix-blend-mode: screen;
+}
+
 .bsb-tm-inline-chip::before {
   content: "";
   width: 6px;
@@ -63,6 +100,12 @@ export const inlineFeedbackStyles = `
   box-shadow:
     0 0 0 2px rgba(255, 255, 255, 0.14),
     0 0 14px color-mix(in srgb, var(--bsb-inline-accent) 72%, transparent);
+}
+
+.bsb-tm-inline-chip[data-appearance="glass"]::before {
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.24),
+    0 0 10px color-mix(in srgb, var(--bsb-inline-accent) 38%, transparent);
 }
 
 .bsb-tm-inline-chip--inline,
@@ -179,12 +222,14 @@ export function createInlineBadge(
   text: string,
   tone: InlineTone,
   layout: InlineLayout,
-  customColor?: string
+  customColor?: string,
+  appearance: InlineBadgeAppearance = "solid"
 ): HTMLDivElement {
   const badge = document.createElement("div");
   badge.className = `bsb-tm-inline-chip bsb-tm-inline-chip--${layout}`;
   badge.setAttribute(attrName, "true");
   badge.dataset.tone = tone;
+  badge.dataset.appearance = appearance;
   badge.title = text;
   badge.textContent = text;
   if (customColor) {

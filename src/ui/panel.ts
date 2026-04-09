@@ -31,12 +31,13 @@ type PanelCallbacks = {
   onClose?: (reason: "user" | "system") => void;
 };
 
-export type PanelTab = "overview" | "behavior" | "filters" | "mbga" | "help";
+export type PanelTab = "overview" | "behavior" | "transparency" | "filters" | "mbga" | "help";
 export type PanelCloseReason = "user" | "system";
 
 const TAB_LABELS: Record<PanelTab, string> = {
   overview: "概览",
   behavior: "片段与标签",
+  transparency: "标签透明度",
   filters: "动态 / 评论",
   mbga: "生态净化 (MBGA)",
   help: "帮助 / 反馈"
@@ -45,6 +46,7 @@ const TAB_LABELS: Record<PanelTab, string> = {
 const TAB_DESCRIPTIONS: Record<PanelTab, string> = {
   overview: "状态、摘要与维护工具",
   behavior: "片段、标签与显示策略",
+  transparency: "胶囊透明度与降噪策略",
   filters: "动态和评论区增强",
   mbga: "屏蔽追踪、原画锁定与沉浸化",
   help: "帮助链接与使用说明"
@@ -58,6 +60,7 @@ export class SettingsPanel {
   private readonly content = document.createElement("div");
   private readonly statsEl = document.createElement("div");
   private readonly form = document.createElement("div");
+  private readonly transparencyForm = document.createElement("div");
   private readonly filterForm = document.createElement("div");
   private readonly categoryForm = document.createElement("div");
   private readonly mbgaForm = document.createElement("div");
@@ -115,6 +118,7 @@ export class SettingsPanel {
 
     this.statsEl.className = "bsb-tm-stats";
     this.form.className = "bsb-tm-form";
+    this.transparencyForm.className = "bsb-tm-form";
     this.filterForm.className = "bsb-tm-form";
     this.categoryForm.className = "bsb-tm-categories";
     this.mbgaForm.className = "bsb-tm-form";
@@ -210,6 +214,7 @@ export class SettingsPanel {
     const nextScrollTop = preserveScroll ? (this.contentScrollByTab[this.activeTab] ?? this.content.scrollTop) : 0;
     this.renderOverview();
     this.renderBehavior();
+    this.renderTransparency();
     this.renderFilters();
     this.renderMbga();
     this.renderHelp();
@@ -525,6 +530,106 @@ export class SettingsPanel {
     this.sections.get("filters")?.replaceChildren(
       this.createSectionHeading("动态 / 评论增强", "这部分不是 SponsorBlock 原始片段接口，而是对 B 站站内商业内容的附加增强。"),
       this.filterForm
+    );
+  }
+
+  private renderTransparency(): void {
+    const transparency = this.config.labelTransparency;
+    const section = this.sections.get("transparency");
+    if (!section) {
+      return;
+    }
+
+    this.transparencyForm.replaceChildren(
+      this.createFormGroup(
+        "视频主线标签",
+        "这两类标签属于 BSC 主线能力。透明模式会从高纯度胶囊改成更克制的 Liquid Glass 表现，默认保持关闭，确保升级后现有视觉不变。",
+        this.createFieldGrid([
+          this.createCheckbox(
+            "标题商业标签使用透明模式",
+            "用于视频标题前的整视频胶囊。开启后会保留分类色倾向，但把纯色填充改为更轻的玻璃染色，减少对标题阅读的干扰。",
+            transparency.titleBadge,
+            async (checked) => {
+              await this.callbacks.onPatchConfig({
+                labelTransparency: {
+                  ...this.config.labelTransparency,
+                  titleBadge: checked
+                }
+              });
+            }
+          ),
+          this.createCheckbox(
+            "封面胶囊标签使用透明模式",
+            "用于首页、搜索、侧栏卡片上的整视频标签。开启后仍保留悬浮展开与可读性，但会降低对封面主体的视觉压制。",
+            transparency.thumbnailLabel,
+            async (checked) => {
+              await this.callbacks.onPatchConfig({
+                labelTransparency: {
+                  ...this.config.labelTransparency,
+                  thumbnailLabel: checked
+                }
+              });
+            }
+          )
+        ])
+      ),
+      this.createFormGroup(
+        "站内增强标签",
+        "这三类标签更偏提示性质，不建议强绑成一个总开关。分项控制可以让你只给“过于显眼”的标签降噪，而不牺牲其他提醒能力。",
+        this.createFieldGrid([
+          this.createCheckbox(
+            "评论广告标签使用透明模式",
+            "用于评论区带货、促销、疑似广告等标签。开启后会弱化整块背景存在感，把注意力更多还给评论正文。",
+            transparency.commentBadge,
+            async (checked) => {
+              await this.callbacks.onPatchConfig({
+                labelTransparency: {
+                  ...this.config.labelTransparency,
+                  commentBadge: checked
+                }
+              });
+            }
+          ),
+          this.createCheckbox(
+            "评论属地标签使用透明模式",
+            "用于评论发布时间旁的 IP 属地胶囊。这个场景最容易打断正文阅读，所以单独给开关，默认关闭。",
+            transparency.commentLocation,
+            async (checked) => {
+              await this.callbacks.onPatchConfig({
+                labelTransparency: {
+                  ...this.config.labelTransparency,
+                  commentLocation: checked
+                }
+              });
+            }
+          ),
+          this.createCheckbox(
+            "动态页商业标签使用透明模式",
+            "用于动态页“带货动态 / 疑似广告”等标签。开启后仍保留强调点与轮廓，但会明显降低纯色块带来的抢眼感。",
+            transparency.dynamicBadge,
+            async (checked) => {
+              await this.callbacks.onPatchConfig({
+                labelTransparency: {
+                  ...this.config.labelTransparency,
+                  dynamicBadge: checked
+                }
+              });
+            }
+          )
+        ])
+      ),
+      this.createInfoBox(
+        "设计说明",
+        "这里的“透明”不是简单调低 opacity，而是改为更低侵入的 Liquid Glass：轻染色、高光、边缘描线、受控模糊，并优先保证文字可读性。"
+      )
+    );
+
+    section.replaceChildren(
+      this.createSectionHeading(
+        "标签透明度",
+        "集中管理所有胶囊标签的透明模式。默认全部关闭，保证现有用户升级后不会被强制改变视觉风格。"
+      ),
+      this.transparencyForm
     );
   }
 

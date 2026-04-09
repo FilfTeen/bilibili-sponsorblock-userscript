@@ -226,6 +226,7 @@ export class ScriptController {
       }
     });
     this.titleBadge.setColorOverrides(this.currentConfig.categoryColorOverrides);
+    this.titleBadge.setTransparencyEnabled(this.currentConfig.labelTransparency.titleBadge);
     this.previewBar.setCategoryColorOverrides(this.currentConfig.categoryColorOverrides);
 
     this.configStore.subscribe((config) => {
@@ -234,6 +235,7 @@ export class ScriptController {
       this.previewBar.setEnabled(config.enabled && config.showPreviewBar);
       this.previewBar.setCategoryColorOverrides(config.categoryColorOverrides);
       this.titleBadge.setColorOverrides(config.categoryColorOverrides);
+      this.titleBadge.setTransparencyEnabled(config.labelTransparency.titleBadge);
       this.syncCompactVideoHeader();
       if (!config.enabled) {
         this.notices.clear();
