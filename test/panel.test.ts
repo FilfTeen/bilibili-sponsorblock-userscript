@@ -1,6 +1,13 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { cloneDefaultConfig } from "../src/core/config-store";
 import { SettingsPanel } from "../src/ui/panel";
+import { styles } from "../src/ui/styles";
+
+beforeEach(() => {
+  const style = document.createElement("style");
+  style.textContent = styles;
+  document.head.appendChild(style);
+});
 
 describe("settings panel", () => {
   it("mounts globally and toggles a hidden modal", () => {
@@ -35,6 +42,72 @@ describe("settings panel", () => {
     expect(document.querySelector<HTMLButtonElement>("[data-tab='help']")?.classList.contains("active")).toBe(true);
   });
 
+  it("keeps inactive sections hidden after opening a tab", () => {
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig: vi.fn(async () => {}),
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.open("filters");
+
+    const hiddenSections = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-panel-section")).filter(
+      (section) => section.dataset.section !== "filters"
+    );
+    expect(hiddenSections.length).toBeGreaterThan(0);
+    for (const section of hiddenSections) {
+      expect(section.hidden).toBe(true);
+      expect(section.getAttribute("aria-hidden")).toBe("true");
+      expect(window.getComputedStyle(section).display).toBe("none");
+    }
+  });
+
+  it("shows exactly one visible section after tab switches", () => {
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig: vi.fn(async () => {}),
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.open("overview");
+    document.querySelector<HTMLButtonElement>("[data-tab='behavior']")?.click();
+
+    const visibleSections = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-panel-section")).filter(
+      (section) => !section.hidden && window.getComputedStyle(section).display !== "none"
+    );
+    expect(visibleSections).toHaveLength(1);
+    expect(visibleSections[0]?.dataset.section).toBe("behavior");
+  });
+
+  it("renders a dedicated transparency tab with all tag toggles defaulting to off", () => {
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig: vi.fn(async () => {}),
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("transparency");
+
+    expect(document.querySelector<HTMLElement>("[data-section='transparency']")?.hidden).toBe(false);
+    expect(document.querySelector<HTMLButtonElement>("[data-tab='transparency']")?.classList.contains("active")).toBe(true);
+
+    for (const text of [
+      "标题商业标签使用透明模式",
+      "封面胶囊标签使用透明模式",
+      "评论广告标签使用透明模式",
+      "评论属地标签使用透明模式",
+      "动态页商业标签使用透明模式"
+    ]) {
+      const field = Array.from(document.querySelectorAll<HTMLLabelElement>(".bsb-tm-field-toggle")).find((candidate) =>
+        candidate.textContent?.includes(text)
+      );
+      expect(field?.querySelector<HTMLInputElement>("input[type='checkbox']")?.checked).toBe(false);
+    }
+  });
   it("computes a stable panel height token when opened", () => {
     const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
       onPatchConfig: vi.fn(async () => {}),
@@ -153,6 +226,36 @@ describe("settings panel", () => {
 
     expect(document.querySelector<HTMLElement>("[data-section='behavior']")?.hidden).toBe(false);
     expect(content?.scrollTop).toBe(188);
+  });
+
+  it("reverts a checkbox when persisting the change fails", async () => {
+    const onPatchConfig = vi.fn(async () => {
+      throw new Error("save failed");
+    });
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig,
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const field = Array.from(document.querySelectorAll<HTMLLabelElement>(".bsb-tm-field-toggle")).find((candidate) =>
+      candidate.textContent?.includes("启用紧凑视频顶部栏")
+    );
+    const checkbox = field?.querySelector<HTMLInputElement>("input[type='checkbox']");
+
+    expect(checkbox?.checked).toBe(true);
+    checkbox!.checked = false;
+    checkbox!.dispatchEvent(new Event("change"));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(onPatchConfig).toHaveBeenCalledWith({ compactVideoHeader: false });
+    expect(checkbox?.checked).toBe(true);
+    expect(field?.dataset.controlState).toBe("on");
   });
 
   it("renders overview feature cards in title-chip-copy order", () => {

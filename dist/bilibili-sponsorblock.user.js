@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili SponsorBlock Core
 // @namespace    https://github.com/FilfTeen/bilibili-sponsorblock-userscript
-// @version      0.3.6
+// @version      0.3.7
 // @description  Tampermonkey core script for skipping sponsor segments on Bilibili.
 // @author       FilfTeen
 // @license      GPL-3.0-only
@@ -120,7 +120,7 @@
   function gmSetValue(key, value) {
     return __async(this, null, function* () {
       const fn = assertFunction("GM_setValue");
-      fn(key, value);
+      yield fn(key, value);
     });
   }
   function gmAddStyle(css) {
@@ -299,6 +299,13 @@
     poi_highlight: "manual",
     exclusive_access: "notice"
   };
+  var DEFAULT_LABEL_TRANSPARENCY = {
+    titleBadge: false,
+    thumbnailLabel: false,
+    commentBadge: false,
+    commentLocation: false,
+    dynamicBadge: false
+  };
   var DEFAULT_CONFIG = {
     enabled: true,
     serverAddress: "https://www.bsbsb.top",
@@ -312,6 +319,7 @@
     thumbnailLabelMode: "overlay",
     categoryModes: DEFAULT_CATEGORY_MODES,
     categoryColorOverrides: {},
+    labelTransparency: DEFAULT_LABEL_TRANSPARENCY,
     dynamicFilterMode: "off",
     dynamicRegexPattern: DEFAULT_DYNAMIC_REGEX_PATTERN,
     dynamicRegexKeywordMinMatches: 1,
@@ -756,11 +764,12 @@
   function cloneDefaultConfig() {
     return __spreadProps(__spreadValues({}, DEFAULT_CONFIG), {
       categoryModes: __spreadValues({}, DEFAULT_CONFIG.categoryModes),
-      categoryColorOverrides: __spreadValues({}, DEFAULT_CONFIG.categoryColorOverrides)
+      categoryColorOverrides: __spreadValues({}, DEFAULT_CONFIG.categoryColorOverrides),
+      labelTransparency: __spreadValues({}, DEFAULT_CONFIG.labelTransparency)
     });
   }
   function normalizeConfig(input) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _A;
     const next = cloneDefaultConfig();
     if (!input) {
       return next;
@@ -788,11 +797,18 @@
     next.commentHideReplies = (_h = input.commentHideReplies) != null ? _h : next.commentHideReplies;
     next.commentIpColor = (_i = normalizeHexColor(input.commentIpColor)) != null ? _i : next.commentIpColor;
     next.commentAdColor = (_j = normalizeHexColor(input.commentAdColor)) != null ? _j : next.commentAdColor;
-    next.mbgaEnabled = (_k = input.mbgaEnabled) != null ? _k : next.mbgaEnabled;
-    next.mbgaBlockTracking = (_l = input.mbgaBlockTracking) != null ? _l : next.mbgaBlockTracking;
-    next.mbgaDisablePcdn = (_m = input.mbgaDisablePcdn) != null ? _m : next.mbgaDisablePcdn;
-    next.mbgaCleanUrl = (_n = input.mbgaCleanUrl) != null ? _n : next.mbgaCleanUrl;
-    next.mbgaSimplifyUi = (_o = input.mbgaSimplifyUi) != null ? _o : next.mbgaSimplifyUi;
+    next.labelTransparency = {
+      titleBadge: (_l = (_k = input.labelTransparency) == null ? void 0 : _k.titleBadge) != null ? _l : next.labelTransparency.titleBadge,
+      thumbnailLabel: (_n = (_m = input.labelTransparency) == null ? void 0 : _m.thumbnailLabel) != null ? _n : next.labelTransparency.thumbnailLabel,
+      commentBadge: (_p = (_o = input.labelTransparency) == null ? void 0 : _o.commentBadge) != null ? _p : next.labelTransparency.commentBadge,
+      commentLocation: (_r = (_q = input.labelTransparency) == null ? void 0 : _q.commentLocation) != null ? _r : next.labelTransparency.commentLocation,
+      dynamicBadge: (_t = (_s = input.labelTransparency) == null ? void 0 : _s.dynamicBadge) != null ? _t : next.labelTransparency.dynamicBadge
+    };
+    next.mbgaEnabled = (_u = input.mbgaEnabled) != null ? _u : next.mbgaEnabled;
+    next.mbgaBlockTracking = (_v = input.mbgaBlockTracking) != null ? _v : next.mbgaBlockTracking;
+    next.mbgaDisablePcdn = (_w = input.mbgaDisablePcdn) != null ? _w : next.mbgaDisablePcdn;
+    next.mbgaCleanUrl = (_x = input.mbgaCleanUrl) != null ? _x : next.mbgaCleanUrl;
+    next.mbgaSimplifyUi = (_y = input.mbgaSimplifyUi) != null ? _y : next.mbgaSimplifyUi;
     if (typeof input.thumbnailLabelMode === "string" && isThumbnailLabelMode(input.thumbnailLabelMode)) {
       next.thumbnailLabelMode = input.thumbnailLabelMode;
     }
@@ -818,11 +834,11 @@
       next.serverAddress = serverAddress;
     }
     for (const category of CATEGORY_ORDER) {
-      const value = (_p = input.categoryModes) == null ? void 0 : _p[category];
+      const value = (_z = input.categoryModes) == null ? void 0 : _z[category];
       if (value && isCategoryMode(value)) {
         next.categoryModes[category] = value;
       }
-      const categoryColor = normalizeHexColor((_q = input.categoryColorOverrides) == null ? void 0 : _q[category]);
+      const categoryColor = normalizeHexColor((_A = input.categoryColorOverrides) == null ? void 0 : _A[category]);
       if (categoryColor) {
         next.categoryColorOverrides[category] = categoryColor;
       }
@@ -834,6 +850,12 @@
       __publicField(this, "config", cloneDefaultConfig());
       __publicField(this, "listeners", /* @__PURE__ */ new Set());
     }
+    notifyListeners() {
+      const snapshot = this.getSnapshot();
+      for (const listener of this.listeners) {
+        listener(snapshot);
+      }
+    }
     load() {
       return __async(this, null, function* () {
         this.config = normalizeConfig(yield gmGetValue(CONFIG_STORAGE_KEY, null));
@@ -843,7 +865,8 @@
     getSnapshot() {
       return __spreadProps(__spreadValues({}, this.config), {
         categoryModes: __spreadValues({}, this.config.categoryModes),
-        categoryColorOverrides: __spreadValues({}, this.config.categoryColorOverrides)
+        categoryColorOverrides: __spreadValues({}, this.config.categoryColorOverrides),
+        labelTransparency: __spreadValues({}, this.config.labelTransparency)
       });
     }
     subscribe(listener) {
@@ -854,20 +877,31 @@
     }
     update(updater) {
       return __async(this, null, function* () {
-        this.config = normalizeConfig(updater(this.getSnapshot()));
-        yield gmSetValue(CONFIG_STORAGE_KEY, this.config);
-        for (const listener of this.listeners) {
-          listener(this.getSnapshot());
+        const previous = this.getSnapshot();
+        const next = normalizeConfig(updater(previous));
+        this.config = next;
+        this.notifyListeners();
+        try {
+          yield gmSetValue(CONFIG_STORAGE_KEY, this.config);
+        } catch (error) {
+          this.config = previous;
+          this.notifyListeners();
+          throw error;
         }
         return this.getSnapshot();
       });
     }
     reset() {
       return __async(this, null, function* () {
-        yield gmSetValue(CONFIG_STORAGE_KEY, null);
+        const previous = this.getSnapshot();
         this.config = cloneDefaultConfig();
-        for (const listener of this.listeners) {
-          listener(this.getSnapshot());
+        this.notifyListeners();
+        try {
+          yield gmSetValue(CONFIG_STORAGE_KEY, null);
+        } catch (error) {
+          this.config = previous;
+          this.notifyListeners();
+          throw error;
         }
         return this.getSnapshot();
       });
@@ -1802,6 +1836,7 @@
   var TAB_LABELS = {
     overview: "\u6982\u89C8",
     behavior: "\u7247\u6BB5\u4E0E\u6807\u7B7E",
+    transparency: "\u6807\u7B7E\u900F\u660E\u5EA6",
     filters: "\u52A8\u6001 / \u8BC4\u8BBA",
     mbga: "\u751F\u6001\u51C0\u5316 (MBGA)",
     help: "\u5E2E\u52A9 / \u53CD\u9988"
@@ -1809,6 +1844,7 @@
   var TAB_DESCRIPTIONS = {
     overview: "\u72B6\u6001\u3001\u6458\u8981\u4E0E\u7EF4\u62A4\u5DE5\u5177",
     behavior: "\u7247\u6BB5\u3001\u6807\u7B7E\u4E0E\u663E\u793A\u7B56\u7565",
+    transparency: "\u80F6\u56CA\u900F\u660E\u5EA6\u4E0E\u964D\u566A\u7B56\u7565",
     filters: "\u52A8\u6001\u548C\u8BC4\u8BBA\u533A\u589E\u5F3A",
     mbga: "\u5C4F\u853D\u8FFD\u8E2A\u3001\u539F\u753B\u9501\u5B9A\u4E0E\u6C89\u6D78\u5316",
     help: "\u5E2E\u52A9\u94FE\u63A5\u4E0E\u4F7F\u7528\u8BF4\u660E"
@@ -1823,6 +1859,7 @@
       __publicField(this, "content", document.createElement("div"));
       __publicField(this, "statsEl", document.createElement("div"));
       __publicField(this, "form", document.createElement("div"));
+      __publicField(this, "transparencyForm", document.createElement("div"));
       __publicField(this, "filterForm", document.createElement("div"));
       __publicField(this, "categoryForm", document.createElement("div"));
       __publicField(this, "mbgaForm", document.createElement("div"));
@@ -1846,7 +1883,7 @@
       // id
       __publicField(this, "handleKeydown", (event) => {
         if (event.key === "Escape" && !this.backdrop.hidden) {
-          this.close();
+          this.close("user");
         }
       });
       __publicField(this, "handleViewportResize", () => {
@@ -1859,7 +1896,7 @@
       this.backdrop.hidden = true;
       this.backdrop.addEventListener("click", (event) => {
         if (event.target === this.backdrop) {
-          this.close();
+          this.close("user");
         }
       });
       this.panel.className = "bsb-tm-panel";
@@ -1872,6 +1909,7 @@
       this.content.className = "bsb-tm-panel-content";
       this.statsEl.className = "bsb-tm-stats";
       this.form.className = "bsb-tm-form";
+      this.transparencyForm.className = "bsb-tm-form";
       this.filterForm.className = "bsb-tm-form";
       this.categoryForm.className = "bsb-tm-categories";
       this.mbgaForm.className = "bsb-tm-form";
@@ -1898,7 +1936,10 @@
         this.open();
         return;
       }
-      this.close();
+      this.close("user");
+    }
+    isOpen() {
+      return !this.backdrop.hidden;
     }
     open(tab = this.activeTab) {
       this.mount();
@@ -1909,14 +1950,19 @@
       document.documentElement.classList.add("bsb-tm-panel-open");
       document.addEventListener("keydown", this.handleKeydown);
     }
-    close() {
+    close(reason = "user") {
+      var _a, _b;
+      const wasOpen = !this.backdrop.hidden;
       this.backdrop.hidden = true;
       this.detachViewportListeners();
       document.documentElement.classList.remove("bsb-tm-panel-open");
       document.removeEventListener("keydown", this.handleKeydown);
+      if (wasOpen) {
+        (_b = (_a = this.callbacks).onClose) == null ? void 0 : _b.call(_a, reason);
+      }
     }
     unmount() {
-      this.close();
+      this.close("system");
       this.backdrop.remove();
     }
     updateConfig(config) {
@@ -1948,6 +1994,7 @@
       const nextScrollTop = preserveScroll ? (_a = this.contentScrollByTab[this.activeTab]) != null ? _a : this.content.scrollTop : 0;
       this.renderOverview();
       this.renderBehavior();
+      this.renderTransparency();
       this.renderFilters();
       this.renderMbga();
       this.renderHelp();
@@ -2253,6 +2300,98 @@
         this.filterForm
       );
     }
+    renderTransparency() {
+      const transparency = this.config.labelTransparency;
+      const section = this.sections.get("transparency");
+      if (!section) {
+        return;
+      }
+      this.transparencyForm.replaceChildren(
+        this.createFormGroup(
+          "\u89C6\u9891\u4E3B\u7EBF\u6807\u7B7E",
+          "\u8FD9\u4E24\u7C7B\u6807\u7B7E\u5C5E\u4E8E BSC \u4E3B\u7EBF\u80FD\u529B\u3002\u900F\u660E\u6A21\u5F0F\u4F1A\u4ECE\u9AD8\u7EAF\u5EA6\u80F6\u56CA\u6539\u6210\u66F4\u514B\u5236\u7684 Liquid Glass \u8868\u73B0\uFF0C\u9ED8\u8BA4\u4FDD\u6301\u5173\u95ED\uFF0C\u786E\u4FDD\u5347\u7EA7\u540E\u73B0\u6709\u89C6\u89C9\u4E0D\u53D8\u3002",
+          this.createFieldGrid([
+            this.createCheckbox(
+              "\u6807\u9898\u5546\u4E1A\u6807\u7B7E\u4F7F\u7528\u900F\u660E\u6A21\u5F0F",
+              "\u7528\u4E8E\u89C6\u9891\u6807\u9898\u524D\u7684\u6574\u89C6\u9891\u80F6\u56CA\u3002\u5F00\u542F\u540E\u4F1A\u4FDD\u7559\u5206\u7C7B\u8272\u503E\u5411\uFF0C\u4F46\u628A\u7EAF\u8272\u586B\u5145\u6539\u4E3A\u66F4\u8F7B\u7684\u73BB\u7483\u67D3\u8272\uFF0C\u51CF\u5C11\u5BF9\u6807\u9898\u9605\u8BFB\u7684\u5E72\u6270\u3002",
+              transparency.titleBadge,
+              (checked) => __async(this, null, function* () {
+                yield this.callbacks.onPatchConfig({
+                  labelTransparency: __spreadProps(__spreadValues({}, this.config.labelTransparency), {
+                    titleBadge: checked
+                  })
+                });
+              })
+            ),
+            this.createCheckbox(
+              "\u5C01\u9762\u80F6\u56CA\u6807\u7B7E\u4F7F\u7528\u900F\u660E\u6A21\u5F0F",
+              "\u7528\u4E8E\u9996\u9875\u3001\u641C\u7D22\u3001\u4FA7\u680F\u5361\u7247\u4E0A\u7684\u6574\u89C6\u9891\u6807\u7B7E\u3002\u5F00\u542F\u540E\u4ECD\u4FDD\u7559\u60AC\u6D6E\u5C55\u5F00\u4E0E\u53EF\u8BFB\u6027\uFF0C\u4F46\u4F1A\u964D\u4F4E\u5BF9\u5C01\u9762\u4E3B\u4F53\u7684\u89C6\u89C9\u538B\u5236\u3002",
+              transparency.thumbnailLabel,
+              (checked) => __async(this, null, function* () {
+                yield this.callbacks.onPatchConfig({
+                  labelTransparency: __spreadProps(__spreadValues({}, this.config.labelTransparency), {
+                    thumbnailLabel: checked
+                  })
+                });
+              })
+            )
+          ])
+        ),
+        this.createFormGroup(
+          "\u7AD9\u5185\u589E\u5F3A\u6807\u7B7E",
+          "\u8FD9\u4E09\u7C7B\u6807\u7B7E\u66F4\u504F\u63D0\u793A\u6027\u8D28\uFF0C\u4E0D\u5EFA\u8BAE\u5F3A\u7ED1\u6210\u4E00\u4E2A\u603B\u5F00\u5173\u3002\u5206\u9879\u63A7\u5236\u53EF\u4EE5\u8BA9\u4F60\u53EA\u7ED9\u201C\u8FC7\u4E8E\u663E\u773C\u201D\u7684\u6807\u7B7E\u964D\u566A\uFF0C\u800C\u4E0D\u727A\u7272\u5176\u4ED6\u63D0\u9192\u80FD\u529B\u3002",
+          this.createFieldGrid([
+            this.createCheckbox(
+              "\u8BC4\u8BBA\u5E7F\u544A\u6807\u7B7E\u4F7F\u7528\u900F\u660E\u6A21\u5F0F",
+              "\u7528\u4E8E\u8BC4\u8BBA\u533A\u5E26\u8D27\u3001\u4FC3\u9500\u3001\u7591\u4F3C\u5E7F\u544A\u7B49\u6807\u7B7E\u3002\u5F00\u542F\u540E\u4F1A\u5F31\u5316\u6574\u5757\u80CC\u666F\u5B58\u5728\u611F\uFF0C\u628A\u6CE8\u610F\u529B\u66F4\u591A\u8FD8\u7ED9\u8BC4\u8BBA\u6B63\u6587\u3002",
+              transparency.commentBadge,
+              (checked) => __async(this, null, function* () {
+                yield this.callbacks.onPatchConfig({
+                  labelTransparency: __spreadProps(__spreadValues({}, this.config.labelTransparency), {
+                    commentBadge: checked
+                  })
+                });
+              })
+            ),
+            this.createCheckbox(
+              "\u8BC4\u8BBA\u5C5E\u5730\u6807\u7B7E\u4F7F\u7528\u900F\u660E\u6A21\u5F0F",
+              "\u7528\u4E8E\u8BC4\u8BBA\u53D1\u5E03\u65F6\u95F4\u65C1\u7684 IP \u5C5E\u5730\u80F6\u56CA\u3002\u8FD9\u4E2A\u573A\u666F\u6700\u5BB9\u6613\u6253\u65AD\u6B63\u6587\u9605\u8BFB\uFF0C\u6240\u4EE5\u5355\u72EC\u7ED9\u5F00\u5173\uFF0C\u9ED8\u8BA4\u5173\u95ED\u3002",
+              transparency.commentLocation,
+              (checked) => __async(this, null, function* () {
+                yield this.callbacks.onPatchConfig({
+                  labelTransparency: __spreadProps(__spreadValues({}, this.config.labelTransparency), {
+                    commentLocation: checked
+                  })
+                });
+              })
+            ),
+            this.createCheckbox(
+              "\u52A8\u6001\u9875\u5546\u4E1A\u6807\u7B7E\u4F7F\u7528\u900F\u660E\u6A21\u5F0F",
+              "\u7528\u4E8E\u52A8\u6001\u9875\u201C\u5E26\u8D27\u52A8\u6001 / \u7591\u4F3C\u5E7F\u544A\u201D\u7B49\u6807\u7B7E\u3002\u5F00\u542F\u540E\u4ECD\u4FDD\u7559\u5F3A\u8C03\u70B9\u4E0E\u8F6E\u5ED3\uFF0C\u4F46\u4F1A\u660E\u663E\u964D\u4F4E\u7EAF\u8272\u5757\u5E26\u6765\u7684\u62A2\u773C\u611F\u3002",
+              transparency.dynamicBadge,
+              (checked) => __async(this, null, function* () {
+                yield this.callbacks.onPatchConfig({
+                  labelTransparency: __spreadProps(__spreadValues({}, this.config.labelTransparency), {
+                    dynamicBadge: checked
+                  })
+                });
+              })
+            )
+          ])
+        ),
+        this.createInfoBox(
+          "\u8BBE\u8BA1\u8BF4\u660E",
+          "\u8FD9\u91CC\u7684\u201C\u900F\u660E\u201D\u4E0D\u662F\u7B80\u5355\u8C03\u4F4E opacity\uFF0C\u800C\u662F\u6539\u4E3A\u66F4\u4F4E\u4FB5\u5165\u7684 Liquid Glass\uFF1A\u8F7B\u67D3\u8272\u3001\u9AD8\u5149\u3001\u8FB9\u7F18\u63CF\u7EBF\u3001\u53D7\u63A7\u6A21\u7CCA\uFF0C\u5E76\u4F18\u5148\u4FDD\u8BC1\u6587\u5B57\u53EF\u8BFB\u6027\u3002"
+        )
+      );
+      section.replaceChildren(
+        this.createSectionHeading(
+          "\u6807\u7B7E\u900F\u660E\u5EA6",
+          "\u96C6\u4E2D\u7BA1\u7406\u6240\u6709\u80F6\u56CA\u6807\u7B7E\u7684\u900F\u660E\u6A21\u5F0F\u3002\u9ED8\u8BA4\u5168\u90E8\u5173\u95ED\uFF0C\u4FDD\u8BC1\u73B0\u6709\u7528\u6237\u5347\u7EA7\u540E\u4E0D\u4F1A\u88AB\u5F3A\u5236\u6539\u53D8\u89C6\u89C9\u98CE\u683C\u3002"
+        ),
+        this.transparencyForm
+      );
+    }
     renderMbga() {
       const mbgaFields = [
         this.createCheckbox(
@@ -2380,7 +2519,10 @@
         button.setAttribute("aria-selected", String(active));
       }
       for (const [sectionTab, section] of this.sections) {
-        section.hidden = sectionTab !== tab;
+        const active = sectionTab === tab;
+        section.hidden = !active;
+        section.setAttribute("aria-hidden", String(!active));
+        section.dataset.active = String(active);
       }
       this.content.scrollTop = (options == null ? void 0 : options.preserveScroll) ? (_b = (_a = options.scrollTop) != null ? _a : this.contentScrollByTab[tab]) != null ? _b : 0 : 0;
     }
@@ -2427,8 +2569,18 @@
       input.setAttribute("role", "switch");
       input.checked = checked;
       input.addEventListener("change", () => __async(null, null, function* () {
-        label.dataset.controlState = input.checked ? "on" : "off";
-        yield onChange(input.checked);
+        const nextChecked = input.checked;
+        const previousChecked = !nextChecked;
+        label.dataset.controlState = nextChecked ? "on" : "off";
+        input.disabled = true;
+        try {
+          yield onChange(nextChecked);
+        } catch (_error) {
+          input.checked = previousChecked;
+          label.dataset.controlState = previousChecked ? "on" : "off";
+        } finally {
+          input.disabled = false;
+        }
       }));
       copy.append(title, help);
       label.append(copy, input);
@@ -2643,7 +2795,7 @@
       closeButton.className = "bsb-tm-button secondary bsb-tm-header-action bsb-tm-panel-close";
       closeButton.textContent = "\u5173\u95ED";
       closeButton.addEventListener("click", () => {
-        this.close();
+        this.close("user");
       });
       actions.append(helpButton, closeButton);
       header.append(titleWrap, actions);
@@ -2653,7 +2805,9 @@
       const section = document.createElement("section");
       section.className = "bsb-tm-panel-section";
       section.dataset.section = name;
+      section.dataset.active = "false";
       section.id = `${this.panelId}-section-${name}`;
+      section.setAttribute("aria-hidden", "true");
       return section;
     }
     createSectionHeading(titleText, descriptionText) {
@@ -3151,11 +3305,10 @@
     }
     const parent = title.parentElement;
     if (!parent) {
-      title.classList.add("bsb-tm-title-row", "bsb-tm-title-text");
-      return title;
+      return null;
     }
-    parent.classList.add("bsb-tm-title-layout");
-    title.classList.add("bsb-tm-title-text");
+    title.classList.remove("bsb-tm-title-row", "bsb-tm-title-text");
+    parent.classList.remove("bsb-tm-title-layout");
     let accessories = (_a = Array.from(parent.children).find(
       (child) => child instanceof HTMLElement && child.getAttribute(TITLE_ACCESSORY_ATTR) === "true"
     )) != null ? _a : null;
@@ -3171,9 +3324,13 @@
     if (!host || host.getAttribute(TITLE_ACCESSORY_ATTR) !== "true") {
       return;
     }
+    const parent = host.parentElement instanceof HTMLElement ? host.parentElement : null;
+    const title = host.nextElementSibling instanceof HTMLElement ? host.nextElementSibling : null;
     if (host.childElementCount === 0) {
       host.remove();
     }
+    title == null ? void 0 : title.classList.remove("bsb-tm-title-row", "bsb-tm-title-text");
+    parent == null ? void 0 : parent.classList.remove("bsb-tm-title-layout");
   }
   function formatSegmentTime(seconds) {
     const total = Math.max(0, Math.floor(seconds));
@@ -3210,7 +3367,7 @@
   var TitleBadge = class {
     constructor(callbacks) {
       this.callbacks = callbacks;
-      __publicField(this, "root", document.createElement("div"));
+      __publicField(this, "root", document.createElement("span"));
       __publicField(this, "pillButton", document.createElement("button"));
       __publicField(this, "titleText", document.createElement("span"));
       __publicField(this, "popover", document.createElement("div"));
@@ -3226,6 +3383,7 @@
       __publicField(this, "closeTimer", null);
       __publicField(this, "positionFrame", null);
       __publicField(this, "categoryColorOverrides", {});
+      __publicField(this, "transparencyEnabled", false);
       __publicField(this, "votingAvailable", true);
       __publicField(this, "localActionsAvailable", false);
       __publicField(this, "voteLocked", false);
@@ -3297,6 +3455,13 @@
         this.applyAppearance(this.currentSegment);
       }
     }
+    setTransparencyEnabled(enabled) {
+      this.transparencyEnabled = enabled;
+      this.root.dataset.transparent = String(enabled);
+      if (this.currentSegment) {
+        this.applyAppearance(this.currentSegment);
+      }
+    }
     setSegment(segment, options) {
       var _a;
       this.currentSegment = segment;
@@ -3336,9 +3501,13 @@
       this.votingAvailable = segment.actionType === "full" && segment.UUID.length > 0 && !segment.UUID.startsWith("video-label:") && !segment.UUID.startsWith("local-signal:");
       this.localActionsAvailable = segment.UUID.startsWith("local-signal:");
       this.root.dataset.category = segment.category;
+      this.root.dataset.transparent = String(this.transparencyEnabled);
       this.root.style.setProperty("--bsb-category-accent", style.accent);
       this.root.style.setProperty("--bsb-category-accent-strong", style.accentStrong);
-      this.root.style.setProperty("--bsb-category-contrast", style.contrast);
+      this.root.style.setProperty(
+        "--bsb-category-contrast",
+        this.transparencyEnabled ? getReadableTextColor(style.glassSurface) : style.contrast
+      );
       this.root.style.setProperty("--bsb-category-soft-surface", style.softSurface);
       this.root.style.setProperty("--bsb-category-soft-border", style.softBorder);
       this.root.style.setProperty("--bsb-category-glass-surface", style.glassSurface);
@@ -3499,6 +3668,12 @@
   };
 
   // src/ui/compact-header.ts
+  var NATIVE_HEADER_HIDDEN_ATTR = "data-bsb-native-header-hidden";
+  var NATIVE_HEADER_ROOT_SELECTORS = [
+    "#biliMainHeader",
+    ".bili-header.fixed-header",
+    ".bili-header__bar.mini-header"
+  ];
   var GENERIC_PROFILE_LABELS = /* @__PURE__ */ new Set([
     "",
     "\u4E2A\u4EBA\u4E3B\u9875",
@@ -3742,6 +3917,7 @@
         document.body.prepend(this.root);
       }
       document.documentElement.classList.add("bsb-tm-video-header-compact");
+      this.applyNativeHeaderState(true);
       this.retriesRemaining = 10;
       this.sync();
     }
@@ -3756,6 +3932,7 @@
       if (!this.mounted) {
         return;
       }
+      this.applyNativeHeaderState(true);
       const searchSeed = resolveSearchSeed();
       const resolvedProfileSeed = resolveProfileSeed();
       const globalProfileSeed = resolveProfileSeedFromGlobals();
@@ -3784,6 +3961,7 @@
       this.remoteProfilePromise = null;
       this.root.remove();
       document.documentElement.classList.remove("bsb-tm-video-header-compact");
+      this.applyNativeHeaderState(false);
     }
     destroy() {
       this.unmount();
@@ -3800,6 +3978,30 @@
         }
         this.sync();
       }, 400);
+    }
+    applyNativeHeaderState(hidden) {
+      const roots = this.resolveNativeHeaderRoots();
+      for (const root of roots) {
+        if (hidden) {
+          root.setAttribute(NATIVE_HEADER_HIDDEN_ATTR, "true");
+        } else {
+          root.removeAttribute(NATIVE_HEADER_HIDDEN_ATTR);
+        }
+      }
+      if (!hidden) {
+        for (const orphaned of document.querySelectorAll(`[${NATIVE_HEADER_HIDDEN_ATTR}="true"]`)) {
+          orphaned.removeAttribute(NATIVE_HEADER_HIDDEN_ATTR);
+        }
+      }
+    }
+    resolveNativeHeaderRoots() {
+      const found = /* @__PURE__ */ new Set();
+      for (const selector of NATIVE_HEADER_ROOT_SELECTORS) {
+        for (const node of document.querySelectorAll(selector)) {
+          found.add(node);
+        }
+      }
+      return Array.from(found);
     }
     syncProfileObserver(profileSeed) {
       var _a;
@@ -4045,6 +4247,42 @@
   text-overflow: ellipsis;
 }
 
+.bsb-tm-inline-chip[data-appearance="glass"] {
+  --bsb-inline-text: #0f172a;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.035));
+  border: 1px solid color-mix(in srgb, var(--bsb-inline-accent) 28%, rgba(255, 255, 255, 0.42));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.74),
+    inset 0 -1px 0 color-mix(in srgb, var(--bsb-inline-accent) 18%, rgba(148, 163, 184, 0.05)),
+    0 2px 6px rgba(15, 23, 42, 0.035),
+    0 0 0 1px rgba(255, 255, 255, 0.08);
+  backdrop-filter: none;
+}
+
+.bsb-tm-inline-chip[data-appearance="glass"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 16% -12%, color-mix(in srgb, var(--bsb-inline-accent) 28%, rgba(255, 255, 255, 0.44)) 0%, transparent 32%),
+    radial-gradient(circle at 82% 120%, color-mix(in srgb, var(--bsb-inline-accent) 18%, rgba(15, 23, 42, 0.14)) 0%, transparent 46%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.38), rgba(255, 255, 255, 0.05) 32%, transparent 56%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--bsb-inline-accent) 14%, rgba(255, 255, 255, 0.1)),
+      color-mix(in srgb, var(--bsb-inline-accent) 22%, rgba(231, 238, 245, 0.07))
+    ),
+    linear-gradient(112deg, transparent 22%, rgba(255, 255, 255, 0.18) 30%, transparent 44%);
+  opacity: 0.76;
+  backdrop-filter: saturate(144%) brightness(1.03);
+  mix-blend-mode: screen;
+}
+
 .bsb-tm-inline-chip::before {
   content: "";
   width: 6px;
@@ -4055,6 +4293,12 @@
   box-shadow:
     0 0 0 2px rgba(255, 255, 255, 0.14),
     0 0 14px color-mix(in srgb, var(--bsb-inline-accent) 72%, transparent);
+}
+
+.bsb-tm-inline-chip[data-appearance="glass"]::before {
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.24),
+    0 0 10px color-mix(in srgb, var(--bsb-inline-accent) 38%, transparent);
 }
 
 .bsb-tm-inline-chip--inline,
@@ -4163,11 +4407,12 @@
     style.textContent = inlineFeedbackStyles;
     root.prepend(style);
   }
-  function createInlineBadge(attrName, text, tone, layout, customColor) {
+  function createInlineBadge(attrName, text, tone, layout, customColor, appearance = "solid") {
     const badge = document.createElement("div");
     badge.className = `bsb-tm-inline-chip bsb-tm-inline-chip--${layout}`;
     badge.setAttribute(attrName, "true");
     badge.dataset.tone = tone;
+    badge.dataset.appearance = appearance;
     badge.title = text;
     badge.textContent = text;
     if (customColor) {
@@ -4218,6 +4463,10 @@
     ".sub-reply-time"
   ];
   var COMMENT_IGNORED_SELECTORS = [`[${BADGE_ATTR}]`, `[${TOGGLE_ATTR}]`, `[${LOCATION_ATTR}]`];
+  var currentInlineBadgeAppearance = {
+    commentBadge: false,
+    commentLocation: false
+  };
   function getActionRendererNode(commentRenderer) {
     var _a, _b, _c, _d, _e, _f;
     return (_f = (_e = (_c = (_a = commentRenderer.shadowRoot) == null ? void 0 : _a.querySelector("bili-comment-action-buttons-renderer")) != null ? _c : (_b = commentRenderer.shadowRoot) == null ? void 0 : _b.querySelector("#main bili-comment-action-buttons-renderer")) != null ? _e : (_d = commentRenderer.shadowRoot) == null ? void 0 : _d.querySelector("#footer bili-comment-action-buttons-renderer")) != null ? _f : null;
@@ -4403,14 +4652,28 @@
     return null;
   }
   function createBadge(text, tone, color) {
-    return createInlineBadge(BADGE_ATTR, text, tone, "inline", color);
+    return createInlineBadge(
+      BADGE_ATTR,
+      text,
+      tone,
+      "inline",
+      color,
+      currentInlineBadgeAppearance.commentBadge ? "glass" : "solid"
+    );
   }
   function createToggleButton(onClick) {
     const button = createInlineToggle(TOGGLE_ATTR, onClick, "inline");
     return button;
   }
   function createLocationBadge(text, color) {
-    return createInlineBadge(LOCATION_ATTR, text, "info", "inline", color);
+    return createInlineBadge(
+      LOCATION_ATTR,
+      text,
+      "info",
+      "inline",
+      color,
+      currentInlineBadgeAppearance.commentLocation ? "glass" : "solid"
+    );
   }
   function getMainCommentRenderer(thread) {
     var _a;
@@ -4603,8 +4866,12 @@
         }
       });
       this.currentConfig = this.configStore.getSnapshot();
+      currentInlineBadgeAppearance.commentBadge = this.currentConfig.labelTransparency.commentBadge;
+      currentInlineBadgeAppearance.commentLocation = this.currentConfig.labelTransparency.commentLocation;
       this.configStore.subscribe((config) => {
         this.currentConfig = config;
+        currentInlineBadgeAppearance.commentBadge = config.labelTransparency.commentBadge;
+        currentInlineBadgeAppearance.commentLocation = config.labelTransparency.commentLocation;
         this.resetProcessedThreads();
         this.scheduleRefresh();
       });
@@ -5232,6 +5499,7 @@
       __publicField(this, "pendingRefresh", false);
       __publicField(this, "pendingForceFetch", false);
       __publicField(this, "pendingVisibleRefresh", false);
+      __publicField(this, "pendingPanelOpenTab", null);
       __publicField(this, "lastTickTime", null);
       __publicField(this, "lastAnnouncedSignature", "");
       __publicField(this, "handleVisibilityChange", () => {
@@ -5240,6 +5508,9 @@
           const nextForceFetch = this.pendingForceFetch;
           this.pendingForceFetch = false;
           this.scheduleRefresh(nextForceFetch);
+        }
+        if (!document.hidden) {
+          this.restorePendingPanelOpen();
         }
       });
       __publicField(this, "handleVideoSignal", (event) => {
@@ -5322,7 +5593,12 @@
             message: "\u6240\u6709\u811A\u672C\u8BBE\u7F6E\u5DF2\u6062\u590D\u4E3A\u521D\u59CB\u9ED8\u8BA4\u503C\u3002",
             durationMs: 4e3
           });
-        })
+        }),
+        onClose: (reason) => {
+          if (reason === "user") {
+            this.pendingPanelOpenTab = null;
+          }
+        }
       });
       this.titleBadge = new TitleBadge({
         onVote: (segment, type) => __async(this, null, function* () {
@@ -5336,6 +5612,7 @@
         }
       });
       this.titleBadge.setColorOverrides(this.currentConfig.categoryColorOverrides);
+      this.titleBadge.setTransparencyEnabled(this.currentConfig.labelTransparency.titleBadge);
       this.previewBar.setCategoryColorOverrides(this.currentConfig.categoryColorOverrides);
       this.configStore.subscribe((config) => {
         this.currentConfig = config;
@@ -5343,6 +5620,7 @@
         this.previewBar.setEnabled(config.enabled && config.showPreviewBar);
         this.previewBar.setCategoryColorOverrides(config.categoryColorOverrides);
         this.titleBadge.setColorOverrides(config.categoryColorOverrides);
+        this.titleBadge.setTransparencyEnabled(config.labelTransparency.titleBadge);
         this.syncCompactVideoHeader();
         if (!config.enabled) {
           this.notices.clear();
@@ -5371,6 +5649,7 @@
         window.addEventListener(VIDEO_SIGNAL_EVENT, this.handleVideoSignal);
         window.addEventListener("bsb_mbga_live_fallback", this.handleMbgaLiveFallback);
         yield this.refreshCurrentVideo(true);
+        this.restorePendingPanelOpen();
         this.stopObservingUrl = observeUrlChanges(() => {
           this.syncCompactVideoHeader();
           this.scheduleRefresh(true);
@@ -5399,13 +5678,14 @@
       });
     }
     togglePanel() {
+      this.pendingPanelOpenTab = null;
       this.panel.toggle();
     }
     openPanel() {
-      this.panel.open();
+      this.openPanelWithIntent("overview");
     }
     openHelp() {
-      this.panel.open("help");
+      this.openPanelWithIntent("help");
     }
     clearCache() {
       return __async(this, null, function* () {
@@ -5466,6 +5746,17 @@
         this.pendingForceFetch = false;
         void this.refreshCurrentVideo(nextForceFetch);
       }, 120);
+    }
+    openPanelWithIntent(tab) {
+      this.pendingPanelOpenTab = tab;
+      this.restorePendingPanelOpen();
+    }
+    restorePendingPanelOpen() {
+      if (!this.pendingPanelOpenTab || !this.started || document.hidden) {
+        return;
+      }
+      const tab = this.pendingPanelOpenTab;
+      this.panel.open(tab);
     }
     refreshCurrentVideo(forceFetch = false) {
       return __async(this, null, function* () {
@@ -6272,6 +6563,9 @@
     ".dyn-card-opus__title"
   ];
   var DYNAMIC_IGNORED_SELECTORS = [BADGE_SELECTOR, TOGGLE_SELECTOR];
+  var currentInlineBadgeAppearance2 = {
+    dynamicBadge: false
+  };
   function classifyDynamicItem(element, config) {
     if (element.querySelector(".bili-dyn-card-goods.hide-border")) {
       return {
@@ -6346,7 +6640,14 @@
     return (_b = (_a = element.querySelector(".bili-dyn-content")) != null ? _a : element.querySelector(".dyn-card-opus")) != null ? _b : element.querySelector(".bili-dyn-item__main");
   }
   function createBadge2(text, tone) {
-    return createInlineBadge("data-bsb-dynamic-badge", text, tone, "stack");
+    return createInlineBadge(
+      "data-bsb-dynamic-badge",
+      text,
+      tone,
+      "stack",
+      void 0,
+      currentInlineBadgeAppearance2.dynamicBadge ? "glass" : "solid"
+    );
   }
   function createToggleButton2(onClick) {
     return createInlineToggle("data-bsb-dynamic-toggle", onClick, "stack");
@@ -6375,8 +6676,10 @@
         }
       });
       this.currentConfig = this.configStore.getSnapshot();
+      currentInlineBadgeAppearance2.dynamicBadge = this.currentConfig.labelTransparency.dynamicBadge;
       this.configStore.subscribe((config) => {
         this.currentConfig = config;
+        currentInlineBadgeAppearance2.dynamicBadge = config.labelTransparency.dynamicBadge;
         this.resetProcessedItems();
         this.scheduleRefresh();
       });
@@ -6858,6 +7161,7 @@
     overlay.style.setProperty("--category-contrast", style.darkContrast);
     overlay.style.setProperty("--category-glass-surface", style.darkSurface);
     overlay.style.setProperty("--category-glass-border", style.glassBorder);
+    overlay.dataset.transparent = String(config.labelTransparency.thumbnailLabel);
     overlay.setAttribute("aria-label", `\u6574\u89C6\u9891\u6807\u7B7E\uFF1A${CATEGORY_LABELS[category]}`);
     const shortTextNode = shortText.firstElementChild instanceof HTMLElement ? shortText.firstElementChild : shortText;
     const textNode = text.firstElementChild instanceof HTMLElement ? text.firstElementChild : text;
@@ -7101,10 +7405,16 @@
   };
 
   // src/features/mbga/core.ts
-  function getUnsafeWindow() {
-    return typeof window.unsafeWindow !== "undefined" ? window.unsafeWindow : window;
-  }
-  var uselessUrlParams = [
+  var MBGA_MARKS = {
+    urlCleaner: "__BSB_MBGA_URL_CLEANER__",
+    blockTracking: "__BSB_MBGA_BLOCK_TRACKING__",
+    pcdnDisabler: "__BSB_MBGA_PCDN_DISABLER__",
+    dynamicWideSwitch: "__BSB_MBGA_DYNAMIC_WIDE_SWITCH__",
+    articleCopyUnlock: "__BSB_MBGA_ARTICLE_COPY_UNLOCK__",
+    videoFitMode: "__BSB_MBGA_VIDEO_FIT_MODE__",
+    grayscaleObserver: "__BSB_MBGA_GRAYSCALE_OBSERVER__"
+  };
+  var USELESS_URL_PARAMS = [
     "buvid",
     "is_story_h5",
     "launch_id",
@@ -7114,309 +7424,544 @@
     "timestamp",
     "up_id",
     "vd_source",
-    /^share/,
-    /^spm/
+    /^share/u,
+    /^spm/u
   ];
-  function removeTracking(url) {
-    if (!url) return url != null ? url : "";
+  var TELEMETRY_HOST_RULES = [
+    { host: "cm.bilibili.com", reason: "cm telemetry" },
+    { host: "data.bilibili.com", reason: "data telemetry" }
+  ];
+  function getUnsafeWindow() {
+    return typeof window.unsafeWindow !== "undefined" ? window.unsafeWindow : window;
+  }
+  function createMbgaContext(config, win = getUnsafeWindow(), doc = document) {
+    const url = new URL(win.location.href);
+    return {
+      config,
+      doc,
+      win,
+      url
+    };
+  }
+  function isSameOrSubdomain(hostname, expectedHost) {
+    return hostname === expectedHost || hostname.endsWith(`.${expectedHost}`);
+  }
+  function normalizeRequestUrl(input, baseHref) {
     try {
-      const urlObj = new URL(url, window.location.href);
-      if (!urlObj.search) return url;
+      if (typeof input === "string") {
+        return new URL(input, baseHref);
+      }
+      if (input instanceof URL) {
+        return new URL(input.toString());
+      }
+      if (typeof input.url === "string") {
+        return new URL(input.url, baseHref);
+      }
+    } catch (_error) {
+      return null;
+    }
+    return null;
+  }
+  function defineWritableValue(target, key, value) {
+    try {
+      Object.defineProperty(target, key, {
+        configurable: true,
+        enumerable: false,
+        writable: true,
+        value
+      });
+    } catch (_error) {
+    }
+  }
+  function createNoopCallable() {
+    const callable = (() => void 0);
+    return new Proxy(callable, {
+      get(target, property) {
+        var _a;
+        if (property === Symbol.toPrimitive) {
+          return () => "";
+        }
+        if (property === "then") {
+          return void 0;
+        }
+        return (_a = Reflect.get(target, property)) != null ? _a : createNoopCallable();
+      },
+      apply() {
+        return void 0;
+      },
+      construct() {
+        return createNoopCallable();
+      }
+    });
+  }
+  function installGlobalValue(win, key, value) {
+    const current = Reflect.get(win, key);
+    if (typeof current !== "undefined") {
+      return;
+    }
+    try {
+      Object.defineProperty(win, key, {
+        configurable: true,
+        enumerable: false,
+        writable: true,
+        value
+      });
+    } catch (_error) {
+      Reflect.set(win, key, value);
+    }
+  }
+  function installSentryShim(win) {
+    var _a, _b, _c, _d, _e;
+    const hub = { bindClient() {
+    } };
+    const noop = () => void 0;
+    const sentry = typeof win.Sentry === "object" && win.Sentry ? win.Sentry : {};
+    (_a = sentry.BrowserClient) != null ? _a : sentry.BrowserClient = class {
+    };
+    (_b = sentry.Hub) != null ? _b : sentry.Hub = class {
+      bindClient() {
+      }
+    };
+    (_c = sentry.Integrations) != null ? _c : sentry.Integrations = {
+      Vue: class {
+      },
+      GlobalHandlers: class {
+      },
+      InboundFilters: class {
+      }
+    };
+    for (const method of [
+      "init",
+      "configureScope",
+      "captureException",
+      "captureMessage",
+      "captureEvent",
+      "setContext",
+      "setExtra",
+      "setExtras",
+      "setTag",
+      "setTags",
+      "setUser",
+      "wrap"
+    ]) {
+      sentry[method] = noop;
+    }
+    (_d = sentry.SDK_NAME) != null ? _d : sentry.SDK_NAME = "sentry.javascript.browser";
+    (_e = sentry.SDK_VERSION) != null ? _e : sentry.SDK_VERSION = "0.0.0-bsb";
+    sentry.getCurrentHub = () => hub;
+    win.Sentry = sentry;
+  }
+  function completeBlockedXhr(xhr, win, url, decision) {
+    var _a, _b;
+    const status = (_a = decision.syntheticStatus) != null ? _a : 204;
+    const body = (_b = decision.syntheticBody) != null ? _b : "";
+    defineWritableValue(xhr, "readyState", 4);
+    defineWritableValue(xhr, "status", status);
+    defineWritableValue(xhr, "statusText", "No Content");
+    defineWritableValue(xhr, "responseText", body);
+    defineWritableValue(xhr, "response", body);
+    defineWritableValue(xhr, "responseURL", url);
+    const fire = (type, handlerKey) => {
+      const event = typeof win.Event === "function" ? new win.Event(type) : void 0;
+      const handler = xhr[handlerKey];
+      if (typeof handler === "function") {
+        handler.call(xhr, event);
+      }
+      if (typeof xhr.dispatchEvent === "function" && event) {
+        xhr.dispatchEvent(event);
+      }
+    };
+    fire("readystatechange", "onreadystatechange");
+    fire("load", "onload");
+    fire("loadend", "onloadend");
+  }
+  function createSyntheticFetchResponse(win, decision) {
+    var _a, _b;
+    const status = (_a = decision.syntheticStatus) != null ? _a : 204;
+    const body = status === 204 || status === 205 || status === 304 ? null : (_b = decision.syntheticBody) != null ? _b : "";
+    if (typeof win.Response === "function") {
+      return new win.Response(body, {
+        status,
+        statusText: "No Content",
+        headers: {
+          "content-type": "text/plain;charset=UTF-8",
+          "x-bsb-mbga": decision.reason
+        }
+      });
+    }
+    return new Response(body, {
+      status,
+      statusText: "No Content",
+      headers: {
+        "content-type": "text/plain;charset=UTF-8",
+        "x-bsb-mbga": decision.reason
+      }
+    });
+  }
+  function ensureScopedStyle(doc, id, css) {
+    if (doc.querySelector(`style[data-bsb-mbga-style="${id}"]`)) {
+      return;
+    }
+    const style = doc.createElement("style");
+    style.setAttribute("data-bsb-mbga-style", id);
+    style.textContent = css;
+    (doc.head || doc.documentElement).appendChild(style);
+  }
+  function isVideoPage(url) {
+    return url.hostname === "www.bilibili.com" && (url.pathname.startsWith("/video/") || url.pathname.startsWith("/bangumi/play/"));
+  }
+  function isArticlePage(url) {
+    return url.hostname === "www.bilibili.com" && url.pathname.startsWith("/read/cv");
+  }
+  function isDynamicPage(url) {
+    return url.hostname === "t.bilibili.com";
+  }
+  function isLivePage(url) {
+    return url.hostname === "live.bilibili.com";
+  }
+  function isMainFeedPage(url) {
+    return url.hostname === "www.bilibili.com" && (url.pathname === "/" || url.pathname.startsWith("/?"));
+  }
+  function ensurePageFilterNeutralized(doc) {
+    for (const element of [doc.documentElement, doc.body]) {
+      if (!(element instanceof HTMLElement)) {
+        continue;
+      }
+      const inlineFilter = [element.style.filter, element.style.webkitFilter].join(" ");
+      const computedStyle = typeof getComputedStyle === "function" ? getComputedStyle(element) : null;
+      const computedFilter = computedStyle ? computedStyle.filter : "";
+      if (!/grayscale/iu.test(`${inlineFilter} ${computedFilter}`)) {
+        continue;
+      }
+      element.style.setProperty("filter", "none", "important");
+      element.style.setProperty("-webkit-filter", "none", "important");
+    }
+  }
+  function mountGrayscaleCleanup(ctx) {
+    const win = ctx.win;
+    ensurePageFilterNeutralized(ctx.doc);
+    if (win[MBGA_MARKS.grayscaleObserver]) {
+      return;
+    }
+    const observer = new MutationObserver(() => {
+      ensurePageFilterNeutralized(ctx.doc);
+    });
+    observer.observe(ctx.doc.documentElement, {
+      attributes: true,
+      attributeFilter: ["class", "style"],
+      subtree: false
+    });
+    if (ctx.doc.body) {
+      observer.observe(ctx.doc.body, {
+        attributes: true,
+        attributeFilter: ["class", "style"],
+        subtree: false
+      });
+    }
+    win[MBGA_MARKS.grayscaleObserver] = observer;
+  }
+  function removeTracking(url, baseHref = window.location.href) {
+    if (!url) {
+      return url != null ? url : "";
+    }
+    try {
+      const urlObj = new URL(url, baseHref);
+      if (!urlObj.search) {
+        return url;
+      }
       const searchParams = urlObj.searchParams;
-      const keys = Array.from(searchParams.keys());
-      for (const key of keys) {
-        uselessUrlParams.forEach((item) => {
-          if (typeof item === "string") {
-            if (item === key) searchParams.delete(key);
-          } else if (item instanceof RegExp) {
-            if (item.test(key)) searchParams.delete(key);
+      for (const key of [...searchParams.keys()]) {
+        for (const matcher of USELESS_URL_PARAMS) {
+          const matched = typeof matcher === "string" ? matcher === key : matcher.test(key);
+          if (matched) {
+            searchParams.delete(key);
+            break;
           }
-        });
+        }
       }
       urlObj.search = searchParams.toString();
       return urlObj.toString();
-    } catch (_e) {
+    } catch (_error) {
       return url;
     }
   }
-  function mountUrlCleaner(win) {
-    if (typeof win.history === "undefined") return;
-    win.history.replaceState(void 0, void 0, removeTracking(window.location.href));
-    const pushState = win.history.pushState;
-    win.history.pushState = function(state, unused, url) {
-      return pushState.apply(this, [state, unused, removeTracking(url)]);
-    };
-    const replaceState = win.history.replaceState;
-    win.history.replaceState = function(state, unused, url) {
-      return replaceState.apply(this, [state, unused, removeTracking(url)]);
+  function resolveMbgaNetworkDecision(input, baseHref = window.location.href) {
+    const url = normalizeRequestUrl(input, baseHref);
+    if (!url) {
+      return {
+        action: "allow",
+        reason: "invalid-url"
+      };
+    }
+    for (const rule of TELEMETRY_HOST_RULES) {
+      if (isSameOrSubdomain(url.hostname, rule.host)) {
+        return {
+          action: "block",
+          reason: rule.reason,
+          matchedUrl: url.toString(),
+          syntheticStatus: 204,
+          syntheticBody: ""
+        };
+      }
+    }
+    return {
+      action: "allow",
+      reason: "not-matched",
+      matchedUrl: url.toString()
     };
   }
-  function mountBlockTracking(win) {
+  function mountUrlCleaner(ctx) {
+    const win = ctx.win;
+    if (win[MBGA_MARKS.urlCleaner] || typeof win.history === "undefined") {
+      return;
+    }
+    win[MBGA_MARKS.urlCleaner] = true;
+    win.history.replaceState(void 0, "", removeTracking(win.location.href, win.location.href));
+    const originalPushState = win.history.pushState;
+    win.history.pushState = function(state, unused, url) {
+      const nextUrl = typeof url === "undefined" || url === null ? url : removeTracking(String(url), win.location.href);
+      return originalPushState.call(this, state, unused, nextUrl);
+    };
+    const originalReplaceState = win.history.replaceState;
+    win.history.replaceState = function(state, unused, url) {
+      const nextUrl = typeof url === "undefined" || url === null ? url : removeTracking(String(url), win.location.href);
+      return originalReplaceState.call(this, state, unused, nextUrl);
+    };
+  }
+  function mountBlockTracking(ctx) {
+    var _a;
+    const win = ctx.win;
+    if (win[MBGA_MARKS.blockTracking]) {
+      return;
+    }
+    win[MBGA_MARKS.blockTracking] = true;
     try {
-      class _RTCPeerConnection {
+      class StubPeerConnection {
         addEventListener() {
         }
         createDataChannel() {
         }
       }
-      class _RTCDataChannel {
+      class StubDataChannel {
       }
-      Object.defineProperty(win, "RTCPeerConnection", { value: _RTCPeerConnection, enumerable: false, writable: false });
-      Object.defineProperty(win, "RTCDataChannel", { value: _RTCDataChannel, enumerable: false, writable: false });
-      Object.defineProperty(win, "webkitRTCPeerConnection", {
-        value: _RTCPeerConnection,
+      installGlobalValue(win, "RTCPeerConnection", StubPeerConnection);
+      installGlobalValue(win, "RTCDataChannel", StubDataChannel);
+      installGlobalValue(win, "webkitRTCPeerConnection", StubPeerConnection);
+      installGlobalValue(win, "webkitRTCDataChannel", StubDataChannel);
+    } catch (_error) {
+    }
+    if (typeof win.fetch === "function") {
+      const originalFetch = win.fetch.bind(win);
+      win.fetch = function(input, init) {
+        const decision = resolveMbgaNetworkDecision(input, win.location.href);
+        if (decision.action === "block") {
+          return Promise.resolve(createSyntheticFetchResponse(win, decision));
+        }
+        return originalFetch(input, init);
+      };
+    }
+    if ((_a = win.XMLHttpRequest) == null ? void 0 : _a.prototype) {
+      const originalOpen = win.XMLHttpRequest.prototype.open;
+      const originalSend = win.XMLHttpRequest.prototype.send;
+      const decisionKey = "__bsbMbgaDecision";
+      const urlKey = "__bsbMbgaUrl";
+      win.XMLHttpRequest.prototype.open = function(method, url, async, username, password) {
+        const decision = resolveMbgaNetworkDecision(url, win.location.href);
+        defineWritableValue(this, decisionKey, decision);
+        defineWritableValue(this, urlKey, String(url));
+        return originalOpen.call(this, method, String(url), async != null ? async : true, username != null ? username : null, password != null ? password : null);
+      };
+      win.XMLHttpRequest.prototype.send = function(body) {
+        var _a2;
+        const decision = Reflect.get(this, decisionKey);
+        if ((decision == null ? void 0 : decision.action) === "block") {
+          const requestUrl = String((_a2 = Reflect.get(this, urlKey)) != null ? _a2 : "");
+          queueMicrotask(() => completeBlockedXhr(this, win, requestUrl, decision));
+          return;
+        }
+        return originalSend.call(this, body != null ? body : null);
+      };
+    }
+    if (win.navigator && typeof win.navigator.sendBeacon === "function") {
+      const originalSendBeacon = win.navigator.sendBeacon.bind(win.navigator);
+      win.navigator.sendBeacon = function(url, data) {
+        const decision = resolveMbgaNetworkDecision(url, win.location.href);
+        if (decision.action === "block") {
+          return true;
+        }
+        return originalSendBeacon(url, data);
+      };
+    } else if (win.navigator) {
+      win.navigator.sendBeacon = function(url) {
+        const decision = resolveMbgaNetworkDecision(url, win.location.href);
+        return decision.action === "block" ? true : false;
+      };
+    }
+    installGlobalValue(win, "MReporterInstance", createNoopCallable());
+    installGlobalValue(win, "MReporter", createNoopCallable());
+    installGlobalValue(win, "ReporterPbInstance", createNoopCallable());
+    installGlobalValue(win, "ReporterPb", createNoopCallable());
+    installSentryShim(win);
+    try {
+      Object.defineProperty(win, "__biliUserFp__", {
+        configurable: true,
         enumerable: false,
-        writable: false
-      });
-      Object.defineProperty(win, "webkitRTCDataChannel", { value: _RTCDataChannel, enumerable: false, writable: false });
-    } catch (_e) {
-    }
-    if (win.fetch) {
-      const oldFetch = win.fetch;
-      win.fetch = function(url, init) {
-        const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
-        if (typeof urlStr === "string" && urlStr.match(/(?:cm|data)\.bilibili\.com/)) {
-          return new Promise(() => {
-          });
-        }
-        return oldFetch.apply(this, arguments);
-      };
-    }
-    if (win.XMLHttpRequest) {
-      const oldOpen = win.XMLHttpRequest.prototype.open;
-      win.XMLHttpRequest.prototype.open = function(method, url) {
-        const urlStr = typeof url === "string" ? url : url.toString();
-        if (typeof urlStr === "string" && urlStr.match(/(?:cm|data)\.bilibili\.com/)) {
-          this.send = function() {
-          };
-        }
-        return oldOpen.apply(this, arguments);
-      };
-    }
-    if (win.navigator) {
-      win.navigator.sendBeacon = () => Promise.resolve(true);
-    }
-    win.MReporterInstance = new Proxy(
-      function() {
-      },
-      {
         get() {
-          return () => {
-          };
-        }
-      }
-    );
-    win.MReporter = new Proxy(
-      function() {
-      },
-      {
-        construct() {
-          return win.MReporterInstance;
-        },
-        get() {
-          return () => {
-          };
-        }
-      }
-    );
-    const SentryHub = class {
-      bindClient() {
-      }
-    };
-    const fakeSentry = {
-      SDK_NAME: "sentry.javascript.browser",
-      SDK_VERSION: "0.0.0",
-      BrowserClient: class {
-      },
-      Hub: SentryHub,
-      Integrations: {
-        Vue: class {
-        },
-        GlobalHandlers: class {
-        },
-        InboundFilters: class {
-        }
-      },
-      init() {
-      },
-      configureScope() {
-      },
-      getCurrentHub: () => new SentryHub(),
-      setContext() {
-      },
-      setExtra() {
-      },
-      setExtras() {
-      },
-      setTag() {
-      },
-      setTags() {
-      },
-      setUser() {
-      },
-      wrap() {
-      }
-    };
-    if (!win.Sentry || win.Sentry.SDK_VERSION !== fakeSentry.SDK_VERSION) {
-      if (win.Sentry) {
-        delete win.Sentry;
-      }
-      Object.defineProperty(win, "Sentry", { value: fakeSentry, enumerable: false, writable: false });
-    }
-    win.ReporterPbInstance = new Proxy(
-      function() {
-      },
-      {
-        get() {
-          return () => {
-          };
-        }
-      }
-    );
-    win.ReporterPb = new Proxy(
-      function() {
-      },
-      {
-        construct() {
-          return win.ReporterPbInstance;
-        }
-      }
-    );
-    Object.defineProperty(win, "__biliUserFp__", {
-      get() {
-        return { init() {
-        }, queryUserLog() {
-          return [];
-        } };
-      },
-      set() {
-      }
-    });
-    Object.defineProperty(win, "__USER_FP_CONFIG__", {
-      get() {
-        return void 0;
-      },
-      set() {
-      }
-    });
-    Object.defineProperty(win, "__MIRROR_CONFIG__", {
-      get() {
-        return void 0;
-      },
-      set() {
-      }
-    });
-  }
-  function mountPcdnDisabler(win) {
-    Object.defineProperty(win, "PCDNLoader", { value: class {
-    }, enumerable: false, writable: false });
-    Object.defineProperty(win, "BPP2PSDK", { value: class {
-      on() {
-      }
-    }, enumerable: false, writable: false });
-    Object.defineProperty(win, "SeederSDK", { value: class {
-    }, enumerable: false, writable: false });
-    if (window.location.href.startsWith("https://www.bilibili.com/video/") || window.location.href.startsWith("https://www.bilibili.com/bangumi/play/")) {
-      let cdnDomain;
-      const replaceP2PUrl = (url) => {
-        var _a;
-        cdnDomain || (cdnDomain = (_a = document.head.innerHTML.match(/up[\w-]+\.bilivideo\.com/)) == null ? void 0 : _a[0]);
-        try {
-          const urlObj = new URL(url);
-          const hostName = urlObj.hostname;
-          if (urlObj.hostname.endsWith(".mcdn.bilivideo.cn")) {
-            urlObj.host = cdnDomain || "upos-sz-mirrorcoso1.bilivideo.com";
-            urlObj.port = "443";
-            return urlObj.toString();
-          } else if (urlObj.hostname.endsWith(".szbdyd.com")) {
-            const uSource = urlObj.searchParams.get("xy_usource");
-            if (uSource) {
-              urlObj.host = uSource;
-              urlObj.port = "443";
+          return {
+            init() {
+            },
+            queryUserLog() {
+              return [];
             }
-            return urlObj.toString();
+          };
+        },
+        set() {
+        }
+      });
+      Object.defineProperty(win, "__USER_FP_CONFIG__", {
+        configurable: true,
+        enumerable: false,
+        get() {
+          return void 0;
+        },
+        set() {
+        }
+      });
+      Object.defineProperty(win, "__MIRROR_CONFIG__", {
+        configurable: true,
+        enumerable: false,
+        get() {
+          return void 0;
+        },
+        set() {
+        }
+      });
+    } catch (_error) {
+    }
+  }
+  function mountPcdnDisabler(ctx) {
+    var _a, _b;
+    const win = ctx.win;
+    if (win[MBGA_MARKS.pcdnDisabler]) {
+      return;
+    }
+    win[MBGA_MARKS.pcdnDisabler] = true;
+    installGlobalValue(win, "PCDNLoader", class {
+    });
+    installGlobalValue(
+      win,
+      "BPP2PSDK",
+      class {
+        on() {
+        }
+      }
+    );
+    installGlobalValue(win, "SeederSDK", class {
+    });
+    if (isVideoPage(ctx.url)) {
+      let cdnDomain;
+      const replaceP2PUrl = (input) => {
+        var _a2;
+        cdnDomain || (cdnDomain = (_a2 = ctx.doc.head.innerHTML.match(/up[\w-]+\.bilivideo\.com/u)) == null ? void 0 : _a2[0]);
+        try {
+          const url = new URL(input);
+          if (url.hostname.endsWith(".mcdn.bilivideo.cn")) {
+            url.host = cdnDomain || "upos-sz-mirrorcoso1.bilivideo.com";
+            url.port = "443";
+            return url.toString();
           }
-          return url;
-        } catch (_e) {
-          return url;
+          if (url.hostname.endsWith(".szbdyd.com")) {
+            const source = url.searchParams.get("xy_usource");
+            if (source) {
+              url.host = source;
+              url.port = "443";
+            }
+            return url.toString();
+          }
+          return input;
+        } catch (_error) {
+          return input;
         }
       };
-      const replaceP2PUrlDeep = (obj) => {
-        if (!obj) return;
-        for (const key in obj) {
-          if (typeof obj[key] === "string") {
-            obj[key] = replaceP2PUrl(obj[key]);
-          } else if (Array.isArray(obj[key]) || typeof obj[key] === "object") {
-            replaceP2PUrlDeep(obj[key]);
+      const replaceP2PUrlDeep = (value) => {
+        if (!value || typeof value !== "object") {
+          return;
+        }
+        for (const key of Object.keys(value)) {
+          const current = value[key];
+          if (typeof current === "string") {
+            value[key] = replaceP2PUrl(current);
+          } else if (current && typeof current === "object") {
+            replaceP2PUrlDeep(current);
           }
         }
       };
       if (win.__playinfo__) {
         replaceP2PUrlDeep(win.__playinfo__);
       }
-      if (win.HTMLMediaElement && win.HTMLMediaElement.prototype) {
+      if ((_a = win.HTMLMediaElement) == null ? void 0 : _a.prototype) {
         const descriptor = Object.getOwnPropertyDescriptor(win.HTMLMediaElement.prototype, "src");
-        if (descriptor) {
+        if (descriptor == null ? void 0 : descriptor.set) {
           Object.defineProperty(win.HTMLMediaElement.prototype, "src", __spreadProps(__spreadValues({}, descriptor), {
-            set: function(value) {
-              if (descriptor.set) {
-                descriptor.set.call(this, replaceP2PUrl(value));
-              }
+            set(value) {
+              var _a2;
+              (_a2 = descriptor.set) == null ? void 0 : _a2.call(this, replaceP2PUrl(value));
             }
           }));
         }
       }
-      if (win.XMLHttpRequest && win.XMLHttpRequest.prototype) {
-        const open = win.XMLHttpRequest.prototype.open;
-        win.XMLHttpRequest.prototype.open = function() {
-          try {
-            if (arguments[1] && typeof arguments[1] === "string") {
-              arguments[1] = replaceP2PUrl(arguments[1]);
-            }
-          } finally {
-            return open.apply(this, arguments);
+      if ((_b = win.XMLHttpRequest) == null ? void 0 : _b.prototype) {
+        const originalOpen = win.XMLHttpRequest.prototype.open;
+        win.XMLHttpRequest.prototype.open = function(...args) {
+          if (typeof args[1] === "string") {
+            args[1] = replaceP2PUrl(args[1]);
           }
+          return originalOpen.apply(this, args);
         };
       }
     }
-    if (window.location.href.startsWith("https://live.bilibili.com/")) {
+    if (isLivePage(ctx.url)) {
       win.disableMcdn = true;
       win.disableSmtcdns = true;
       win.forceHighestQuality = true;
       let recentErrors = 0;
-      setInterval(() => {
-        if (recentErrors > 0) recentErrors = Math.floor(recentErrors / 2);
+      win.setInterval(() => {
+        if (recentErrors > 0) {
+          recentErrors = Math.floor(recentErrors / 2);
+        }
       }, 1e4);
-      const oldFetch = win.fetch;
-      if (oldFetch) {
-        win.fetch = function(url) {
+      if (typeof win.fetch === "function") {
+        const originalFetch = win.fetch.bind(win);
+        win.fetch = function(input, init) {
+          var _a2;
           try {
-            const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
-            const mcdnRegexp = /[xy0-9]+\.mcdn\.bilivideo\.cn:\d+/;
-            const smtcdnsRegexp = /[\w.]+\.smtcdns\.net\/([\w-]+\.bilivideo\.com\/)/;
-            const qualityRegexp = /(live-bvc\/\d+\/live_\d+_\d+)_\w+/;
-            let newUrlStr = urlStr;
+            const url = normalizeRequestUrl(input, ctx.win.location.href);
+            const urlString = (_a2 = url == null ? void 0 : url.toString()) != null ? _a2 : "";
+            const mcdnPattern = /[xy0-9]+\.mcdn\.bilivideo\.cn:\d+/u;
+            const smtcdnsPattern = /[\w.]+\.smtcdns\.net\/([\w-]+\.bilivideo\.com\/)/u;
+            const qualityPattern = /(live-bvc\/\d+\/live_\d+_\d+)_\w+/u;
+            let nextUrl = urlString;
             let modified = false;
-            if (mcdnRegexp.test(urlStr) && win.disableMcdn) {
+            if (mcdnPattern.test(urlString) && win.disableMcdn) {
               return Promise.reject(new Error("MCDN Disabled by MBGA"));
             }
-            if (smtcdnsRegexp.test(urlStr) && win.disableSmtcdns) {
-              newUrlStr = urlStr.replace(smtcdnsRegexp, "$1");
+            if (smtcdnsPattern.test(urlString) && win.disableSmtcdns) {
+              nextUrl = nextUrl.replace(smtcdnsPattern, "$1");
               modified = true;
             }
-            if (qualityRegexp.test(urlStr) && win.forceHighestQuality) {
-              newUrlStr = newUrlStr.replace(qualityRegexp, "$1").replace(/(\d+)_(mini|pro)hevc/g, "$1");
+            if (qualityPattern.test(urlString) && win.forceHighestQuality) {
+              nextUrl = nextUrl.replace(qualityPattern, "$1").replace(/(\d+)_(mini|pro)hevc/gu, "$1");
               modified = true;
             }
-            if (modified && arguments.length > 0) {
-              if (typeof arguments[0] === "string" || arguments[0] instanceof URL) {
-                arguments[0] = newUrlStr;
-              }
-            }
-            const promise = oldFetch.apply(this, arguments);
+            const requestInput = modified ? nextUrl : input;
+            const promise = originalFetch(requestInput, init);
             promise.then((response) => {
-              if (!urlStr.match(/\.(m3u8|m4s)/)) return;
-              if ([403, 404].includes(response.status)) recentErrors++;
+              if (!urlString.match(/\.(m3u8|m4s)/u)) {
+                return;
+              }
+              if ([403, 404].includes(response.status)) {
+                recentErrors += 1;
+              }
               if (recentErrors >= 5 && win.forceHighestQuality) {
                 recentErrors = 0;
                 win.forceHighestQuality = false;
@@ -7425,112 +7970,276 @@
               }
             });
             return promise;
-          } catch (_e) {
+          } catch (_error) {
+            return originalFetch(input, init);
           }
-          return oldFetch.apply(this, arguments);
         };
       }
     }
   }
-  function mountMbga(config) {
-    if (!config.mbgaEnabled) {
-      return;
-    }
-    const win = getUnsafeWindow();
-    if (config.mbgaBlockTracking) {
-      mountBlockTracking(win);
-    }
-    if (config.mbgaDisablePcdn) {
-      mountPcdnDisabler(win);
-    }
-    if (config.mbgaCleanUrl) {
-      mountUrlCleaner(win);
-    }
+  function mountMainFeedCleanup(ctx) {
+    ensureScopedStyle(
+      ctx.doc,
+      "main-feed-cleanup",
+      `
+.adblock-tips,
+.feed-card:has(.bili-video-card > div:empty),
+.feed2 .feed-card:has(a[href*="cm.bilibili.com"]),
+.feed2 .feed-card:has(.bili-video-card:empty) {
+  display: none !important;
+}
+
+.feed2 .container > * {
+  margin-top: 0 !important;
+}
+
+.ad-report,
+a[href*="cm.bilibili.com"] {
+  display: none !important;
+}
+`
+    );
   }
-  function mountMbgaUi(config) {
-    if (!config.mbgaEnabled || !config.mbgaSimplifyUi) {
+  function mountDynamicWideMode(ctx) {
+    const win = ctx.win;
+    ensureScopedStyle(
+      ctx.doc,
+      "dynamic-wide-mode",
+      `
+html[wide] #app { display: flex; }
+html[wide] .bili-dyn-home--member { box-sizing: border-box; padding: 0 10px; width: 100%; flex: 1; }
+html[wide] .bili-dyn-content { width: initial; }
+html[wide] main { margin: 0 8px; flex: 1; overflow: hidden; width: initial; }
+.bili-dyn-list__item:has(.bili-dyn-card-goods),
+.bili-dyn-list__item:has(.bili-rich-text-module.goods) {
+  display: none !important;
+}
+`
+    );
+    if (win[MBGA_MARKS.dynamicWideSwitch]) {
       return;
     }
-    const removeFonts = () => {
-      Array.from(document.querySelectorAll("link[href*='/jinkela/long/font/']")).forEach((x) => x.remove());
-      document.body.style.fontFamily = "initial";
-    };
-    removeFonts();
-    if (window.location.href.startsWith("https://www.bilibili.com/read/cv")) {
-      const win = getUnsafeWindow();
-      if (win.original) {
-        win.original.reprint = "1";
-      }
-      const holder = document.querySelector(".article-holder");
-      if (holder) {
-        holder.classList.remove("unable-reprint");
-        holder.addEventListener("copy", (e) => e.stopImmediatePropagation(), true);
-      }
+    win[MBGA_MARKS.dynamicWideSwitch] = true;
+    if (!win.localStorage.getItem("WIDE_OPT_OUT")) {
+      ctx.doc.documentElement.setAttribute("wide", "wide");
     }
-    if (window.location.host === "t.bilibili.com") {
-      const isOptOut = localStorage.getItem("WIDE_OPT_OUT");
-      if (!isOptOut) {
-        document.documentElement.setAttribute("wide", "wide");
+    const injectWideSwitch = () => {
+      const tabContainer = ctx.doc.querySelector(".bili-dyn-list-tabs__list");
+      if (!(tabContainer instanceof HTMLElement) || ctx.doc.getElementById("wide-mode-switch")) {
+        return;
       }
-      const injectWideSwitch = () => {
-        const tabContainer = document.querySelector(".bili-dyn-list-tabs__list");
-        if (!tabContainer || document.getElementById("wide-mode-switch")) return;
-        const placeHolder = document.createElement("div");
-        placeHolder.style.flex = "1";
-        const switchButton = document.createElement("a");
-        switchButton.id = "wide-mode-switch";
-        switchButton.className = "bili-dyn-list-tabs__item";
-        switchButton.textContent = "\u5BBD\u5C4F\u6A21\u5F0F";
-        switchButton.addEventListener("click", (e) => {
-          e.preventDefault();
-          const optOut = localStorage.getItem("WIDE_OPT_OUT");
-          if (optOut) {
-            localStorage.removeItem("WIDE_OPT_OUT");
-            document.documentElement.setAttribute("wide", "wide");
+      const spacer = ctx.doc.createElement("div");
+      spacer.style.flex = "1";
+      const switchButton = ctx.doc.createElement("a");
+      switchButton.id = "wide-mode-switch";
+      switchButton.className = "bili-dyn-list-tabs__item";
+      switchButton.textContent = "\u5BBD\u5C4F\u6A21\u5F0F";
+      switchButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        if (ctx.win.localStorage.getItem("WIDE_OPT_OUT")) {
+          win.localStorage.removeItem("WIDE_OPT_OUT");
+          ctx.doc.documentElement.setAttribute("wide", "wide");
+        } else {
+          win.localStorage.setItem("WIDE_OPT_OUT", "1");
+          ctx.doc.documentElement.removeAttribute("wide");
+        }
+      });
+      tabContainer.append(spacer, switchButton);
+    };
+    win.addEventListener("load", injectWideSwitch, { once: true });
+    win.setTimeout(injectWideSwitch, 2e3);
+  }
+  function mountArticleCopyUnlock(ctx) {
+    const win = ctx.win;
+    if (win[MBGA_MARKS.articleCopyUnlock]) {
+      return;
+    }
+    win[MBGA_MARKS.articleCopyUnlock] = true;
+    if (win.original) {
+      win.original.reprint = "1";
+    }
+    const holder = ctx.doc.querySelector(".article-holder");
+    if (!(holder instanceof HTMLElement)) {
+      return;
+    }
+    holder.classList.remove("unable-reprint");
+    holder.addEventListener(
+      "copy",
+      (event) => {
+        event.stopImmediatePropagation();
+      },
+      true
+    );
+  }
+  function mountLiveUiCleanup(ctx) {
+    ensureScopedStyle(
+      ctx.doc,
+      "live-room-cleanup",
+      `
+div[data-cy=EvaRenderer_LayerWrapper]:has(.player) { z-index: 999999 !important; }
+.fixedPageBackground_root { z-index: 999999 !important; }
+#welcome-area-bottom-vm,
+.web-player-icon-roomStatus { display: none !important; }
+`
+    );
+  }
+  function mountVideoFitMode(ctx) {
+    const win = ctx.win;
+    ensureScopedStyle(
+      ctx.doc,
+      "video-fit-mode",
+      `
+body[video-fit] #bilibili-player video { object-fit: cover !important; }
+.bpx-player-ctrl-setting-fit-mode { display: flex; width: 100%; height: 32px; line-height: 32px; }
+.bpx-player-ctrl-setting-box .bui-panel-wrap,
+.bpx-player-ctrl-setting-box .bui-panel-item { min-height: 172px !important; }
+`
+    );
+    if (win[MBGA_MARKS.videoFitMode]) {
+      return;
+    }
+    win[MBGA_MARKS.videoFitMode] = true;
+    const injectFitButton = () => {
+      if (ctx.doc.querySelector(".bpx-player-ctrl-setting-fit-mode")) {
+        return;
+      }
+      const parent = ctx.doc.querySelector(".bpx-player-ctrl-setting-menu-left");
+      if (!(parent instanceof HTMLElement)) {
+        return;
+      }
+      const item = ctx.doc.createElement("div");
+      item.className = "bpx-player-ctrl-setting-fit-mode bui bui-switch";
+      item.innerHTML = '<input class="bui-switch-input" type="checkbox"><label class="bui-switch-label"><span class="bui-switch-name">\u88C1\u5207\u6A21\u5F0F</span><span class="bui-switch-body"><span class="bui-switch-dot"><span></span></span></span></label>';
+      const moreLink = ctx.doc.querySelector(".bpx-player-ctrl-setting-more");
+      if (moreLink instanceof HTMLElement) {
+        parent.insertBefore(item, moreLink);
+      } else {
+        parent.appendChild(item);
+      }
+      const input = item.querySelector("input");
+      if (input instanceof HTMLInputElement) {
+        input.addEventListener("change", (event) => {
+          const checked = event.currentTarget.checked;
+          if (checked) {
+            ctx.doc.body.setAttribute("video-fit", "");
           } else {
-            localStorage.setItem("WIDE_OPT_OUT", "1");
-            document.documentElement.removeAttribute("wide");
+            ctx.doc.body.removeAttribute("video-fit");
           }
         });
-        tabContainer.appendChild(placeHolder);
-        tabContainer.appendChild(switchButton);
-      };
-      window.addEventListener("load", injectWideSwitch);
-      setTimeout(injectWideSwitch, 2e3);
+      }
+    };
+    const timer = win.setInterval(() => {
+      if (ctx.doc.querySelector(".bpx-player-ctrl-setting-menu-left")) {
+        injectFitButton();
+        win.clearInterval(timer);
+      }
+    }, 1e3);
+    win.setTimeout(() => win.clearInterval(timer), 1e4);
+  }
+  var MBGA_RULES = [
+    {
+      id: "clean-url-params",
+      kind: "behavior",
+      safetyNotes: "Only strips explicit tracking params and preserves unrelated query keys.",
+      enabled: (config) => config.mbgaEnabled && config.mbgaCleanUrl,
+      match: () => true,
+      apply: mountUrlCleaner
+    },
+    {
+      id: "block-telemetry-reporters",
+      kind: "network",
+      safetyNotes: "Blocks only explicit telemetry hosts and returns predictable success semantics to callers.",
+      enabled: (config) => config.mbgaEnabled && config.mbgaBlockTracking,
+      match: () => true,
+      apply: mountBlockTracking
+    },
+    {
+      id: "disable-pcdn",
+      kind: "network",
+      safetyNotes: "Only rewrites known P2P/CDN hosts for video and live pages.",
+      enabled: (config) => config.mbgaEnabled && config.mbgaDisablePcdn,
+      match: (ctx) => isVideoPage(ctx.url) || isLivePage(ctx.url),
+      apply: mountPcdnDisabler
+    },
+    {
+      id: "neutralize-page-grayscale",
+      kind: "ui",
+      safetyNotes: "Only removes page-level grayscale when such filters are actually present.",
+      enabled: (config) => config.mbgaEnabled && config.mbgaSimplifyUi,
+      match: () => true,
+      apply: mountGrayscaleCleanup
+    },
+    {
+      id: "main-feed-cleanup",
+      kind: "ui",
+      safetyNotes: "Only hides explicit ad affordances on the main feed.",
+      enabled: (config) => config.mbgaEnabled && config.mbgaSimplifyUi,
+      match: (ctx) => isMainFeedPage(ctx.url),
+      apply: mountMainFeedCleanup
+    },
+    {
+      id: "dynamic-wide-mode",
+      kind: "ui",
+      safetyNotes: "Only runs on dynamic pages and preserves user opt-out in localStorage.",
+      enabled: (config) => config.mbgaEnabled && config.mbgaSimplifyUi,
+      match: (ctx) => isDynamicPage(ctx.url),
+      apply: mountDynamicWideMode
+    },
+    {
+      id: "article-copy-unlock",
+      kind: "behavior",
+      safetyNotes: "Only unlocks copy behavior on article pages and leaves other pages untouched.",
+      enabled: (config) => config.mbgaEnabled && config.mbgaSimplifyUi,
+      match: (ctx) => isArticlePage(ctx.url),
+      apply: mountArticleCopyUnlock
+    },
+    {
+      id: "live-room-ui-cleanup",
+      kind: "ui",
+      safetyNotes: "Only applies targeted live-room overlay cleanup selectors on live pages.",
+      enabled: (config) => config.mbgaEnabled && config.mbgaSimplifyUi,
+      match: (ctx) => isLivePage(ctx.url),
+      apply: mountLiveUiCleanup
+    },
+    {
+      id: "video-fit-mode",
+      kind: "behavior",
+      safetyNotes: "Only injects the fit toggle on video and bangumi player pages.",
+      enabled: (config) => config.mbgaEnabled && config.mbgaSimplifyUi,
+      match: (ctx) => isVideoPage(ctx.url),
+      apply: mountVideoFitMode
     }
-    if (window.location.href.startsWith("https://www.bilibili.com/video/")) {
-      const injectFitButton = () => {
-        if (document.querySelector(".bpx-player-ctrl-setting-fit-mode")) return;
-        const parent = document.querySelector(".bpx-player-ctrl-setting-menu-left");
-        if (!parent) return;
-        const item = document.createElement("div");
-        item.className = "bpx-player-ctrl-setting-fit-mode bui bui-switch";
-        item.innerHTML = '<input class="bui-switch-input" type="checkbox"><label class="bui-switch-label"><span class="bui-switch-name">\u88C1\u5207\u6A21\u5F0F</span><span class="bui-switch-body"><span class="bui-switch-dot"><span></span></span></span></label>';
-        const moreLink = document.querySelector(".bpx-player-ctrl-setting-more");
-        if (moreLink) {
-          parent.insertBefore(item, moreLink);
-        } else {
-          parent.appendChild(item);
-        }
-        const input = item.querySelector("input");
-        if (input) {
-          input.addEventListener("change", (e) => {
-            if (e.target.checked) {
-              document.body.setAttribute("video-fit", "");
-            } else {
-              document.body.removeAttribute("video-fit");
-            }
-          });
-        }
-      };
-      const timer = setInterval(() => {
-        if (document.querySelector(".bpx-player-ctrl-setting-menu-left")) {
-          injectFitButton();
-          clearInterval(timer);
-        }
-      }, 1e3);
-      setTimeout(() => clearInterval(timer), 1e4);
+  ];
+  var MBGA_CORE_RULE_IDS = /* @__PURE__ */ new Set(["clean-url-params", "block-telemetry-reporters", "disable-pcdn"]);
+  var MBGA_UI_RULE_IDS = /* @__PURE__ */ new Set([
+    "neutralize-page-grayscale",
+    "main-feed-cleanup",
+    "dynamic-wide-mode",
+    "article-copy-unlock",
+    "live-room-ui-cleanup",
+    "video-fit-mode"
+  ]);
+  function applyMbgaRules(config, shouldApply) {
+    const ctx = createMbgaContext(config);
+    for (const rule of MBGA_RULES) {
+      if (!shouldApply(rule)) {
+        continue;
+      }
+      if (!rule.enabled(config) || !rule.match(ctx)) {
+        continue;
+      }
+      try {
+        rule.apply(ctx);
+      } catch (error) {
+        debugLog(`MBGA rule failed: ${rule.id}`, error);
+      }
     }
+  }
+  function mountMbga(config) {
+    applyMbgaRules(config, (rule) => MBGA_CORE_RULE_IDS.has(rule.id));
+  }
+  function mountMbgaUi(config) {
+    applyMbgaRules(config, (rule) => MBGA_UI_RULE_IDS.has(rule.id));
   }
 
   // src/runtime/lifecycle.ts
@@ -7843,6 +8552,10 @@
   min-height: 100%;
   box-sizing: border-box;
   padding-bottom: 16px;
+}
+
+.bsb-tm-panel-section[hidden] {
+  display: none !important;
 }
 
 .bsb-tm-section-heading {
@@ -8392,32 +9105,12 @@
   position: relative;
 }
 
-.bsb-tm-title-layout {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  flex-wrap: wrap;
-  overflow: visible;
-}
-
 .bsb-tm-title-accessories {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  flex: none;
-  overflow: visible;
-}
-
-.bsb-tm-title-text {
-  min-width: 0;
-  flex: 1 1 auto;
-}
-
-.bsb-tm-title-row {
-  display: flex !important;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
+  gap: 0;
+  float: left;
+  margin-right: 8px;
   overflow: visible;
 }
 
@@ -8427,8 +9120,6 @@
   overflow: visible;
   position: relative;
   isolation: isolate;
-  padding-block: 7px;
-  margin-block: -7px;
 }
 
 .bsb-tm-title-pill {
@@ -8436,6 +9127,9 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   border-radius: 999px;
   border: 1px solid var(--bsb-category-glass-border, rgba(255, 255, 255, 0.2));
   background:
@@ -8456,12 +9150,73 @@
     transform 220ms var(--bsb-ease-fluid);
 }
 
+.bsb-tm-title-pill-wrap[data-transparent="true"] .bsb-tm-title-pill {
+  border-color: color-mix(in srgb, var(--bsb-category-accent, #2f9e72) 44%, rgba(255, 255, 255, 0.38));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.62),
+    inset 0 -1px 0 color-mix(in srgb, var(--bsb-category-accent, #2f9e72) 16%, rgba(148, 163, 184, 0.1)),
+    0 4px 8px rgba(15, 23, 42, 0.04),
+    0 12px 22px rgba(15, 23, 42, 0.045),
+    0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.bsb-tm-title-pill-wrap[data-transparent="true"] .bsb-tm-title-pill::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 14% -18%, color-mix(in srgb, var(--bsb-category-accent, #2f9e72) 36%, rgba(255, 255, 255, 0.54)) 0%, transparent 34%),
+    radial-gradient(circle at 78% 120%, color-mix(in srgb, var(--bsb-category-accent, #2f9e72) 30%, rgba(15, 23, 42, 0.18)) 0%, transparent 48%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.08) 34%, transparent 70%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--bsb-category-accent, #2f9e72) 20%, rgba(255, 255, 255, 0.2)),
+      color-mix(in srgb, var(--bsb-category-accent, #2f9e72) 42%, rgba(15, 23, 42, 0.16))
+    );
+  opacity: 0.96;
+  backdrop-filter: blur(4px) saturate(160%) brightness(1.05);
+}
+
+.bsb-tm-title-pill-wrap[data-transparent="true"] .bsb-tm-title-pill::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  z-index: 1;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.68), rgba(255, 255, 255, 0.08) 26%, transparent 54%),
+    linear-gradient(108deg, transparent 12%, rgba(255, 255, 255, 0.62) 20%, rgba(255, 255, 255, 0.08) 30%, transparent 42%);
+  opacity: 0.92;
+  mix-blend-mode: screen;
+}
+
+.bsb-tm-title-pill-wrap[data-transparent="true"] .bsb-tm-title-pill > * {
+  position: relative;
+  z-index: 2;
+}
+
 .bsb-tm-title-pill:hover,
 .bsb-tm-title-pill[aria-expanded="true"] {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.18),
     0 10px 20px rgba(15, 23, 42, 0.12),
     0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.bsb-tm-title-pill-wrap[data-transparent="true"] .bsb-tm-title-pill:hover,
+.bsb-tm-title-pill-wrap[data-transparent="true"] .bsb-tm-title-pill[aria-expanded="true"] {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 -1px 0 rgba(188, 195, 206, 0.18),
+    0 6px 12px rgba(15, 23, 42, 0.05),
+    0 14px 24px rgba(15, 23, 42, 0.06),
+    0 0 0 1px rgba(255, 255, 255, 0.18);
+  filter: saturate(1.06) brightness(1.02);
 }
 
 .bsb-tm-title-pill svg,
@@ -8710,6 +9465,7 @@
   line-height: 1;
   white-space: nowrap;
   text-align: center;
+  isolation: isolate;
   backface-visibility: hidden;
   transform: translateZ(0);
   text-rendering: geometricPrecision;
@@ -8726,6 +9482,39 @@
     padding 280ms var(--bsb-ease-fluid);
 }
 
+.sponsorThumbnailLabel[data-transparent="true"] {
+  border: 1px solid color-mix(in srgb, var(--category-accent, #ffffff) 34%, rgba(255, 255, 255, 0.3));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015));
+  backdrop-filter: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.34),
+    inset 0 -1px 0 color-mix(in srgb, var(--category-accent, #ffffff) 18%, rgba(15, 23, 42, 0.06)),
+    0 4px 10px rgba(15, 23, 42, 0.075),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.sponsorThumbnailLabel[data-transparent="true"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 22% -16%, color-mix(in srgb, var(--category-accent, #ffffff) 38%, rgba(255, 255, 255, 0.34)) 0%, transparent 34%),
+    radial-gradient(circle at 82% 130%, color-mix(in srgb, var(--category-accent, #ffffff) 32%, rgba(15, 23, 42, 0.2)) 0%, transparent 50%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0.04) 34%, transparent 58%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--category-accent, #ffffff) 22%, rgba(255, 255, 255, 0.1)),
+      color-mix(in srgb, var(--category-accent, #ffffff) 48%, rgba(15, 23, 42, 0.14))
+    ),
+    linear-gradient(110deg, transparent 18%, rgba(255, 255, 255, 0.24) 28%, transparent 42%);
+  opacity: 0.94;
+  backdrop-filter: blur(4px) saturate(162%) brightness(1.04);
+  mix-blend-mode: screen;
+}
+
 .sponsorThumbnailLabel[data-placement="corner"] {
   height: 19px;
   min-width: var(--bsb-thumbnail-current-width, 19px);
@@ -8738,6 +9527,15 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.16),
     inset 0 -1px 0 rgba(15, 23, 42, 0.1),
     0 6px 14px rgba(15, 23, 42, 0.16),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.sponsorThumbnailLabel[data-placement="corner"][data-transparent="true"] {
+  border-color: color-mix(in srgb, var(--category-accent, #ffffff) 28%, rgba(255, 255, 255, 0.28));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    inset 0 -1px 0 color-mix(in srgb, var(--category-accent, #ffffff) 12%, rgba(15, 23, 42, 0.05)),
+    0 3px 8px rgba(15, 23, 42, 0.055),
     0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 
@@ -8756,6 +9554,7 @@
   opacity: 0.85;
   box-shadow: 0 0 4px color-mix(in srgb, currentColor 40%, transparent);
   flex-shrink: 0;
+  z-index: 2;
 }
 
 .sponsorThumbnailLabel[data-placement="corner"]::before {
@@ -8767,6 +9566,7 @@
   grid-column: 2;
   grid-row: 1;
   position: relative;
+  z-index: 2;
   width: var(--bsb-thumbnail-current-text-width);
   min-width: 0;
   height: 1em;
@@ -8788,6 +9588,9 @@
   letter-spacing: 0.02em;
   line-height: 1;
   white-space: nowrap;
+  text-shadow:
+    0 0.5px 1px rgba(15, 23, 42, 0.36),
+    0 0 10px rgba(15, 23, 42, 0.1);
   transition:
     opacity 180ms var(--bsb-ease-swift),
     transform 280ms var(--bsb-ease-fluid);
@@ -8828,6 +9631,7 @@
 .sponsorThumbnailLabel .bsb-tm-thumbnail-label {
   position: absolute;
   inset: 0;
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -8837,6 +9641,9 @@
   color: inherit;
   line-height: 1;
   white-space: nowrap;
+  text-shadow:
+    0 0.5px 1px rgba(15, 23, 42, 0.36),
+    0 0 10px rgba(15, 23, 42, 0.1);
   opacity: 0;
   transform: translateY(1px);
   transition:
@@ -9086,16 +9893,11 @@ ${inlineFeedbackStyles}
     inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 
-.bsb-tm-video-header-compact .bili-header.fixed-header {
+[data-bsb-native-header-hidden="true"] {
+  visibility: hidden !important;
   opacity: 0 !important;
   pointer-events: none !important;
-  height: 0 !important;
-  overflow: hidden !important;
-}
-
-.bsb-tm-video-header-compact .bili-header__bar.mini-header {
-  opacity: 0 !important;
-  pointer-events: none !important;
+  user-select: none !important;
 }
 
 .bsb-tm-video-header-shell,
@@ -9107,7 +9909,7 @@ ${inlineFeedbackStyles}
 .bsb-tm-video-header-compact .bsb-tm-video-header-shell {
   display: block;
   position: fixed;
-  top: 6px;
+  top: 0;
   left: 50%;
   z-index: 1100;
   width: min(1160px, calc(100vw - 28px));
@@ -9118,10 +9920,6 @@ ${inlineFeedbackStyles}
 .player-full-win .bsb-tm-video-header-shell,
 .player-fullscreen .bsb-tm-video-header-shell {
   display: none !important;
-}
-
-.bsb-tm-video-header-compact .video-container-v1 {
-  margin-top: 10px !important;
 }
 
 .player-full-win .video-container-v1,
@@ -9136,7 +9934,7 @@ ${inlineFeedbackStyles}
   align-items: center;
   gap: 12px;
   min-height: 54px;
-  padding: 7px 14px;
+  padding: 4px 14px;
   border: 1px solid rgba(255, 255, 255, 0.62);
   border-radius: 20px;
   background:
@@ -9290,7 +10088,7 @@ ${inlineFeedbackStyles}
   .bsb-tm-video-header-bar {
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 10px;
-    padding: 8px 12px;
+    padding: 4px 12px;
   }
 }
 
@@ -9348,13 +10146,13 @@ ${inlineFeedbackStyles}
   }
 
   .bsb-tm-video-header-shell {
-    top: 6px;
+    top: 0;
     width: calc(100vw - 16px);
   }
 
   .bsb-tm-video-header-bar {
-    min-height: 52px;
-    padding: 6px 10px;
+    min-height: 48px;
+    padding: 4px 10px;
     border-radius: 18px;
   }
 
@@ -9370,31 +10168,7 @@ ${inlineFeedbackStyles}
   }
 }
 `;
-  var mbgaStyles = `
-/* MBGA Simplify UI */
-html, body { -webkit-filter: none !important; filter: none !important; }
-.adblock-tips, .feed-card:has(.bili-video-card>div:empty) { display: none !important; }
-.ad-report, a[href*="cm.bilibili.com"] { display: none !important; }
-.feed2 .feed-card:has(a[href*="cm.bilibili.com"]), .feed2 .feed-card:has(.bili-video-card:empty) { display: none !important; }
-.feed2 .container > * { margin-top: 0 !important; }
-
-/* Dynamic Page Wide Mode */
-html[wide] #app { display: flex; }
-html[wide] .bili-dyn-home--member { box-sizing: border-box; padding: 0 10px; width: 100%; flex: 1; }
-html[wide] .bili-dyn-content { width: initial; }
-html[wide] main { margin: 0 8px; flex: 1; overflow: hidden; width: initial; }
-.bili-dyn-list__item:has(.bili-dyn-card-goods), .bili-dyn-list__item:has(.bili-rich-text-module.goods) { display: none !important; }
-
-/* Live Room Fixes */
-div[data-cy=EvaRenderer_LayerWrapper]:has(.player) { z-index: 999999 !important; }
-.fixedPageBackground_root { z-index: 999999 !important; }
-#welcome-area-bottom-vm, .web-player-icon-roomStatus { display: none !important; }
-
-/* Video Fit Mode */
-body[video-fit] #bilibili-player video { object-fit: cover !important; }
-.bpx-player-ctrl-setting-fit-mode { display: flex; width: 100%; height: 32px; line-height: 32px; }
-.bpx-player-ctrl-setting-box .bui-panel-wrap, .bpx-player-ctrl-setting-box .bui-panel-item { min-height: 172px !important; }
-`;
+  var mbgaStyles = ``;
 
   // src/main.ts
   function isTopLevelWindow() {
@@ -9469,13 +10243,13 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
           });
         }
       );
-      yield runtime.start();
       gmRegisterMenuCommand("\u6253\u5F00 BSB \u63A7\u5236\u53F0", () => controller.openPanel());
       gmRegisterMenuCommand("\u6253\u5F00 BSB \u5E2E\u52A9", () => controller.openHelp());
       gmRegisterMenuCommand("\u5207\u6362 BSB \u63A7\u5236\u53F0", () => controller.togglePanel());
       gmRegisterMenuCommand("\u6E05\u7406 BSB \u7F13\u5B58", () => {
         void controller.clearCache();
       });
+      yield runtime.start();
     });
   }
   function ready() {

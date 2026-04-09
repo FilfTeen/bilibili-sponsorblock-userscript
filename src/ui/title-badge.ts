@@ -1,7 +1,7 @@
 import { CATEGORY_DESCRIPTIONS, CATEGORY_LABELS } from "../constants";
 import type { CategoryColorOverrides, SegmentRecord } from "../types";
 import { cleanupVideoTitleAccessoryHost, ensureVideoTitleAccessoryHost } from "../utils/dom";
-import { resolveCategoryStyle } from "../utils/color";
+import { getReadableTextColor, resolveCategoryStyle } from "../utils/color";
 import { createCogIcon, createSponsorShieldIcon, createThumbIcon } from "./icons";
 
 export type TitleBadgeVoteType = 0 | 1;
@@ -31,7 +31,7 @@ function resolveCopy(segment: SegmentRecord, votingAvailable: boolean): string {
 }
 
 export class TitleBadge {
-  private readonly root = document.createElement("div");
+  private readonly root = document.createElement("span");
   private readonly pillButton = document.createElement("button");
   private readonly titleText = document.createElement("span");
   private readonly popover = document.createElement("div");
@@ -47,6 +47,7 @@ export class TitleBadge {
   private closeTimer: number | null = null;
   private positionFrame: number | null = null;
   private categoryColorOverrides: CategoryColorOverrides = {};
+  private transparencyEnabled = false;
   private votingAvailable = true;
   private localActionsAvailable = false;
   private voteLocked = false;
@@ -134,6 +135,14 @@ export class TitleBadge {
     }
   }
 
+  setTransparencyEnabled(enabled: boolean): void {
+    this.transparencyEnabled = enabled;
+    this.root.dataset.transparent = String(enabled);
+    if (this.currentSegment) {
+      this.applyAppearance(this.currentSegment);
+    }
+  }
+
   setSegment(segment: SegmentRecord | null, options?: { voteLocked?: boolean }): void {
     this.currentSegment = segment;
     this.voteLocked = options?.voteLocked ?? false;
@@ -181,9 +190,13 @@ export class TitleBadge {
     this.localActionsAvailable = segment.UUID.startsWith("local-signal:");
 
     this.root.dataset.category = segment.category;
+    this.root.dataset.transparent = String(this.transparencyEnabled);
     this.root.style.setProperty("--bsb-category-accent", style.accent);
     this.root.style.setProperty("--bsb-category-accent-strong", style.accentStrong);
-    this.root.style.setProperty("--bsb-category-contrast", style.contrast);
+    this.root.style.setProperty(
+      "--bsb-category-contrast",
+      this.transparencyEnabled ? getReadableTextColor(style.glassSurface) : style.contrast
+    );
     this.root.style.setProperty("--bsb-category-soft-surface", style.softSurface);
     this.root.style.setProperty("--bsb-category-soft-border", style.softBorder);
     this.root.style.setProperty("--bsb-category-glass-surface", style.glassSurface);

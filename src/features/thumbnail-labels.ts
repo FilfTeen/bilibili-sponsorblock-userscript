@@ -466,6 +466,7 @@ function applyCategoryLabel(
   overlay.style.setProperty("--category-contrast", style.darkContrast);
   overlay.style.setProperty("--category-glass-surface", style.darkSurface);
   overlay.style.setProperty("--category-glass-border", style.glassBorder);
+  overlay.dataset.transparent = String(config.labelTransparency.thumbnailLabel);
   overlay.setAttribute("aria-label", `整视频标签：${CATEGORY_LABELS[category]}`);
   const shortTextNode = shortText.firstElementChild instanceof HTMLElement ? shortText.firstElementChild : shortText;
   const textNode = text.firstElementChild instanceof HTMLElement ? text.firstElementChild : text;

@@ -25,6 +25,9 @@ const DYNAMIC_RELEVANT_SELECTORS = [
   ".dyn-card-opus__title"
 ] as const;
 const DYNAMIC_IGNORED_SELECTORS = [BADGE_SELECTOR, TOGGLE_SELECTOR] as const;
+const currentInlineBadgeAppearance = {
+  dynamicBadge: false
+};
 
 export function classifyDynamicItem(
   element: HTMLElement,
@@ -121,7 +124,14 @@ function resolveContentBody(element: HTMLElement): HTMLElement | null {
 }
 
 function createBadge(text: string, tone: InlineTone): HTMLElement {
-  return createInlineBadge("data-bsb-dynamic-badge", text, tone, "stack");
+  return createInlineBadge(
+    "data-bsb-dynamic-badge",
+    text,
+    tone,
+    "stack",
+    undefined,
+    currentInlineBadgeAppearance.dynamicBadge ? "glass" : "solid"
+  );
 }
 
 function createToggleButton(onClick: () => void): HTMLButtonElement {
@@ -153,8 +163,10 @@ export class DynamicSponsorController {
 
   constructor(private readonly configStore: ConfigStore) {
     this.currentConfig = this.configStore.getSnapshot();
+    currentInlineBadgeAppearance.dynamicBadge = this.currentConfig.labelTransparency.dynamicBadge;
     this.configStore.subscribe((config) => {
       this.currentConfig = config;
+      currentInlineBadgeAppearance.dynamicBadge = config.labelTransparency.dynamicBadge;
       this.resetProcessedItems();
       this.scheduleRefresh();
     });

@@ -32,6 +32,8 @@ npm run build
 npm run smoke:bilibili
 ```
 
+这个 smoke 主要用于辅助采样和快速观察，不作为 BSC 的最终真实验收结论。
+
 默认会调用本机 Chrome:
 
 - `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`
@@ -47,6 +49,27 @@ npm run smoke:bilibili
 - 视频页 SponsorBlock 请求链路
 - 评论主楼过滤
 - 评论回复过滤
+
+## Safari 验收要求
+
+对 BSC 来说，Safari 才是唯一真实运行环境。
+
+因此：
+
+- Chrome smoke 只能作为辅助对照
+- Safari 自动化验证只能作为辅助证据
+- 最终验收必须回到 Safari 主窗口、已登录、已安装脚本的真实环境
+
+推荐最小链路：
+
+```bash
+npm run check
+npm test
+npm run build
+npm run validate:safari
+```
+
+然后按 [docs/SAFARI_ACCEPTANCE_V037.md](./docs/SAFARI_ACCEPTANCE_V037.md) 执行主窗口人工采样。
 
 ## 测试要求
 
@@ -67,10 +90,11 @@ npm test
 npm run build
 ```
 
-涉及真实页面逻辑、Bilibili DOM 结构、评论区或播放器改动时，额外要求:
+涉及真实页面逻辑、Bilibili DOM 结构、评论区、播放器或 MBGA 改动时，额外要求:
 
 ```bash
 npm run smoke:bilibili
+npm run validate:safari
 ```
 
 ## 发布流程

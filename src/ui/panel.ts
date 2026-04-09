@@ -28,13 +28,16 @@ type PanelCallbacks = {
   onCategoryModeChange: (category: Category, mode: CategoryMode) => Promise<void>;
   onClearCache: () => Promise<void>;
   onReset: () => Promise<void>;
+  onClose?: (reason: "user" | "system") => void;
 };
 
-export type PanelTab = "overview" | "behavior" | "filters" | "mbga" | "help";
+export type PanelTab = "overview" | "behavior" | "transparency" | "filters" | "mbga" | "help";
+export type PanelCloseReason = "user" | "system";
 
 const TAB_LABELS: Record<PanelTab, string> = {
   overview: "概览",
   behavior: "片段与标签",
+  transparency: "标签透明度",
   filters: "动态 / 评论",
   mbga: "生态净化 (MBGA)",
   help: "帮助 / 反馈"
@@ -43,6 +46,7 @@ const TAB_LABELS: Record<PanelTab, string> = {
 const TAB_DESCRIPTIONS: Record<PanelTab, string> = {
   overview: "状态、摘要与维护工具",
   behavior: "片段、标签与显示策略",
+  transparency: "胶囊透明度与降噪策略",
   filters: "动态和评论区增强",
   mbga: "屏蔽追踪、原画锁定与沉浸化",
   help: "帮助链接与使用说明"
@@ -56,6 +60,7 @@ export class SettingsPanel {
   private readonly content = document.createElement("div");
   private readonly statsEl = document.createElement("div");
   private readonly form = document.createElement("div");
+  private readonly transparencyForm = document.createElement("div");
   private readonly filterForm = document.createElement("div");
   private readonly categoryForm = document.createElement("div");
   private readonly mbgaForm = document.createElement("div");
@@ -77,7 +82,7 @@ export class SettingsPanel {
   private readonly pendingConfirmations = new Set<string>(); // id
   private readonly handleKeydown = (event: KeyboardEvent) => {
     if (event.key === "Escape" && !this.backdrop.hidden) {
-      this.close();
+      this.close("user");
     }
   };
   private readonly handleViewportResize = () => {
@@ -97,7 +102,7 @@ export class SettingsPanel {
     this.backdrop.hidden = true;
     this.backdrop.addEventListener("click", (event) => {
       if (event.target === this.backdrop) {
-        this.close();
+        this.close("user");
       }
     });
 
@@ -113,6 +118,7 @@ export class SettingsPanel {
 
     this.statsEl.className = "bsb-tm-stats";
     this.form.className = "bsb-tm-form";
+    this.transparencyForm.className = "bsb-tm-form";
     this.filterForm.className = "bsb-tm-form";
     this.categoryForm.className = "bsb-tm-categories";
     this.mbgaForm.className = "bsb-tm-form";
@@ -143,7 +149,11 @@ export class SettingsPanel {
       this.open();
       return;
     }
-    this.close();
+    this.close("user");
+  }
+
+  isOpen(): boolean {
+    return !this.backdrop.hidden;
   }
 
   open(tab: PanelTab = this.activeTab): void {
@@ -156,15 +166,19 @@ export class SettingsPanel {
     document.addEventListener("keydown", this.handleKeydown);
   }
 
-  close(): void {
+  close(reason: PanelCloseReason = "user"): void {
+    const wasOpen = !this.backdrop.hidden;
     this.backdrop.hidden = true;
     this.detachViewportListeners();
     document.documentElement.classList.remove("bsb-tm-panel-open");
     document.removeEventListener("keydown", this.handleKeydown);
+    if (wasOpen) {
+      this.callbacks.onClose?.(reason);
+    }
   }
 
   unmount(): void {
-    this.close();
+    this.close("system");
     this.backdrop.remove();
   }
 
@@ -200,6 +214,7 @@ export class SettingsPanel {
     const nextScrollTop = preserveScroll ? (this.contentScrollByTab[this.activeTab] ?? this.content.scrollTop) : 0;
     this.renderOverview();
     this.renderBehavior();
+    this.renderTransparency();
     this.renderFilters();
     this.renderMbga();
     this.renderHelp();
@@ -518,6 +533,106 @@ export class SettingsPanel {
     );
   }
 
+  private renderTransparency(): void {
+    const transparency = this.config.labelTransparency;
+    const section = this.sections.get("transparency");
+    if (!section) {
+      return;
+    }
+
+    this.transparencyForm.replaceChildren(
+      this.createFormGroup(
+        "视频主线标签",
+        "这两类标签属于 BSC 主线能力。透明模式会从高纯度胶囊改成更克制的 Liquid Glass 表现，默认保持关闭，确保升级后现有视觉不变。",
+        this.createFieldGrid([
+          this.createCheckbox(
+            "标题商业标签使用透明模式",
+            "用于视频标题前的整视频胶囊。开启后会保留分类色倾向，但把纯色填充改为更轻的玻璃染色，减少对标题阅读的干扰。",
+            transparency.titleBadge,
+            async (checked) => {
+              await this.callbacks.onPatchConfig({
+                labelTransparency: {
+                  ...this.config.labelTransparency,
+                  titleBadge: checked
+                }
+              });
+            }
+          ),
+          this.createCheckbox(
+            "封面胶囊标签使用透明模式",
+            "用于首页、搜索、侧栏卡片上的整视频标签。开启后仍保留悬浮展开与可读性，但会降低对封面主体的视觉压制。",
+            transparency.thumbnailLabel,
+            async (checked) => {
+              await this.callbacks.onPatchConfig({
+                labelTransparency: {
+                  ...this.config.labelTransparency,
+                  thumbnailLabel: checked
+                }
+              });
+            }
+          )
+        ])
+      ),
+      this.createFormGroup(
+        "站内增强标签",
+        "这三类标签更偏提示性质，不建议强绑成一个总开关。分项控制可以让你只给“过于显眼”的标签降噪，而不牺牲其他提醒能力。",
+        this.createFieldGrid([
+          this.createCheckbox(
+            "评论广告标签使用透明模式",
+            "用于评论区带货、促销、疑似广告等标签。开启后会弱化整块背景存在感，把注意力更多还给评论正文。",
+            transparency.commentBadge,
+            async (checked) => {
+              await this.callbacks.onPatchConfig({
+                labelTransparency: {
+                  ...this.config.labelTransparency,
+                  commentBadge: checked
+                }
+              });
+            }
+          ),
+          this.createCheckbox(
+            "评论属地标签使用透明模式",
+            "用于评论发布时间旁的 IP 属地胶囊。这个场景最容易打断正文阅读，所以单独给开关，默认关闭。",
+            transparency.commentLocation,
+            async (checked) => {
+              await this.callbacks.onPatchConfig({
+                labelTransparency: {
+                  ...this.config.labelTransparency,
+                  commentLocation: checked
+                }
+              });
+            }
+          ),
+          this.createCheckbox(
+            "动态页商业标签使用透明模式",
+            "用于动态页“带货动态 / 疑似广告”等标签。开启后仍保留强调点与轮廓，但会明显降低纯色块带来的抢眼感。",
+            transparency.dynamicBadge,
+            async (checked) => {
+              await this.callbacks.onPatchConfig({
+                labelTransparency: {
+                  ...this.config.labelTransparency,
+                  dynamicBadge: checked
+                }
+              });
+            }
+          )
+        ])
+      ),
+      this.createInfoBox(
+        "设计说明",
+        "这里的“透明”不是简单调低 opacity，而是改为更低侵入的 Liquid Glass：轻染色、高光、边缘描线、受控模糊，并优先保证文字可读性。"
+      )
+    );
+
+    section.replaceChildren(
+      this.createSectionHeading(
+        "标签透明度",
+        "集中管理所有胶囊标签的透明模式。默认全部关闭，保证现有用户升级后不会被强制改变视觉风格。"
+      ),
+      this.transparencyForm
+    );
+  }
+
   private renderMbga(): void {
     const mbgaFields: HTMLElement[] = [
       this.createCheckbox(
@@ -647,7 +762,10 @@ export class SettingsPanel {
       button.setAttribute("aria-selected", String(active));
     }
     for (const [sectionTab, section] of this.sections) {
-      section.hidden = sectionTab !== tab;
+      const active = sectionTab === tab;
+      section.hidden = !active;
+      section.setAttribute("aria-hidden", String(!active));
+      section.dataset.active = String(active);
     }
     this.content.scrollTop = options?.preserveScroll ? (options.scrollTop ?? this.contentScrollByTab[tab] ?? 0) : 0;
   }
@@ -709,8 +827,18 @@ export class SettingsPanel {
     input.setAttribute("role", "switch");
     input.checked = checked;
     input.addEventListener("change", async () => {
-      label.dataset.controlState = input.checked ? "on" : "off";
-      await onChange(input.checked);
+      const nextChecked = input.checked;
+      const previousChecked = !nextChecked;
+      label.dataset.controlState = nextChecked ? "on" : "off";
+      input.disabled = true;
+      try {
+        await onChange(nextChecked);
+      } catch (_error) {
+        input.checked = previousChecked;
+        label.dataset.controlState = previousChecked ? "on" : "off";
+      } finally {
+        input.disabled = false;
+      }
     });
 
     copy.append(title, help);
@@ -988,7 +1116,7 @@ export class SettingsPanel {
     closeButton.className = "bsb-tm-button secondary bsb-tm-header-action bsb-tm-panel-close";
     closeButton.textContent = "关闭";
     closeButton.addEventListener("click", () => {
-      this.close();
+      this.close("user");
     });
 
     actions.append(helpButton, closeButton);
@@ -1000,7 +1128,9 @@ export class SettingsPanel {
     const section = document.createElement("section");
     section.className = "bsb-tm-panel-section";
     section.dataset.section = name;
+    section.dataset.active = "false";
     section.id = `${this.panelId}-section-${name}`;
+    section.setAttribute("aria-hidden", "true");
     return section;
   }
 

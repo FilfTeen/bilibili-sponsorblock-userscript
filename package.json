@@ -1,6 +1,6 @@
 {
   "name": "bilibili-sponsorblock-userscript",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "private": true,
   "type": "module",
   "license": "GPL-3.0-only",
@@ -13,6 +13,7 @@
     "build": "node ./scripts/build.mjs",
     "capture:bilibili": "BSB_SMOKE_CAPTURE_DIR=output/playwright node ./scripts/smoke-bilibili.mjs",
     "check": "tsc --noEmit",
+    "investigate:safari-player": "python3 ./scripts/safari-investigate-player-overlay.py",
     "smoke:bilibili": "node ./scripts/smoke-bilibili.mjs",
     "test": "vitest run",
     "test:watch": "vitest",

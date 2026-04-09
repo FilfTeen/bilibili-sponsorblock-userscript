@@ -65,7 +65,7 @@ export async function gmGetValue<T>(key: string, defaultValue: T): Promise<T> {
 
 export async function gmSetValue<T>(key: string, value: T): Promise<void> {
   const fn = assertFunction<typeof GM_setValue>("GM_setValue");
-  fn(key, value);
+  await fn(key, value);
 }
 
 export function gmAddStyle(css: string): void {
