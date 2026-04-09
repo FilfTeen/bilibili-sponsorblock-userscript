@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili SponsorBlock Core
 // @namespace    https://github.com/FilfTeen/bilibili-sponsorblock-userscript
-// @version      0.3.6
+// @version      0.3.7
 // @description  Tampermonkey core script for skipping sponsor segments on Bilibili.
 // @author       FilfTeen
 // @license      GPL-3.0-only
@@ -7101,10 +7101,16 @@
   };
 
   // src/features/mbga/core.ts
-  function getUnsafeWindow() {
-    return typeof window.unsafeWindow !== "undefined" ? window.unsafeWindow : window;
-  }
-  var uselessUrlParams = [
+  var MBGA_MARKS = {
+    urlCleaner: "__BSB_MBGA_URL_CLEANER__",
+    blockTracking: "__BSB_MBGA_BLOCK_TRACKING__",
+    pcdnDisabler: "__BSB_MBGA_PCDN_DISABLER__",
+    dynamicWideSwitch: "__BSB_MBGA_DYNAMIC_WIDE_SWITCH__",
+    articleCopyUnlock: "__BSB_MBGA_ARTICLE_COPY_UNLOCK__",
+    videoFitMode: "__BSB_MBGA_VIDEO_FIT_MODE__",
+    grayscaleObserver: "__BSB_MBGA_GRAYSCALE_OBSERVER__"
+  };
+  var USELESS_URL_PARAMS = [
     "buvid",
     "is_story_h5",
     "launch_id",
@@ -7114,309 +7120,544 @@
     "timestamp",
     "up_id",
     "vd_source",
-    /^share/,
-    /^spm/
+    /^share/u,
+    /^spm/u
   ];
-  function removeTracking(url) {
-    if (!url) return url != null ? url : "";
+  var TELEMETRY_HOST_RULES = [
+    { host: "cm.bilibili.com", reason: "cm telemetry" },
+    { host: "data.bilibili.com", reason: "data telemetry" }
+  ];
+  function getUnsafeWindow() {
+    return typeof window.unsafeWindow !== "undefined" ? window.unsafeWindow : window;
+  }
+  function createMbgaContext(config, win = getUnsafeWindow(), doc = document) {
+    const url = new URL(win.location.href);
+    return {
+      config,
+      doc,
+      win,
+      url
+    };
+  }
+  function isSameOrSubdomain(hostname, expectedHost) {
+    return hostname === expectedHost || hostname.endsWith(`.${expectedHost}`);
+  }
+  function normalizeRequestUrl(input, baseHref) {
     try {
-      const urlObj = new URL(url, window.location.href);
-      if (!urlObj.search) return url;
+      if (typeof input === "string") {
+        return new URL(input, baseHref);
+      }
+      if (input instanceof URL) {
+        return new URL(input.toString());
+      }
+      if (typeof input.url === "string") {
+        return new URL(input.url, baseHref);
+      }
+    } catch (_error) {
+      return null;
+    }
+    return null;
+  }
+  function defineWritableValue(target, key, value) {
+    try {
+      Object.defineProperty(target, key, {
+        configurable: true,
+        enumerable: false,
+        writable: true,
+        value
+      });
+    } catch (_error) {
+    }
+  }
+  function createNoopCallable() {
+    const callable = (() => void 0);
+    return new Proxy(callable, {
+      get(target, property) {
+        var _a;
+        if (property === Symbol.toPrimitive) {
+          return () => "";
+        }
+        if (property === "then") {
+          return void 0;
+        }
+        return (_a = Reflect.get(target, property)) != null ? _a : createNoopCallable();
+      },
+      apply() {
+        return void 0;
+      },
+      construct() {
+        return createNoopCallable();
+      }
+    });
+  }
+  function installGlobalValue(win, key, value) {
+    const current = Reflect.get(win, key);
+    if (typeof current !== "undefined") {
+      return;
+    }
+    try {
+      Object.defineProperty(win, key, {
+        configurable: true,
+        enumerable: false,
+        writable: true,
+        value
+      });
+    } catch (_error) {
+      Reflect.set(win, key, value);
+    }
+  }
+  function installSentryShim(win) {
+    var _a, _b, _c, _d, _e;
+    const hub = { bindClient() {
+    } };
+    const noop = () => void 0;
+    const sentry = typeof win.Sentry === "object" && win.Sentry ? win.Sentry : {};
+    (_a = sentry.BrowserClient) != null ? _a : sentry.BrowserClient = class {
+    };
+    (_b = sentry.Hub) != null ? _b : sentry.Hub = class {
+      bindClient() {
+      }
+    };
+    (_c = sentry.Integrations) != null ? _c : sentry.Integrations = {
+      Vue: class {
+      },
+      GlobalHandlers: class {
+      },
+      InboundFilters: class {
+      }
+    };
+    for (const method of [
+      "init",
+      "configureScope",
+      "captureException",
+      "captureMessage",
+      "captureEvent",
+      "setContext",
+      "setExtra",
+      "setExtras",
+      "setTag",
+      "setTags",
+      "setUser",
+      "wrap"
+    ]) {
+      sentry[method] = noop;
+    }
+    (_d = sentry.SDK_NAME) != null ? _d : sentry.SDK_NAME = "sentry.javascript.browser";
+    (_e = sentry.SDK_VERSION) != null ? _e : sentry.SDK_VERSION = "0.0.0-bsb";
+    sentry.getCurrentHub = () => hub;
+    win.Sentry = sentry;
+  }
+  function completeBlockedXhr(xhr, win, url, decision) {
+    var _a, _b;
+    const status = (_a = decision.syntheticStatus) != null ? _a : 204;
+    const body = (_b = decision.syntheticBody) != null ? _b : "";
+    defineWritableValue(xhr, "readyState", 4);
+    defineWritableValue(xhr, "status", status);
+    defineWritableValue(xhr, "statusText", "No Content");
+    defineWritableValue(xhr, "responseText", body);
+    defineWritableValue(xhr, "response", body);
+    defineWritableValue(xhr, "responseURL", url);
+    const fire = (type, handlerKey) => {
+      const event = typeof win.Event === "function" ? new win.Event(type) : void 0;
+      const handler = xhr[handlerKey];
+      if (typeof handler === "function") {
+        handler.call(xhr, event);
+      }
+      if (typeof xhr.dispatchEvent === "function" && event) {
+        xhr.dispatchEvent(event);
+      }
+    };
+    fire("readystatechange", "onreadystatechange");
+    fire("load", "onload");
+    fire("loadend", "onloadend");
+  }
+  function createSyntheticFetchResponse(win, decision) {
+    var _a, _b;
+    const status = (_a = decision.syntheticStatus) != null ? _a : 204;
+    const body = status === 204 || status === 205 || status === 304 ? null : (_b = decision.syntheticBody) != null ? _b : "";
+    if (typeof win.Response === "function") {
+      return new win.Response(body, {
+        status,
+        statusText: "No Content",
+        headers: {
+          "content-type": "text/plain;charset=UTF-8",
+          "x-bsb-mbga": decision.reason
+        }
+      });
+    }
+    return new Response(body, {
+      status,
+      statusText: "No Content",
+      headers: {
+        "content-type": "text/plain;charset=UTF-8",
+        "x-bsb-mbga": decision.reason
+      }
+    });
+  }
+  function ensureScopedStyle(doc, id, css) {
+    if (doc.querySelector(`style[data-bsb-mbga-style="${id}"]`)) {
+      return;
+    }
+    const style = doc.createElement("style");
+    style.setAttribute("data-bsb-mbga-style", id);
+    style.textContent = css;
+    (doc.head || doc.documentElement).appendChild(style);
+  }
+  function isVideoPage(url) {
+    return url.hostname === "www.bilibili.com" && (url.pathname.startsWith("/video/") || url.pathname.startsWith("/bangumi/play/"));
+  }
+  function isArticlePage(url) {
+    return url.hostname === "www.bilibili.com" && url.pathname.startsWith("/read/cv");
+  }
+  function isDynamicPage(url) {
+    return url.hostname === "t.bilibili.com";
+  }
+  function isLivePage(url) {
+    return url.hostname === "live.bilibili.com";
+  }
+  function isMainFeedPage(url) {
+    return url.hostname === "www.bilibili.com" && (url.pathname === "/" || url.pathname.startsWith("/?"));
+  }
+  function ensurePageFilterNeutralized(doc) {
+    var _a, _b;
+    for (const element of [doc.documentElement, doc.body]) {
+      if (!(element instanceof HTMLElement)) {
+        continue;
+      }
+      const inlineFilter = [element.style.filter, element.style.webkitFilter].join(" ");
+      const computedFilter = (_b = (_a = globalThis.getComputedStyle) == null ? void 0 : _a.call(globalThis, element).filter) != null ? _b : "";
+      if (!/grayscale/iu.test(`${inlineFilter} ${computedFilter}`)) {
+        continue;
+      }
+      element.style.setProperty("filter", "none", "important");
+      element.style.setProperty("-webkit-filter", "none", "important");
+    }
+  }
+  function mountGrayscaleCleanup(ctx) {
+    const win = ctx.win;
+    ensurePageFilterNeutralized(ctx.doc);
+    if (win[MBGA_MARKS.grayscaleObserver]) {
+      return;
+    }
+    const observer = new MutationObserver(() => {
+      ensurePageFilterNeutralized(ctx.doc);
+    });
+    observer.observe(ctx.doc.documentElement, {
+      attributes: true,
+      attributeFilter: ["class", "style"],
+      subtree: false
+    });
+    if (ctx.doc.body) {
+      observer.observe(ctx.doc.body, {
+        attributes: true,
+        attributeFilter: ["class", "style"],
+        subtree: false
+      });
+    }
+    win[MBGA_MARKS.grayscaleObserver] = observer;
+  }
+  function removeTracking(url, baseHref = window.location.href) {
+    if (!url) {
+      return url != null ? url : "";
+    }
+    try {
+      const urlObj = new URL(url, baseHref);
+      if (!urlObj.search) {
+        return url;
+      }
       const searchParams = urlObj.searchParams;
-      const keys = Array.from(searchParams.keys());
-      for (const key of keys) {
-        uselessUrlParams.forEach((item) => {
-          if (typeof item === "string") {
-            if (item === key) searchParams.delete(key);
-          } else if (item instanceof RegExp) {
-            if (item.test(key)) searchParams.delete(key);
+      for (const key of [...searchParams.keys()]) {
+        for (const matcher of USELESS_URL_PARAMS) {
+          const matched = typeof matcher === "string" ? matcher === key : matcher.test(key);
+          if (matched) {
+            searchParams.delete(key);
+            break;
           }
-        });
+        }
       }
       urlObj.search = searchParams.toString();
       return urlObj.toString();
-    } catch (_e) {
+    } catch (_error) {
       return url;
     }
   }
-  function mountUrlCleaner(win) {
-    if (typeof win.history === "undefined") return;
-    win.history.replaceState(void 0, void 0, removeTracking(window.location.href));
-    const pushState = win.history.pushState;
-    win.history.pushState = function(state, unused, url) {
-      return pushState.apply(this, [state, unused, removeTracking(url)]);
-    };
-    const replaceState = win.history.replaceState;
-    win.history.replaceState = function(state, unused, url) {
-      return replaceState.apply(this, [state, unused, removeTracking(url)]);
+  function resolveMbgaNetworkDecision(input, baseHref = window.location.href) {
+    const url = normalizeRequestUrl(input, baseHref);
+    if (!url) {
+      return {
+        action: "allow",
+        reason: "invalid-url"
+      };
+    }
+    for (const rule of TELEMETRY_HOST_RULES) {
+      if (isSameOrSubdomain(url.hostname, rule.host)) {
+        return {
+          action: "block",
+          reason: rule.reason,
+          matchedUrl: url.toString(),
+          syntheticStatus: 204,
+          syntheticBody: ""
+        };
+      }
+    }
+    return {
+      action: "allow",
+      reason: "not-matched",
+      matchedUrl: url.toString()
     };
   }
-  function mountBlockTracking(win) {
+  function mountUrlCleaner(ctx) {
+    const win = ctx.win;
+    if (win[MBGA_MARKS.urlCleaner] || typeof win.history === "undefined") {
+      return;
+    }
+    win[MBGA_MARKS.urlCleaner] = true;
+    win.history.replaceState(void 0, "", removeTracking(win.location.href, win.location.href));
+    const originalPushState = win.history.pushState;
+    win.history.pushState = function(state, unused, url) {
+      const nextUrl = typeof url === "undefined" || url === null ? url : removeTracking(String(url), win.location.href);
+      return originalPushState.call(this, state, unused, nextUrl);
+    };
+    const originalReplaceState = win.history.replaceState;
+    win.history.replaceState = function(state, unused, url) {
+      const nextUrl = typeof url === "undefined" || url === null ? url : removeTracking(String(url), win.location.href);
+      return originalReplaceState.call(this, state, unused, nextUrl);
+    };
+  }
+  function mountBlockTracking(ctx) {
+    var _a;
+    const win = ctx.win;
+    if (win[MBGA_MARKS.blockTracking]) {
+      return;
+    }
+    win[MBGA_MARKS.blockTracking] = true;
     try {
-      class _RTCPeerConnection {
+      class StubPeerConnection {
         addEventListener() {
         }
         createDataChannel() {
         }
       }
-      class _RTCDataChannel {
+      class StubDataChannel {
       }
-      Object.defineProperty(win, "RTCPeerConnection", { value: _RTCPeerConnection, enumerable: false, writable: false });
-      Object.defineProperty(win, "RTCDataChannel", { value: _RTCDataChannel, enumerable: false, writable: false });
-      Object.defineProperty(win, "webkitRTCPeerConnection", {
-        value: _RTCPeerConnection,
+      installGlobalValue(win, "RTCPeerConnection", StubPeerConnection);
+      installGlobalValue(win, "RTCDataChannel", StubDataChannel);
+      installGlobalValue(win, "webkitRTCPeerConnection", StubPeerConnection);
+      installGlobalValue(win, "webkitRTCDataChannel", StubDataChannel);
+    } catch (_error) {
+    }
+    if (typeof win.fetch === "function") {
+      const originalFetch = win.fetch.bind(win);
+      win.fetch = function(input, init) {
+        const decision = resolveMbgaNetworkDecision(input, win.location.href);
+        if (decision.action === "block") {
+          return Promise.resolve(createSyntheticFetchResponse(win, decision));
+        }
+        return originalFetch(input, init);
+      };
+    }
+    if ((_a = win.XMLHttpRequest) == null ? void 0 : _a.prototype) {
+      const originalOpen = win.XMLHttpRequest.prototype.open;
+      const originalSend = win.XMLHttpRequest.prototype.send;
+      const decisionKey = "__bsbMbgaDecision";
+      const urlKey = "__bsbMbgaUrl";
+      win.XMLHttpRequest.prototype.open = function(method, url, async, username, password) {
+        const decision = resolveMbgaNetworkDecision(url, win.location.href);
+        defineWritableValue(this, decisionKey, decision);
+        defineWritableValue(this, urlKey, String(url));
+        return originalOpen.call(this, method, String(url), async != null ? async : true, username != null ? username : null, password != null ? password : null);
+      };
+      win.XMLHttpRequest.prototype.send = function(body) {
+        var _a2;
+        const decision = Reflect.get(this, decisionKey);
+        if ((decision == null ? void 0 : decision.action) === "block") {
+          const requestUrl = String((_a2 = Reflect.get(this, urlKey)) != null ? _a2 : "");
+          queueMicrotask(() => completeBlockedXhr(this, win, requestUrl, decision));
+          return;
+        }
+        return originalSend.call(this, body != null ? body : null);
+      };
+    }
+    if (win.navigator && typeof win.navigator.sendBeacon === "function") {
+      const originalSendBeacon = win.navigator.sendBeacon.bind(win.navigator);
+      win.navigator.sendBeacon = function(url, data) {
+        const decision = resolveMbgaNetworkDecision(url, win.location.href);
+        if (decision.action === "block") {
+          return true;
+        }
+        return originalSendBeacon(url, data);
+      };
+    } else if (win.navigator) {
+      win.navigator.sendBeacon = function(url) {
+        const decision = resolveMbgaNetworkDecision(url, win.location.href);
+        return decision.action === "block" ? true : false;
+      };
+    }
+    installGlobalValue(win, "MReporterInstance", createNoopCallable());
+    installGlobalValue(win, "MReporter", createNoopCallable());
+    installGlobalValue(win, "ReporterPbInstance", createNoopCallable());
+    installGlobalValue(win, "ReporterPb", createNoopCallable());
+    installSentryShim(win);
+    try {
+      Object.defineProperty(win, "__biliUserFp__", {
+        configurable: true,
         enumerable: false,
-        writable: false
-      });
-      Object.defineProperty(win, "webkitRTCDataChannel", { value: _RTCDataChannel, enumerable: false, writable: false });
-    } catch (_e) {
-    }
-    if (win.fetch) {
-      const oldFetch = win.fetch;
-      win.fetch = function(url, init) {
-        const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
-        if (typeof urlStr === "string" && urlStr.match(/(?:cm|data)\.bilibili\.com/)) {
-          return new Promise(() => {
-          });
-        }
-        return oldFetch.apply(this, arguments);
-      };
-    }
-    if (win.XMLHttpRequest) {
-      const oldOpen = win.XMLHttpRequest.prototype.open;
-      win.XMLHttpRequest.prototype.open = function(method, url) {
-        const urlStr = typeof url === "string" ? url : url.toString();
-        if (typeof urlStr === "string" && urlStr.match(/(?:cm|data)\.bilibili\.com/)) {
-          this.send = function() {
-          };
-        }
-        return oldOpen.apply(this, arguments);
-      };
-    }
-    if (win.navigator) {
-      win.navigator.sendBeacon = () => Promise.resolve(true);
-    }
-    win.MReporterInstance = new Proxy(
-      function() {
-      },
-      {
         get() {
-          return () => {
-          };
-        }
-      }
-    );
-    win.MReporter = new Proxy(
-      function() {
-      },
-      {
-        construct() {
-          return win.MReporterInstance;
-        },
-        get() {
-          return () => {
-          };
-        }
-      }
-    );
-    const SentryHub = class {
-      bindClient() {
-      }
-    };
-    const fakeSentry = {
-      SDK_NAME: "sentry.javascript.browser",
-      SDK_VERSION: "0.0.0",
-      BrowserClient: class {
-      },
-      Hub: SentryHub,
-      Integrations: {
-        Vue: class {
-        },
-        GlobalHandlers: class {
-        },
-        InboundFilters: class {
-        }
-      },
-      init() {
-      },
-      configureScope() {
-      },
-      getCurrentHub: () => new SentryHub(),
-      setContext() {
-      },
-      setExtra() {
-      },
-      setExtras() {
-      },
-      setTag() {
-      },
-      setTags() {
-      },
-      setUser() {
-      },
-      wrap() {
-      }
-    };
-    if (!win.Sentry || win.Sentry.SDK_VERSION !== fakeSentry.SDK_VERSION) {
-      if (win.Sentry) {
-        delete win.Sentry;
-      }
-      Object.defineProperty(win, "Sentry", { value: fakeSentry, enumerable: false, writable: false });
-    }
-    win.ReporterPbInstance = new Proxy(
-      function() {
-      },
-      {
-        get() {
-          return () => {
-          };
-        }
-      }
-    );
-    win.ReporterPb = new Proxy(
-      function() {
-      },
-      {
-        construct() {
-          return win.ReporterPbInstance;
-        }
-      }
-    );
-    Object.defineProperty(win, "__biliUserFp__", {
-      get() {
-        return { init() {
-        }, queryUserLog() {
-          return [];
-        } };
-      },
-      set() {
-      }
-    });
-    Object.defineProperty(win, "__USER_FP_CONFIG__", {
-      get() {
-        return void 0;
-      },
-      set() {
-      }
-    });
-    Object.defineProperty(win, "__MIRROR_CONFIG__", {
-      get() {
-        return void 0;
-      },
-      set() {
-      }
-    });
-  }
-  function mountPcdnDisabler(win) {
-    Object.defineProperty(win, "PCDNLoader", { value: class {
-    }, enumerable: false, writable: false });
-    Object.defineProperty(win, "BPP2PSDK", { value: class {
-      on() {
-      }
-    }, enumerable: false, writable: false });
-    Object.defineProperty(win, "SeederSDK", { value: class {
-    }, enumerable: false, writable: false });
-    if (window.location.href.startsWith("https://www.bilibili.com/video/") || window.location.href.startsWith("https://www.bilibili.com/bangumi/play/")) {
-      let cdnDomain;
-      const replaceP2PUrl = (url) => {
-        var _a;
-        cdnDomain || (cdnDomain = (_a = document.head.innerHTML.match(/up[\w-]+\.bilivideo\.com/)) == null ? void 0 : _a[0]);
-        try {
-          const urlObj = new URL(url);
-          const hostName = urlObj.hostname;
-          if (urlObj.hostname.endsWith(".mcdn.bilivideo.cn")) {
-            urlObj.host = cdnDomain || "upos-sz-mirrorcoso1.bilivideo.com";
-            urlObj.port = "443";
-            return urlObj.toString();
-          } else if (urlObj.hostname.endsWith(".szbdyd.com")) {
-            const uSource = urlObj.searchParams.get("xy_usource");
-            if (uSource) {
-              urlObj.host = uSource;
-              urlObj.port = "443";
+          return {
+            init() {
+            },
+            queryUserLog() {
+              return [];
             }
-            return urlObj.toString();
+          };
+        },
+        set() {
+        }
+      });
+      Object.defineProperty(win, "__USER_FP_CONFIG__", {
+        configurable: true,
+        enumerable: false,
+        get() {
+          return void 0;
+        },
+        set() {
+        }
+      });
+      Object.defineProperty(win, "__MIRROR_CONFIG__", {
+        configurable: true,
+        enumerable: false,
+        get() {
+          return void 0;
+        },
+        set() {
+        }
+      });
+    } catch (_error) {
+    }
+  }
+  function mountPcdnDisabler(ctx) {
+    var _a, _b;
+    const win = ctx.win;
+    if (win[MBGA_MARKS.pcdnDisabler]) {
+      return;
+    }
+    win[MBGA_MARKS.pcdnDisabler] = true;
+    installGlobalValue(win, "PCDNLoader", class {
+    });
+    installGlobalValue(
+      win,
+      "BPP2PSDK",
+      class {
+        on() {
+        }
+      }
+    );
+    installGlobalValue(win, "SeederSDK", class {
+    });
+    if (isVideoPage(ctx.url)) {
+      let cdnDomain;
+      const replaceP2PUrl = (input) => {
+        var _a2;
+        cdnDomain || (cdnDomain = (_a2 = ctx.doc.head.innerHTML.match(/up[\w-]+\.bilivideo\.com/u)) == null ? void 0 : _a2[0]);
+        try {
+          const url = new URL(input);
+          if (url.hostname.endsWith(".mcdn.bilivideo.cn")) {
+            url.host = cdnDomain || "upos-sz-mirrorcoso1.bilivideo.com";
+            url.port = "443";
+            return url.toString();
           }
-          return url;
-        } catch (_e) {
-          return url;
+          if (url.hostname.endsWith(".szbdyd.com")) {
+            const source = url.searchParams.get("xy_usource");
+            if (source) {
+              url.host = source;
+              url.port = "443";
+            }
+            return url.toString();
+          }
+          return input;
+        } catch (_error) {
+          return input;
         }
       };
-      const replaceP2PUrlDeep = (obj) => {
-        if (!obj) return;
-        for (const key in obj) {
-          if (typeof obj[key] === "string") {
-            obj[key] = replaceP2PUrl(obj[key]);
-          } else if (Array.isArray(obj[key]) || typeof obj[key] === "object") {
-            replaceP2PUrlDeep(obj[key]);
+      const replaceP2PUrlDeep = (value) => {
+        if (!value || typeof value !== "object") {
+          return;
+        }
+        for (const key of Object.keys(value)) {
+          const current = value[key];
+          if (typeof current === "string") {
+            value[key] = replaceP2PUrl(current);
+          } else if (current && typeof current === "object") {
+            replaceP2PUrlDeep(current);
           }
         }
       };
       if (win.__playinfo__) {
         replaceP2PUrlDeep(win.__playinfo__);
       }
-      if (win.HTMLMediaElement && win.HTMLMediaElement.prototype) {
+      if ((_a = win.HTMLMediaElement) == null ? void 0 : _a.prototype) {
         const descriptor = Object.getOwnPropertyDescriptor(win.HTMLMediaElement.prototype, "src");
-        if (descriptor) {
+        if (descriptor == null ? void 0 : descriptor.set) {
           Object.defineProperty(win.HTMLMediaElement.prototype, "src", __spreadProps(__spreadValues({}, descriptor), {
-            set: function(value) {
-              if (descriptor.set) {
-                descriptor.set.call(this, replaceP2PUrl(value));
-              }
+            set(value) {
+              var _a2;
+              (_a2 = descriptor.set) == null ? void 0 : _a2.call(this, replaceP2PUrl(value));
             }
           }));
         }
       }
-      if (win.XMLHttpRequest && win.XMLHttpRequest.prototype) {
-        const open = win.XMLHttpRequest.prototype.open;
-        win.XMLHttpRequest.prototype.open = function() {
-          try {
-            if (arguments[1] && typeof arguments[1] === "string") {
-              arguments[1] = replaceP2PUrl(arguments[1]);
-            }
-          } finally {
-            return open.apply(this, arguments);
+      if ((_b = win.XMLHttpRequest) == null ? void 0 : _b.prototype) {
+        const originalOpen = win.XMLHttpRequest.prototype.open;
+        win.XMLHttpRequest.prototype.open = function(...args) {
+          if (typeof args[1] === "string") {
+            args[1] = replaceP2PUrl(args[1]);
           }
+          return originalOpen.apply(this, args);
         };
       }
     }
-    if (window.location.href.startsWith("https://live.bilibili.com/")) {
+    if (isLivePage(ctx.url)) {
       win.disableMcdn = true;
       win.disableSmtcdns = true;
       win.forceHighestQuality = true;
       let recentErrors = 0;
-      setInterval(() => {
-        if (recentErrors > 0) recentErrors = Math.floor(recentErrors / 2);
+      win.setInterval(() => {
+        if (recentErrors > 0) {
+          recentErrors = Math.floor(recentErrors / 2);
+        }
       }, 1e4);
-      const oldFetch = win.fetch;
-      if (oldFetch) {
-        win.fetch = function(url) {
+      if (typeof win.fetch === "function") {
+        const originalFetch = win.fetch.bind(win);
+        win.fetch = function(input, init) {
+          var _a2;
           try {
-            const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
-            const mcdnRegexp = /[xy0-9]+\.mcdn\.bilivideo\.cn:\d+/;
-            const smtcdnsRegexp = /[\w.]+\.smtcdns\.net\/([\w-]+\.bilivideo\.com\/)/;
-            const qualityRegexp = /(live-bvc\/\d+\/live_\d+_\d+)_\w+/;
-            let newUrlStr = urlStr;
+            const url = normalizeRequestUrl(input, ctx.win.location.href);
+            const urlString = (_a2 = url == null ? void 0 : url.toString()) != null ? _a2 : "";
+            const mcdnPattern = /[xy0-9]+\.mcdn\.bilivideo\.cn:\d+/u;
+            const smtcdnsPattern = /[\w.]+\.smtcdns\.net\/([\w-]+\.bilivideo\.com\/)/u;
+            const qualityPattern = /(live-bvc\/\d+\/live_\d+_\d+)_\w+/u;
+            let nextUrl = urlString;
             let modified = false;
-            if (mcdnRegexp.test(urlStr) && win.disableMcdn) {
+            if (mcdnPattern.test(urlString) && win.disableMcdn) {
               return Promise.reject(new Error("MCDN Disabled by MBGA"));
             }
-            if (smtcdnsRegexp.test(urlStr) && win.disableSmtcdns) {
-              newUrlStr = urlStr.replace(smtcdnsRegexp, "$1");
+            if (smtcdnsPattern.test(urlString) && win.disableSmtcdns) {
+              nextUrl = nextUrl.replace(smtcdnsPattern, "$1");
               modified = true;
             }
-            if (qualityRegexp.test(urlStr) && win.forceHighestQuality) {
-              newUrlStr = newUrlStr.replace(qualityRegexp, "$1").replace(/(\d+)_(mini|pro)hevc/g, "$1");
+            if (qualityPattern.test(urlString) && win.forceHighestQuality) {
+              nextUrl = nextUrl.replace(qualityPattern, "$1").replace(/(\d+)_(mini|pro)hevc/gu, "$1");
               modified = true;
             }
-            if (modified && arguments.length > 0) {
-              if (typeof arguments[0] === "string" || arguments[0] instanceof URL) {
-                arguments[0] = newUrlStr;
-              }
-            }
-            const promise = oldFetch.apply(this, arguments);
+            const requestInput = modified ? nextUrl : input;
+            const promise = originalFetch(requestInput, init);
             promise.then((response) => {
-              if (!urlStr.match(/\.(m3u8|m4s)/)) return;
-              if ([403, 404].includes(response.status)) recentErrors++;
+              if (!urlString.match(/\.(m3u8|m4s)/u)) {
+                return;
+              }
+              if ([403, 404].includes(response.status)) {
+                recentErrors += 1;
+              }
               if (recentErrors >= 5 && win.forceHighestQuality) {
                 recentErrors = 0;
                 win.forceHighestQuality = false;
@@ -7425,112 +7666,276 @@
               }
             });
             return promise;
-          } catch (_e) {
+          } catch (_error) {
+            return originalFetch(input, init);
           }
-          return oldFetch.apply(this, arguments);
         };
       }
     }
   }
-  function mountMbga(config) {
-    if (!config.mbgaEnabled) {
-      return;
-    }
-    const win = getUnsafeWindow();
-    if (config.mbgaBlockTracking) {
-      mountBlockTracking(win);
-    }
-    if (config.mbgaDisablePcdn) {
-      mountPcdnDisabler(win);
-    }
-    if (config.mbgaCleanUrl) {
-      mountUrlCleaner(win);
-    }
+  function mountMainFeedCleanup(ctx) {
+    ensureScopedStyle(
+      ctx.doc,
+      "main-feed-cleanup",
+      `
+.adblock-tips,
+.feed-card:has(.bili-video-card > div:empty),
+.feed2 .feed-card:has(a[href*="cm.bilibili.com"]),
+.feed2 .feed-card:has(.bili-video-card:empty) {
+  display: none !important;
+}
+
+.feed2 .container > * {
+  margin-top: 0 !important;
+}
+
+.ad-report,
+a[href*="cm.bilibili.com"] {
+  display: none !important;
+}
+`
+    );
   }
-  function mountMbgaUi(config) {
-    if (!config.mbgaEnabled || !config.mbgaSimplifyUi) {
+  function mountDynamicWideMode(ctx) {
+    const win = ctx.win;
+    ensureScopedStyle(
+      ctx.doc,
+      "dynamic-wide-mode",
+      `
+html[wide] #app { display: flex; }
+html[wide] .bili-dyn-home--member { box-sizing: border-box; padding: 0 10px; width: 100%; flex: 1; }
+html[wide] .bili-dyn-content { width: initial; }
+html[wide] main { margin: 0 8px; flex: 1; overflow: hidden; width: initial; }
+.bili-dyn-list__item:has(.bili-dyn-card-goods),
+.bili-dyn-list__item:has(.bili-rich-text-module.goods) {
+  display: none !important;
+}
+`
+    );
+    if (win[MBGA_MARKS.dynamicWideSwitch]) {
       return;
     }
-    const removeFonts = () => {
-      Array.from(document.querySelectorAll("link[href*='/jinkela/long/font/']")).forEach((x) => x.remove());
-      document.body.style.fontFamily = "initial";
-    };
-    removeFonts();
-    if (window.location.href.startsWith("https://www.bilibili.com/read/cv")) {
-      const win = getUnsafeWindow();
-      if (win.original) {
-        win.original.reprint = "1";
-      }
-      const holder = document.querySelector(".article-holder");
-      if (holder) {
-        holder.classList.remove("unable-reprint");
-        holder.addEventListener("copy", (e) => e.stopImmediatePropagation(), true);
-      }
+    win[MBGA_MARKS.dynamicWideSwitch] = true;
+    if (!win.localStorage.getItem("WIDE_OPT_OUT")) {
+      ctx.doc.documentElement.setAttribute("wide", "wide");
     }
-    if (window.location.host === "t.bilibili.com") {
-      const isOptOut = localStorage.getItem("WIDE_OPT_OUT");
-      if (!isOptOut) {
-        document.documentElement.setAttribute("wide", "wide");
+    const injectWideSwitch = () => {
+      const tabContainer = ctx.doc.querySelector(".bili-dyn-list-tabs__list");
+      if (!(tabContainer instanceof HTMLElement) || ctx.doc.getElementById("wide-mode-switch")) {
+        return;
       }
-      const injectWideSwitch = () => {
-        const tabContainer = document.querySelector(".bili-dyn-list-tabs__list");
-        if (!tabContainer || document.getElementById("wide-mode-switch")) return;
-        const placeHolder = document.createElement("div");
-        placeHolder.style.flex = "1";
-        const switchButton = document.createElement("a");
-        switchButton.id = "wide-mode-switch";
-        switchButton.className = "bili-dyn-list-tabs__item";
-        switchButton.textContent = "\u5BBD\u5C4F\u6A21\u5F0F";
-        switchButton.addEventListener("click", (e) => {
-          e.preventDefault();
-          const optOut = localStorage.getItem("WIDE_OPT_OUT");
-          if (optOut) {
-            localStorage.removeItem("WIDE_OPT_OUT");
-            document.documentElement.setAttribute("wide", "wide");
+      const spacer = ctx.doc.createElement("div");
+      spacer.style.flex = "1";
+      const switchButton = ctx.doc.createElement("a");
+      switchButton.id = "wide-mode-switch";
+      switchButton.className = "bili-dyn-list-tabs__item";
+      switchButton.textContent = "\u5BBD\u5C4F\u6A21\u5F0F";
+      switchButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        if (ctx.win.localStorage.getItem("WIDE_OPT_OUT")) {
+          win.localStorage.removeItem("WIDE_OPT_OUT");
+          ctx.doc.documentElement.setAttribute("wide", "wide");
+        } else {
+          win.localStorage.setItem("WIDE_OPT_OUT", "1");
+          ctx.doc.documentElement.removeAttribute("wide");
+        }
+      });
+      tabContainer.append(spacer, switchButton);
+    };
+    win.addEventListener("load", injectWideSwitch, { once: true });
+    win.setTimeout(injectWideSwitch, 2e3);
+  }
+  function mountArticleCopyUnlock(ctx) {
+    const win = ctx.win;
+    if (win[MBGA_MARKS.articleCopyUnlock]) {
+      return;
+    }
+    win[MBGA_MARKS.articleCopyUnlock] = true;
+    if (win.original) {
+      win.original.reprint = "1";
+    }
+    const holder = ctx.doc.querySelector(".article-holder");
+    if (!(holder instanceof HTMLElement)) {
+      return;
+    }
+    holder.classList.remove("unable-reprint");
+    holder.addEventListener(
+      "copy",
+      (event) => {
+        event.stopImmediatePropagation();
+      },
+      true
+    );
+  }
+  function mountLiveUiCleanup(ctx) {
+    ensureScopedStyle(
+      ctx.doc,
+      "live-room-cleanup",
+      `
+div[data-cy=EvaRenderer_LayerWrapper]:has(.player) { z-index: 999999 !important; }
+.fixedPageBackground_root { z-index: 999999 !important; }
+#welcome-area-bottom-vm,
+.web-player-icon-roomStatus { display: none !important; }
+`
+    );
+  }
+  function mountVideoFitMode(ctx) {
+    const win = ctx.win;
+    ensureScopedStyle(
+      ctx.doc,
+      "video-fit-mode",
+      `
+body[video-fit] #bilibili-player video { object-fit: cover !important; }
+.bpx-player-ctrl-setting-fit-mode { display: flex; width: 100%; height: 32px; line-height: 32px; }
+.bpx-player-ctrl-setting-box .bui-panel-wrap,
+.bpx-player-ctrl-setting-box .bui-panel-item { min-height: 172px !important; }
+`
+    );
+    if (win[MBGA_MARKS.videoFitMode]) {
+      return;
+    }
+    win[MBGA_MARKS.videoFitMode] = true;
+    const injectFitButton = () => {
+      if (ctx.doc.querySelector(".bpx-player-ctrl-setting-fit-mode")) {
+        return;
+      }
+      const parent = ctx.doc.querySelector(".bpx-player-ctrl-setting-menu-left");
+      if (!(parent instanceof HTMLElement)) {
+        return;
+      }
+      const item = ctx.doc.createElement("div");
+      item.className = "bpx-player-ctrl-setting-fit-mode bui bui-switch";
+      item.innerHTML = '<input class="bui-switch-input" type="checkbox"><label class="bui-switch-label"><span class="bui-switch-name">\u88C1\u5207\u6A21\u5F0F</span><span class="bui-switch-body"><span class="bui-switch-dot"><span></span></span></span></label>';
+      const moreLink = ctx.doc.querySelector(".bpx-player-ctrl-setting-more");
+      if (moreLink instanceof HTMLElement) {
+        parent.insertBefore(item, moreLink);
+      } else {
+        parent.appendChild(item);
+      }
+      const input = item.querySelector("input");
+      if (input instanceof HTMLInputElement) {
+        input.addEventListener("change", (event) => {
+          const checked = event.currentTarget.checked;
+          if (checked) {
+            ctx.doc.body.setAttribute("video-fit", "");
           } else {
-            localStorage.setItem("WIDE_OPT_OUT", "1");
-            document.documentElement.removeAttribute("wide");
+            ctx.doc.body.removeAttribute("video-fit");
           }
         });
-        tabContainer.appendChild(placeHolder);
-        tabContainer.appendChild(switchButton);
-      };
-      window.addEventListener("load", injectWideSwitch);
-      setTimeout(injectWideSwitch, 2e3);
+      }
+    };
+    const timer = win.setInterval(() => {
+      if (ctx.doc.querySelector(".bpx-player-ctrl-setting-menu-left")) {
+        injectFitButton();
+        win.clearInterval(timer);
+      }
+    }, 1e3);
+    win.setTimeout(() => win.clearInterval(timer), 1e4);
+  }
+  var MBGA_RULES = [
+    {
+      id: "clean-url-params",
+      kind: "behavior",
+      safetyNotes: "Only strips explicit tracking params and preserves unrelated query keys.",
+      enabled: (config) => config.mbgaEnabled && config.mbgaCleanUrl,
+      match: () => true,
+      apply: mountUrlCleaner
+    },
+    {
+      id: "block-telemetry-reporters",
+      kind: "network",
+      safetyNotes: "Blocks only explicit telemetry hosts and returns predictable success semantics to callers.",
+      enabled: (config) => config.mbgaEnabled && config.mbgaBlockTracking,
+      match: () => true,
+      apply: mountBlockTracking
+    },
+    {
+      id: "disable-pcdn",
+      kind: "network",
+      safetyNotes: "Only rewrites known P2P/CDN hosts for video and live pages.",
+      enabled: (config) => config.mbgaEnabled && config.mbgaDisablePcdn,
+      match: (ctx) => isVideoPage(ctx.url) || isLivePage(ctx.url),
+      apply: mountPcdnDisabler
+    },
+    {
+      id: "neutralize-page-grayscale",
+      kind: "ui",
+      safetyNotes: "Only removes page-level grayscale when such filters are actually present.",
+      enabled: (config) => config.mbgaEnabled && config.mbgaSimplifyUi,
+      match: () => true,
+      apply: mountGrayscaleCleanup
+    },
+    {
+      id: "main-feed-cleanup",
+      kind: "ui",
+      safetyNotes: "Only hides explicit ad affordances on the main feed.",
+      enabled: (config) => config.mbgaEnabled && config.mbgaSimplifyUi,
+      match: (ctx) => isMainFeedPage(ctx.url),
+      apply: mountMainFeedCleanup
+    },
+    {
+      id: "dynamic-wide-mode",
+      kind: "ui",
+      safetyNotes: "Only runs on dynamic pages and preserves user opt-out in localStorage.",
+      enabled: (config) => config.mbgaEnabled && config.mbgaSimplifyUi,
+      match: (ctx) => isDynamicPage(ctx.url),
+      apply: mountDynamicWideMode
+    },
+    {
+      id: "article-copy-unlock",
+      kind: "behavior",
+      safetyNotes: "Only unlocks copy behavior on article pages and leaves other pages untouched.",
+      enabled: (config) => config.mbgaEnabled && config.mbgaSimplifyUi,
+      match: (ctx) => isArticlePage(ctx.url),
+      apply: mountArticleCopyUnlock
+    },
+    {
+      id: "live-room-ui-cleanup",
+      kind: "ui",
+      safetyNotes: "Only applies targeted live-room overlay cleanup selectors on live pages.",
+      enabled: (config) => config.mbgaEnabled && config.mbgaSimplifyUi,
+      match: (ctx) => isLivePage(ctx.url),
+      apply: mountLiveUiCleanup
+    },
+    {
+      id: "video-fit-mode",
+      kind: "behavior",
+      safetyNotes: "Only injects the fit toggle on video and bangumi player pages.",
+      enabled: (config) => config.mbgaEnabled && config.mbgaSimplifyUi,
+      match: (ctx) => isVideoPage(ctx.url),
+      apply: mountVideoFitMode
     }
-    if (window.location.href.startsWith("https://www.bilibili.com/video/")) {
-      const injectFitButton = () => {
-        if (document.querySelector(".bpx-player-ctrl-setting-fit-mode")) return;
-        const parent = document.querySelector(".bpx-player-ctrl-setting-menu-left");
-        if (!parent) return;
-        const item = document.createElement("div");
-        item.className = "bpx-player-ctrl-setting-fit-mode bui bui-switch";
-        item.innerHTML = '<input class="bui-switch-input" type="checkbox"><label class="bui-switch-label"><span class="bui-switch-name">\u88C1\u5207\u6A21\u5F0F</span><span class="bui-switch-body"><span class="bui-switch-dot"><span></span></span></span></label>';
-        const moreLink = document.querySelector(".bpx-player-ctrl-setting-more");
-        if (moreLink) {
-          parent.insertBefore(item, moreLink);
-        } else {
-          parent.appendChild(item);
-        }
-        const input = item.querySelector("input");
-        if (input) {
-          input.addEventListener("change", (e) => {
-            if (e.target.checked) {
-              document.body.setAttribute("video-fit", "");
-            } else {
-              document.body.removeAttribute("video-fit");
-            }
-          });
-        }
-      };
-      const timer = setInterval(() => {
-        if (document.querySelector(".bpx-player-ctrl-setting-menu-left")) {
-          injectFitButton();
-          clearInterval(timer);
-        }
-      }, 1e3);
-      setTimeout(() => clearInterval(timer), 1e4);
+  ];
+  var MBGA_CORE_RULE_IDS = /* @__PURE__ */ new Set(["clean-url-params", "block-telemetry-reporters", "disable-pcdn"]);
+  var MBGA_UI_RULE_IDS = /* @__PURE__ */ new Set([
+    "neutralize-page-grayscale",
+    "main-feed-cleanup",
+    "dynamic-wide-mode",
+    "article-copy-unlock",
+    "live-room-ui-cleanup",
+    "video-fit-mode"
+  ]);
+  function applyMbgaRules(config, shouldApply) {
+    const ctx = createMbgaContext(config);
+    for (const rule of MBGA_RULES) {
+      if (!shouldApply(rule)) {
+        continue;
+      }
+      if (!rule.enabled(config) || !rule.match(ctx)) {
+        continue;
+      }
+      try {
+        rule.apply(ctx);
+      } catch (error) {
+        debugLog(`MBGA rule failed: ${rule.id}`, error);
+      }
     }
+  }
+  function mountMbga(config) {
+    applyMbgaRules(config, (rule) => MBGA_CORE_RULE_IDS.has(rule.id));
+  }
+  function mountMbgaUi(config) {
+    applyMbgaRules(config, (rule) => MBGA_UI_RULE_IDS.has(rule.id));
   }
 
   // src/runtime/lifecycle.ts
@@ -9370,31 +9775,7 @@ ${inlineFeedbackStyles}
   }
 }
 `;
-  var mbgaStyles = `
-/* MBGA Simplify UI */
-html, body { -webkit-filter: none !important; filter: none !important; }
-.adblock-tips, .feed-card:has(.bili-video-card>div:empty) { display: none !important; }
-.ad-report, a[href*="cm.bilibili.com"] { display: none !important; }
-.feed2 .feed-card:has(a[href*="cm.bilibili.com"]), .feed2 .feed-card:has(.bili-video-card:empty) { display: none !important; }
-.feed2 .container > * { margin-top: 0 !important; }
-
-/* Dynamic Page Wide Mode */
-html[wide] #app { display: flex; }
-html[wide] .bili-dyn-home--member { box-sizing: border-box; padding: 0 10px; width: 100%; flex: 1; }
-html[wide] .bili-dyn-content { width: initial; }
-html[wide] main { margin: 0 8px; flex: 1; overflow: hidden; width: initial; }
-.bili-dyn-list__item:has(.bili-dyn-card-goods), .bili-dyn-list__item:has(.bili-rich-text-module.goods) { display: none !important; }
-
-/* Live Room Fixes */
-div[data-cy=EvaRenderer_LayerWrapper]:has(.player) { z-index: 999999 !important; }
-.fixedPageBackground_root { z-index: 999999 !important; }
-#welcome-area-bottom-vm, .web-player-icon-roomStatus { display: none !important; }
-
-/* Video Fit Mode */
-body[video-fit] #bilibili-player video { object-fit: cover !important; }
-.bpx-player-ctrl-setting-fit-mode { display: flex; width: 100%; height: 32px; line-height: 32px; }
-.bpx-player-ctrl-setting-box .bui-panel-wrap, .bpx-player-ctrl-setting-box .bui-panel-item { min-height: 172px !important; }
-`;
+  var mbgaStyles = ``;
 
   // src/main.ts
   function isTopLevelWindow() {

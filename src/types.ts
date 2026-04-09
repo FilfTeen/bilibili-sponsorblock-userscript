@@ -172,3 +172,29 @@ export interface LocalVideoSignal {
   confidence: number;
   reason: string;
 }
+
+export type MbgaRuleKind = "network" | "ui" | "behavior";
+
+export interface MbgaContext {
+  config: StoredConfig;
+  doc: Document;
+  win: Window & typeof globalThis;
+  url: URL;
+}
+
+export interface MbgaNetworkDecision {
+  action: "allow" | "block";
+  reason: string;
+  matchedUrl?: string;
+  syntheticStatus?: number;
+  syntheticBody?: string;
+}
+
+export interface MbgaRule {
+  id: string;
+  kind: MbgaRuleKind;
+  safetyNotes: string;
+  enabled: (config: StoredConfig) => boolean;
+  match: (context: MbgaContext) => boolean;
+  apply: (context: MbgaContext) => void;
+}

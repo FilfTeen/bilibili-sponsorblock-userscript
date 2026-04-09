@@ -1790,28 +1790,4 @@ ${inlineFeedbackStyles}
 }
 `;
 
-export const mbgaStyles = `
-/* MBGA Simplify UI */
-html, body { -webkit-filter: none !important; filter: none !important; }
-.adblock-tips, .feed-card:has(.bili-video-card>div:empty) { display: none !important; }
-.ad-report, a[href*="cm.bilibili.com"] { display: none !important; }
-.feed2 .feed-card:has(a[href*="cm.bilibili.com"]), .feed2 .feed-card:has(.bili-video-card:empty) { display: none !important; }
-.feed2 .container > * { margin-top: 0 !important; }
-
-/* Dynamic Page Wide Mode */
-html[wide] #app { display: flex; }
-html[wide] .bili-dyn-home--member { box-sizing: border-box; padding: 0 10px; width: 100%; flex: 1; }
-html[wide] .bili-dyn-content { width: initial; }
-html[wide] main { margin: 0 8px; flex: 1; overflow: hidden; width: initial; }
-.bili-dyn-list__item:has(.bili-dyn-card-goods), .bili-dyn-list__item:has(.bili-rich-text-module.goods) { display: none !important; }
-
-/* Live Room Fixes */
-div[data-cy=EvaRenderer_LayerWrapper]:has(.player) { z-index: 999999 !important; }
-.fixedPageBackground_root { z-index: 999999 !important; }
-#welcome-area-bottom-vm, .web-player-icon-roomStatus { display: none !important; }
-
-/* Video Fit Mode */
-body[video-fit] #bilibili-player video { object-fit: cover !important; }
-.bpx-player-ctrl-setting-fit-mode { display: flex; width: 100%; height: 32px; line-height: 32px; }
-.bpx-player-ctrl-setting-box .bui-panel-wrap, .bpx-player-ctrl-setting-box .bui-panel-item { min-height: 172px !important; }
-`;
+export const mbgaStyles = ``;
