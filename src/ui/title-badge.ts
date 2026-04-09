@@ -1,7 +1,7 @@
 import { CATEGORY_DESCRIPTIONS, CATEGORY_LABELS } from "../constants";
 import type { CategoryColorOverrides, SegmentRecord } from "../types";
 import { cleanupVideoTitleAccessoryHost, ensureVideoTitleAccessoryHost } from "../utils/dom";
-import { getReadableTextColor, resolveCategoryStyle } from "../utils/color";
+import { resolveCategoryStyle } from "../utils/color";
 import { createCogIcon, createSponsorShieldIcon, createThumbIcon } from "./icons";
 
 export type TitleBadgeVoteType = 0 | 1;
@@ -73,6 +73,7 @@ export class TitleBadge {
 
   constructor(private readonly callbacks: TitleBadgeCallbacks) {
     this.root.className = "bsb-tm-title-pill-wrap";
+    this.root.dataset.glassContext = "surface";
     this.root.hidden = true;
 
     this.pillButton.type = "button";
@@ -182,6 +183,9 @@ export class TitleBadge {
 
   private applyAppearance(segment: SegmentRecord): void {
     const style = resolveCategoryStyle(segment.category, this.categoryColorOverrides);
+    const glassVariant = this.transparencyEnabled ? style.transparentVariant : "dark";
+    const transparentContrast = "#0f172a";
+    const transparentSurface = style.glassSurface;
     this.votingAvailable =
       segment.actionType === "full" &&
       segment.UUID.length > 0 &&
@@ -191,15 +195,18 @@ export class TitleBadge {
 
     this.root.dataset.category = segment.category;
     this.root.dataset.transparent = String(this.transparencyEnabled);
+    this.root.dataset.glassContext = "surface";
+    this.root.dataset.glassVariant = glassVariant;
     this.root.style.setProperty("--bsb-category-accent", style.accent);
     this.root.style.setProperty("--bsb-category-accent-strong", style.accentStrong);
+    this.root.style.setProperty("--bsb-category-display-accent", style.transparentDisplayAccent);
     this.root.style.setProperty(
       "--bsb-category-contrast",
-      this.transparencyEnabled ? getReadableTextColor(style.glassSurface) : style.contrast
+      this.transparencyEnabled ? transparentContrast : style.contrast
     );
     this.root.style.setProperty("--bsb-category-soft-surface", style.softSurface);
     this.root.style.setProperty("--bsb-category-soft-border", style.softBorder);
-    this.root.style.setProperty("--bsb-category-glass-surface", style.glassSurface);
+    this.root.style.setProperty("--bsb-category-glass-surface", this.transparencyEnabled ? transparentSurface : style.glassSurface);
     this.root.style.setProperty("--bsb-category-glass-border", style.glassBorder);
     this.titleText.textContent = CATEGORY_LABELS[segment.category];
     this.description.textContent = resolveCopy(segment, this.votingAvailable);

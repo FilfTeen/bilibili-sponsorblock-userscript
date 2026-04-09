@@ -293,7 +293,7 @@ function syncOverlayMetrics(overlay: HTMLElement, shortLabel: string, fullLabel:
   // Home Page (default): Pill-style, height 22px, min-width 38px
   // Sidebar/History (corner): Sphere-style, height 19px, min-width 19px
   const padding = isCorner ? 7 : 9;
-  const dotAndGap = isCorner ? 9 : 10; 
+  const dotAndGap = isCorner ? 9 : 11; 
   const minCollapsed = isCorner ? 19 : 38;
   const maxExpanded = 180;
 
@@ -398,6 +398,7 @@ function getOrCreateOverlay(card: HTMLElement, target: ThumbnailTarget): Overlay
     ) {
       slot.dataset.placement = target.placement ?? "default";
       existing.dataset.placement = target.placement ?? "default";
+      existing.dataset.glassContext = "overlay";
       bindOverlayHoverState(host, anchor, slot, existing);
       positionOverlay(host, card, anchor, existing);
       return { slot, overlay: existing, shortText, text, anchor };
@@ -412,6 +413,7 @@ function getOrCreateOverlay(card: HTMLElement, target: ThumbnailTarget): Overlay
   const overlay = document.createElement("div");
   overlay.className = "sponsorThumbnailLabel";
   overlay.dataset.placement = target.placement ?? "default";
+  overlay.dataset.glassContext = "overlay";
 
   const textStack = document.createElement("span");
   textStack.className = "bsb-tm-thumbnail-text-stack";
@@ -455,18 +457,23 @@ function applyCategoryLabel(
   config: StoredConfig
 ): void {
   const { overlay, shortText, text, anchor } = getOrCreateOverlay(card, target);
+  const transparencyEnabled = config.labelTransparency.thumbnailLabel;
   const host =
     overlay.parentElement instanceof HTMLElement && overlay.parentElement.parentElement instanceof HTMLElement
       ? overlay.parentElement.parentElement
       : card;
   const style = resolveCategoryStyle(category, config.categoryColorOverrides);
+  const glassVariant = transparencyEnabled ? style.transparentVariant : "dark";
   card.setAttribute(PROCESSED_ATTR, videoId);
   overlay.dataset.category = category;
+  overlay.dataset.glassContext = "overlay";
+  overlay.dataset.glassVariant = glassVariant;
   overlay.style.setProperty("--category-accent", style.accent);
-  overlay.style.setProperty("--category-contrast", style.darkContrast);
-  overlay.style.setProperty("--category-glass-surface", style.darkSurface);
+  overlay.style.setProperty("--category-display-accent", style.transparentDisplayAccent);
+  overlay.style.setProperty("--category-contrast", glassVariant === "light" ? style.contrast : style.darkContrast);
+  overlay.style.setProperty("--category-glass-surface", glassVariant === "light" ? style.glassSurface : style.darkSurface);
   overlay.style.setProperty("--category-glass-border", style.glassBorder);
-  overlay.dataset.transparent = String(config.labelTransparency.thumbnailLabel);
+  overlay.dataset.transparent = String(transparencyEnabled);
   overlay.setAttribute("aria-label", `整视频标签：${CATEGORY_LABELS[category]}`);
   const shortTextNode = shortText.firstElementChild instanceof HTMLElement ? shortText.firstElementChild : shortText;
   const textNode = text.firstElementChild instanceof HTMLElement ? text.firstElementChild : text;

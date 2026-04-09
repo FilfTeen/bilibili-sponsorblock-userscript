@@ -1,4 +1,9 @@
 import { inlineFeedbackStyles } from "./inline-feedback";
+import { createSurfaceFrostedGlassMaterial } from "./surface-frosted-glass";
+
+const titleSurfaceFrostedGlass = createSurfaceFrostedGlassMaterial({
+  accentExpression: "var(--bsb-category-accent, #2f9e72)"
+});
 
 export const styles = `
 :root {
@@ -860,38 +865,16 @@ export const styles = `
     transform 220ms var(--bsb-ease-fluid);
 }
 
-.bsb-tm-title-pill-wrap[data-transparent="true"] .bsb-tm-title-pill {
-  border-color: color-mix(in srgb, var(--bsb-category-accent, #2f9e72) 44%, rgba(255, 255, 255, 0.38));
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.62),
-    inset 0 -1px 0 color-mix(in srgb, var(--bsb-category-accent, #2f9e72) 16%, rgba(148, 163, 184, 0.1)),
-    0 4px 8px rgba(15, 23, 42, 0.04),
-    0 12px 22px rgba(15, 23, 42, 0.045),
-    0 0 0 1px rgba(255, 255, 255, 0.12);
+.bsb-tm-title-pill-wrap[data-transparent="true"][data-glass-context="surface"] .bsb-tm-title-pill {
+${titleSurfaceFrostedGlass.base}
 }
 
-.bsb-tm-title-pill-wrap[data-transparent="true"] .bsb-tm-title-pill::before {
-  content: "";
-  position: absolute;
-  inset: 0;
+.bsb-tm-title-pill-wrap[data-transparent="true"][data-glass-context="surface"] .bsb-tm-title-pill::before {
   z-index: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  background:
-    radial-gradient(circle at 14% -18%, color-mix(in srgb, var(--bsb-category-accent, #2f9e72) 36%, rgba(255, 255, 255, 0.54)) 0%, transparent 34%),
-    radial-gradient(circle at 78% 120%, color-mix(in srgb, var(--bsb-category-accent, #2f9e72) 30%, rgba(15, 23, 42, 0.18)) 0%, transparent 48%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.08) 34%, transparent 70%),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--bsb-category-accent, #2f9e72) 20%, rgba(255, 255, 255, 0.2)),
-      color-mix(in srgb, var(--bsb-category-accent, #2f9e72) 42%, rgba(15, 23, 42, 0.16))
-    );
-  opacity: 0.96;
-  backdrop-filter: blur(4px) saturate(160%) brightness(1.05);
+${titleSurfaceFrostedGlass.overlay}
 }
 
-.bsb-tm-title-pill-wrap[data-transparent="true"] .bsb-tm-title-pill::after {
+.bsb-tm-title-pill-wrap[data-transparent="true"][data-glass-context="surface"] .bsb-tm-title-pill::after {
   content: "";
   position: absolute;
   inset: 1px;
@@ -899,13 +882,13 @@ export const styles = `
   border-radius: inherit;
   pointer-events: none;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.68), rgba(255, 255, 255, 0.08) 26%, transparent 54%),
-    linear-gradient(108deg, transparent 12%, rgba(255, 255, 255, 0.62) 20%, rgba(255, 255, 255, 0.08) 30%, transparent 42%);
-  opacity: 0.92;
+    linear-gradient(180deg, rgba(255, 255, 255, 0.48), rgba(255, 255, 255, 0.08) 26%, transparent 54%),
+    linear-gradient(108deg, transparent 14%, rgba(255, 255, 255, 0.34) 20%, rgba(255, 255, 255, 0.06) 30%, transparent 42%);
+  opacity: 0.78;
   mix-blend-mode: screen;
 }
 
-.bsb-tm-title-pill-wrap[data-transparent="true"] .bsb-tm-title-pill > * {
+.bsb-tm-title-pill-wrap[data-transparent="true"][data-glass-context="surface"] .bsb-tm-title-pill > * {
   position: relative;
   z-index: 2;
 }
@@ -918,15 +901,15 @@ export const styles = `
     0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
-.bsb-tm-title-pill-wrap[data-transparent="true"] .bsb-tm-title-pill:hover,
-.bsb-tm-title-pill-wrap[data-transparent="true"] .bsb-tm-title-pill[aria-expanded="true"] {
+.bsb-tm-title-pill-wrap[data-transparent="true"][data-glass-context="surface"] .bsb-tm-title-pill:hover,
+.bsb-tm-title-pill-wrap[data-transparent="true"][data-glass-context="surface"] .bsb-tm-title-pill[aria-expanded="true"] {
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    inset 0 -1px 0 rgba(188, 195, 206, 0.18),
-    0 6px 12px rgba(15, 23, 42, 0.05),
-    0 14px 24px rgba(15, 23, 42, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    inset 0 -1px 0 color-mix(in srgb, var(--bsb-category-accent, #2f9e72) 18%, rgba(148, 163, 184, 0.05)),
+    0 4px 10px rgba(15, 23, 42, 0.05),
+    0 10px 20px rgba(15, 23, 42, 0.06),
     0 0 0 1px rgba(255, 255, 255, 0.18);
-  filter: saturate(1.06) brightness(1.02);
+  filter: saturate(1.03) brightness(1.01);
 }
 
 .bsb-tm-title-pill svg,
@@ -1144,6 +1127,11 @@ export const styles = `
 }
 
 .sponsorThumbnailLabel {
+  --bsb-thumbnail-dot-size: 5px;
+  --bsb-thumbnail-dot-stroke: 1.5px;
+  --bsb-thumbnail-dot-left: 10px;
+  --bsb-thumbnail-dot-opacity: 0.85;
+  --bsb-thumbnail-dot-glow: 5px;
   --bsb-thumbnail-current-width: var(--bsb-thumbnail-collapsed-width, 38px);
   --bsb-thumbnail-current-padding: 9px;
   display: flex;
@@ -1192,7 +1180,7 @@ export const styles = `
     padding 280ms var(--bsb-ease-fluid);
 }
 
-.sponsorThumbnailLabel[data-transparent="true"] {
+.sponsorThumbnailLabel[data-transparent="true"][data-glass-context="overlay"] {
   border: 1px solid color-mix(in srgb, var(--category-accent, #ffffff) 34%, rgba(255, 255, 255, 0.3));
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015));
   backdrop-filter: none;
@@ -1203,7 +1191,7 @@ export const styles = `
     0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 
-.sponsorThumbnailLabel[data-transparent="true"]::after {
+.sponsorThumbnailLabel[data-transparent="true"][data-glass-context="overlay"]::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -1225,7 +1213,50 @@ export const styles = `
   mix-blend-mode: screen;
 }
 
+.sponsorThumbnailLabel[data-transparent="true"][data-glass-context="overlay"][data-glass-variant="light"] {
+  border: 1px solid color-mix(
+    in srgb,
+    var(--category-display-accent, var(--category-accent, #ffffff)) 28%,
+    rgba(255, 255, 255, 0.46)
+  );
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--category-display-accent, var(--category-accent, #ffffff)) 10%, rgba(255, 255, 255, 0.92)),
+    color-mix(in srgb, var(--category-display-accent, var(--category-accent, #ffffff)) 16%, rgba(241, 245, 249, 0.74))
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    inset 0 -1px 0 color-mix(
+      in srgb,
+      var(--category-display-accent, var(--category-accent, #ffffff)) 16%,
+      rgba(148, 163, 184, 0.08)
+    ),
+    0 3px 8px rgba(15, 23, 42, 0.04),
+    0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.sponsorThumbnailLabel[data-transparent="true"][data-glass-context="overlay"][data-glass-variant="light"]::after {
+  background:
+    radial-gradient(
+      circle at 18% -10%,
+      color-mix(in srgb, var(--category-display-accent, var(--category-accent, #ffffff)) 22%, rgba(255, 255, 255, 0.44)) 0%,
+      transparent 34%
+    ),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.05) 32%, transparent 56%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--category-display-accent, var(--category-accent, #ffffff)) 10%, rgba(255, 255, 255, 0.12)),
+      color-mix(in srgb, var(--category-display-accent, var(--category-accent, #ffffff)) 18%, rgba(231, 238, 245, 0.08))
+    ),
+    linear-gradient(112deg, transparent 24%, rgba(255, 255, 255, 0.2) 32%, transparent 46%);
+  opacity: 0.82;
+  backdrop-filter: saturate(144%) brightness(1.03);
+}
+
 .sponsorThumbnailLabel[data-placement="corner"] {
+  --bsb-thumbnail-dot-size: 4px;
+  --bsb-thumbnail-dot-left: 7px;
+  --bsb-thumbnail-dot-glow: 4px;
   height: 19px;
   min-width: var(--bsb-thumbnail-current-width, 19px);
   max-width: 180px;
@@ -1240,13 +1271,30 @@ export const styles = `
     0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 
-.sponsorThumbnailLabel[data-placement="corner"][data-transparent="true"] {
+.sponsorThumbnailLabel[data-placement="corner"][data-transparent="true"][data-glass-context="overlay"] {
   border-color: color-mix(in srgb, var(--category-accent, #ffffff) 28%, rgba(255, 255, 255, 0.28));
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.24),
     inset 0 -1px 0 color-mix(in srgb, var(--category-accent, #ffffff) 12%, rgba(15, 23, 42, 0.05)),
     0 3px 8px rgba(15, 23, 42, 0.055),
     0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.sponsorThumbnailLabel[data-placement="corner"][data-transparent="true"][data-glass-context="overlay"][data-glass-variant="light"] {
+  border-color: color-mix(
+    in srgb,
+    var(--category-display-accent, var(--category-accent, #ffffff)) 24%,
+    rgba(255, 255, 255, 0.44)
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    inset 0 -1px 0 color-mix(
+      in srgb,
+      var(--category-display-accent, var(--category-accent, #ffffff)) 14%,
+      rgba(148, 163, 184, 0.08)
+    ),
+    0 2px 6px rgba(15, 23, 42, 0.035),
+    0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 .bsb-tm-thumbnail-slot[data-placement="corner"] .sponsorThumbnailLabelVisible {
@@ -1256,19 +1304,22 @@ export const styles = `
 .sponsorThumbnailLabel::before {
   content: "";
   position: absolute;
-  left: 9px;
-  width: 4px;
-  height: 4px;
+  top: 50%;
+  left: var(--bsb-thumbnail-dot-left);
+  width: var(--bsb-thumbnail-dot-size);
+  height: var(--bsb-thumbnail-dot-size);
   border-radius: 50%;
-  border: 1.5px solid currentColor;
-  opacity: 0.85;
-  box-shadow: 0 0 4px color-mix(in srgb, currentColor 40%, transparent);
+  border: var(--bsb-thumbnail-dot-stroke) solid currentColor;
+  opacity: var(--bsb-thumbnail-dot-opacity);
+  box-shadow: 0 0 var(--bsb-thumbnail-dot-glow) color-mix(in srgb, currentColor 40%, transparent);
   flex-shrink: 0;
   z-index: 2;
+  transform: translateY(-50%);
 }
 
-.sponsorThumbnailLabel[data-placement="corner"]::before {
-  left: 7px;
+.sponsorThumbnailLabel[data-transparent="true"][data-glass-context="overlay"][data-glass-variant="light"]::before {
+  border-color: var(--category-display-accent, currentColor);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--category-display-accent, currentColor) 40%, transparent);
 }
 
 .sponsorThumbnailLabel .bsb-tm-thumbnail-text-stack {
@@ -1304,6 +1355,11 @@ export const styles = `
   transition:
     opacity 180ms var(--bsb-ease-swift),
     transform 280ms var(--bsb-ease-fluid);
+}
+
+.sponsorThumbnailLabel[data-transparent="true"][data-glass-context="overlay"][data-glass-variant="light"] .bsb-tm-thumbnail-short-label,
+.sponsorThumbnailLabel[data-transparent="true"][data-glass-context="overlay"][data-glass-variant="light"] .bsb-tm-thumbnail-label {
+  text-shadow: none;
 }
 
 .sponsorThumbnailLabel .bsb-tm-thumbnail-short-label > span {

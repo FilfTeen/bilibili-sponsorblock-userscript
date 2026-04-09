@@ -659,6 +659,8 @@
   }
 
   // src/utils/color.ts
+  var NEAR_WHITE_LUMINANCE_THRESHOLD = 0.82;
+  var NEAR_WHITE_MIN_CHANNEL = 232;
   function clampChannel(value) {
     return Math.max(0, Math.min(255, Math.round(value)));
   }
@@ -714,6 +716,16 @@
   function getReadableTextColor(hexColor) {
     return relativeLuminance(hexToRgb(hexColor)) > 0.56 ? "#0f172a" : "#ffffff";
   }
+  function isNearWhiteColor(hexColor) {
+    const rgb = hexToRgb(hexColor);
+    return relativeLuminance(rgb) > NEAR_WHITE_LUMINANCE_THRESHOLD && Math.min(rgb.r, rgb.g, rgb.b) >= NEAR_WHITE_MIN_CHANNEL;
+  }
+  function resolveTransparentGlassVariant(hexColor) {
+    return isNearWhiteColor(hexColor) ? "light" : "dark";
+  }
+  function resolveGlassDisplayAccent(hexColor) {
+    return isNearWhiteColor(hexColor) ? mixColors(hexColor, "#94a3b8", 0.72) : hexColor;
+  }
   function resolveCategoryAccent(category, overrides) {
     var _a;
     return (_a = normalizeHexColor(overrides == null ? void 0 : overrides[category])) != null ? _a : CATEGORY_COLORS[category];
@@ -721,6 +733,7 @@
   function resolveCategoryStyle(category, overrides) {
     const accent = resolveCategoryAccent(category, overrides);
     const accentStrong = mixColors(accent, "#0f172a", 0.12);
+    const transparentVariant = resolveTransparentGlassVariant(accent);
     return {
       accent,
       accentStrong,
@@ -730,7 +743,9 @@
       softBorder: rgba(accent, 0.3),
       glassSurface: mixColors(accent, "#ffffff", 0.86),
       glassBorder: rgba(accent, 0.4),
-      darkSurface: rgba(accentStrong, 0.88)
+      darkSurface: rgba(accentStrong, 0.88),
+      transparentVariant,
+      transparentDisplayAccent: resolveGlassDisplayAccent(accent)
     };
   }
 
@@ -3403,6 +3418,7 @@
         }
       });
       this.root.className = "bsb-tm-title-pill-wrap";
+      this.root.dataset.glassContext = "surface";
       this.root.hidden = true;
       this.pillButton.type = "button";
       this.pillButton.className = "bsb-tm-title-pill";
@@ -3498,19 +3514,25 @@
     }
     applyAppearance(segment) {
       const style = resolveCategoryStyle(segment.category, this.categoryColorOverrides);
+      const glassVariant = this.transparencyEnabled ? style.transparentVariant : "dark";
+      const transparentContrast = "#0f172a";
+      const transparentSurface = style.glassSurface;
       this.votingAvailable = segment.actionType === "full" && segment.UUID.length > 0 && !segment.UUID.startsWith("video-label:") && !segment.UUID.startsWith("local-signal:");
       this.localActionsAvailable = segment.UUID.startsWith("local-signal:");
       this.root.dataset.category = segment.category;
       this.root.dataset.transparent = String(this.transparencyEnabled);
+      this.root.dataset.glassContext = "surface";
+      this.root.dataset.glassVariant = glassVariant;
       this.root.style.setProperty("--bsb-category-accent", style.accent);
       this.root.style.setProperty("--bsb-category-accent-strong", style.accentStrong);
+      this.root.style.setProperty("--bsb-category-display-accent", style.transparentDisplayAccent);
       this.root.style.setProperty(
         "--bsb-category-contrast",
-        this.transparencyEnabled ? getReadableTextColor(style.glassSurface) : style.contrast
+        this.transparencyEnabled ? transparentContrast : style.contrast
       );
       this.root.style.setProperty("--bsb-category-soft-surface", style.softSurface);
       this.root.style.setProperty("--bsb-category-soft-border", style.softBorder);
-      this.root.style.setProperty("--bsb-category-glass-surface", style.glassSurface);
+      this.root.style.setProperty("--bsb-category-glass-surface", this.transparencyEnabled ? transparentSurface : style.glassSurface);
       this.root.style.setProperty("--bsb-category-glass-border", style.glassBorder);
       this.titleText.textContent = CATEGORY_LABELS[segment.category];
       this.description.textContent = resolveCopy(segment, this.votingAvailable);
@@ -4201,8 +4223,53 @@
     };
   }
 
+  // src/ui/surface-frosted-glass.ts
+  function createSurfaceFrostedGlassMaterial(options) {
+    const { accentExpression, textVariable } = options;
+    const textAssignment = textVariable ? `  ${textVariable}: #0f172a;
+` : "";
+    return {
+      base: `${textAssignment}  background: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.035));
+  border: 1px solid color-mix(in srgb, ${accentExpression} 28%, rgba(255, 255, 255, 0.42));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.74),
+    inset 0 -1px 0 color-mix(in srgb, ${accentExpression} 18%, rgba(148, 163, 184, 0.05)),
+    0 2px 6px rgba(15, 23, 42, 0.035),
+    0 0 0 1px rgba(255, 255, 255, 0.08);
+  backdrop-filter: none;`,
+      overlay: `  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 16% -12%, color-mix(in srgb, ${accentExpression} 28%, rgba(255, 255, 255, 0.44)) 0%, transparent 32%),
+    radial-gradient(circle at 82% 120%, color-mix(in srgb, ${accentExpression} 18%, rgba(15, 23, 42, 0.14)) 0%, transparent 46%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.38), rgba(255, 255, 255, 0.05) 32%, transparent 56%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, ${accentExpression} 14%, rgba(255, 255, 255, 0.1)),
+      color-mix(in srgb, ${accentExpression} 22%, rgba(231, 238, 245, 0.07))
+    ),
+    linear-gradient(112deg, transparent 22%, rgba(255, 255, 255, 0.18) 30%, transparent 44%);
+  opacity: 0.76;
+  backdrop-filter: saturate(144%) brightness(1.03);
+  mix-blend-mode: screen;`
+    };
+  }
+
   // src/ui/inline-feedback.ts
   var INLINE_STYLE_ATTR = "data-bsb-inline-feedback-style";
+  var DEFAULT_TONE_ACCENTS = {
+    danger: "#ff6b66",
+    warning: "#ffd56a",
+    success: "#4ade80",
+    info: "#60a5fa"
+  };
+  var inlineSurfaceFrostedGlass = createSurfaceFrostedGlassMaterial({
+    accentExpression: "var(--bsb-inline-accent)",
+    textVariable: "--bsb-inline-text"
+  });
   var inlineFeedbackStyles = `
 .bsb-tm-inline-chip,
 .bsb-tm-inline-toggle {
@@ -4248,39 +4315,17 @@
 }
 
 .bsb-tm-inline-chip[data-appearance="glass"] {
-  --bsb-inline-text: #0f172a;
   position: relative;
   isolation: isolate;
   overflow: hidden;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.035));
-  border: 1px solid color-mix(in srgb, var(--bsb-inline-accent) 28%, rgba(255, 255, 255, 0.42));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.74),
-    inset 0 -1px 0 color-mix(in srgb, var(--bsb-inline-accent) 18%, rgba(148, 163, 184, 0.05)),
-    0 2px 6px rgba(15, 23, 42, 0.035),
-    0 0 0 1px rgba(255, 255, 255, 0.08);
-  backdrop-filter: none;
 }
 
-.bsb-tm-inline-chip[data-appearance="glass"]::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  background:
-    radial-gradient(circle at 16% -12%, color-mix(in srgb, var(--bsb-inline-accent) 28%, rgba(255, 255, 255, 0.44)) 0%, transparent 32%),
-    radial-gradient(circle at 82% 120%, color-mix(in srgb, var(--bsb-inline-accent) 18%, rgba(15, 23, 42, 0.14)) 0%, transparent 46%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.38), rgba(255, 255, 255, 0.05) 32%, transparent 56%),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--bsb-inline-accent) 14%, rgba(255, 255, 255, 0.1)),
-      color-mix(in srgb, var(--bsb-inline-accent) 22%, rgba(231, 238, 245, 0.07))
-    ),
-    linear-gradient(112deg, transparent 22%, rgba(255, 255, 255, 0.18) 30%, transparent 44%);
-  opacity: 0.76;
-  backdrop-filter: saturate(144%) brightness(1.03);
-  mix-blend-mode: screen;
+.bsb-tm-inline-chip[data-appearance="glass"][data-glass-context="surface"] {
+${inlineSurfaceFrostedGlass.base}
+}
+
+.bsb-tm-inline-chip[data-appearance="glass"][data-glass-context="surface"]::after {
+${inlineSurfaceFrostedGlass.overlay}
 }
 
 .bsb-tm-inline-chip::before {
@@ -4295,7 +4340,7 @@
     0 0 14px color-mix(in srgb, var(--bsb-inline-accent) 72%, transparent);
 }
 
-.bsb-tm-inline-chip[data-appearance="glass"]::before {
+.bsb-tm-inline-chip[data-appearance="glass"][data-glass-context="surface"]::before {
   box-shadow:
     0 0 0 2px rgba(255, 255, 255, 0.24),
     0 0 10px color-mix(in srgb, var(--bsb-inline-accent) 38%, transparent);
@@ -4409,10 +4454,15 @@
   }
   function createInlineBadge(attrName, text, tone, layout, customColor, appearance = "solid") {
     const badge = document.createElement("div");
+    const accent = customColor != null ? customColor : DEFAULT_TONE_ACCENTS[tone];
     badge.className = `bsb-tm-inline-chip bsb-tm-inline-chip--${layout}`;
     badge.setAttribute(attrName, "true");
     badge.dataset.tone = tone;
     badge.dataset.appearance = appearance;
+    badge.dataset.glassVariant = resolveTransparentGlassVariant(accent);
+    if (appearance === "glass") {
+      badge.dataset.glassContext = "surface";
+    }
     badge.title = text;
     badge.textContent = text;
     if (customColor) {
@@ -7028,7 +7078,7 @@
     const isCorner = placement === "corner";
     const fontSize = isCorner ? 9.5 : 10;
     const padding = isCorner ? 7 : 9;
-    const dotAndGap = isCorner ? 9 : 10;
+    const dotAndGap = isCorner ? 9 : 11;
     const minCollapsed = isCorner ? 19 : 38;
     const maxExpanded = 180;
     const multiplier = isCorner ? 1.08 : 1;
@@ -7111,6 +7161,7 @@
       if (textStack2 instanceof HTMLElement && shortText2 instanceof HTMLElement && text2 instanceof HTMLElement && (slot2 == null ? void 0 : slot2.classList.contains("bsb-tm-thumbnail-slot")) && slot2.parentElement === host) {
         slot2.dataset.placement = (_a = target.placement) != null ? _a : "default";
         existing.dataset.placement = (_b = target.placement) != null ? _b : "default";
+        existing.dataset.glassContext = "overlay";
         bindOverlayHoverState(host, anchor, slot2, existing);
         positionOverlay(host, card, anchor, existing);
         return { slot: slot2, overlay: existing, shortText: shortText2, text: text2, anchor };
@@ -7124,6 +7175,7 @@
     const overlay = document.createElement("div");
     overlay.className = "sponsorThumbnailLabel";
     overlay.dataset.placement = (_d = target.placement) != null ? _d : "default";
+    overlay.dataset.glassContext = "overlay";
     const textStack = document.createElement("span");
     textStack.className = "bsb-tm-thumbnail-text-stack";
     const shortText = document.createElement("span");
@@ -7153,15 +7205,20 @@
   }
   function applyCategoryLabel(card, target, videoId, category, config) {
     const { overlay, shortText, text, anchor } = getOrCreateOverlay(card, target);
+    const transparencyEnabled = config.labelTransparency.thumbnailLabel;
     const host = overlay.parentElement instanceof HTMLElement && overlay.parentElement.parentElement instanceof HTMLElement ? overlay.parentElement.parentElement : card;
     const style = resolveCategoryStyle(category, config.categoryColorOverrides);
+    const glassVariant = transparencyEnabled ? style.transparentVariant : "dark";
     card.setAttribute(PROCESSED_ATTR2, videoId);
     overlay.dataset.category = category;
+    overlay.dataset.glassContext = "overlay";
+    overlay.dataset.glassVariant = glassVariant;
     overlay.style.setProperty("--category-accent", style.accent);
-    overlay.style.setProperty("--category-contrast", style.darkContrast);
-    overlay.style.setProperty("--category-glass-surface", style.darkSurface);
+    overlay.style.setProperty("--category-display-accent", style.transparentDisplayAccent);
+    overlay.style.setProperty("--category-contrast", glassVariant === "light" ? style.contrast : style.darkContrast);
+    overlay.style.setProperty("--category-glass-surface", glassVariant === "light" ? style.glassSurface : style.darkSurface);
     overlay.style.setProperty("--category-glass-border", style.glassBorder);
-    overlay.dataset.transparent = String(config.labelTransparency.thumbnailLabel);
+    overlay.dataset.transparent = String(transparencyEnabled);
     overlay.setAttribute("aria-label", `\u6574\u89C6\u9891\u6807\u7B7E\uFF1A${CATEGORY_LABELS[category]}`);
     const shortTextNode = shortText.firstElementChild instanceof HTMLElement ? shortText.firstElementChild : shortText;
     const textNode = text.firstElementChild instanceof HTMLElement ? text.firstElementChild : text;
@@ -8290,6 +8347,9 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
   }
 
   // src/ui/styles.ts
+  var titleSurfaceFrostedGlass = createSurfaceFrostedGlassMaterial({
+    accentExpression: "var(--bsb-category-accent, #2f9e72)"
+  });
   var styles = `
 :root {
   --bsb-brand-blue: #00aeec;
@@ -9150,38 +9210,16 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
     transform 220ms var(--bsb-ease-fluid);
 }
 
-.bsb-tm-title-pill-wrap[data-transparent="true"] .bsb-tm-title-pill {
-  border-color: color-mix(in srgb, var(--bsb-category-accent, #2f9e72) 44%, rgba(255, 255, 255, 0.38));
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.62),
-    inset 0 -1px 0 color-mix(in srgb, var(--bsb-category-accent, #2f9e72) 16%, rgba(148, 163, 184, 0.1)),
-    0 4px 8px rgba(15, 23, 42, 0.04),
-    0 12px 22px rgba(15, 23, 42, 0.045),
-    0 0 0 1px rgba(255, 255, 255, 0.12);
+.bsb-tm-title-pill-wrap[data-transparent="true"][data-glass-context="surface"] .bsb-tm-title-pill {
+${titleSurfaceFrostedGlass.base}
 }
 
-.bsb-tm-title-pill-wrap[data-transparent="true"] .bsb-tm-title-pill::before {
-  content: "";
-  position: absolute;
-  inset: 0;
+.bsb-tm-title-pill-wrap[data-transparent="true"][data-glass-context="surface"] .bsb-tm-title-pill::before {
   z-index: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  background:
-    radial-gradient(circle at 14% -18%, color-mix(in srgb, var(--bsb-category-accent, #2f9e72) 36%, rgba(255, 255, 255, 0.54)) 0%, transparent 34%),
-    radial-gradient(circle at 78% 120%, color-mix(in srgb, var(--bsb-category-accent, #2f9e72) 30%, rgba(15, 23, 42, 0.18)) 0%, transparent 48%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.08) 34%, transparent 70%),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--bsb-category-accent, #2f9e72) 20%, rgba(255, 255, 255, 0.2)),
-      color-mix(in srgb, var(--bsb-category-accent, #2f9e72) 42%, rgba(15, 23, 42, 0.16))
-    );
-  opacity: 0.96;
-  backdrop-filter: blur(4px) saturate(160%) brightness(1.05);
+${titleSurfaceFrostedGlass.overlay}
 }
 
-.bsb-tm-title-pill-wrap[data-transparent="true"] .bsb-tm-title-pill::after {
+.bsb-tm-title-pill-wrap[data-transparent="true"][data-glass-context="surface"] .bsb-tm-title-pill::after {
   content: "";
   position: absolute;
   inset: 1px;
@@ -9189,13 +9227,13 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
   border-radius: inherit;
   pointer-events: none;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.68), rgba(255, 255, 255, 0.08) 26%, transparent 54%),
-    linear-gradient(108deg, transparent 12%, rgba(255, 255, 255, 0.62) 20%, rgba(255, 255, 255, 0.08) 30%, transparent 42%);
-  opacity: 0.92;
+    linear-gradient(180deg, rgba(255, 255, 255, 0.48), rgba(255, 255, 255, 0.08) 26%, transparent 54%),
+    linear-gradient(108deg, transparent 14%, rgba(255, 255, 255, 0.34) 20%, rgba(255, 255, 255, 0.06) 30%, transparent 42%);
+  opacity: 0.78;
   mix-blend-mode: screen;
 }
 
-.bsb-tm-title-pill-wrap[data-transparent="true"] .bsb-tm-title-pill > * {
+.bsb-tm-title-pill-wrap[data-transparent="true"][data-glass-context="surface"] .bsb-tm-title-pill > * {
   position: relative;
   z-index: 2;
 }
@@ -9208,15 +9246,15 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
     0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
-.bsb-tm-title-pill-wrap[data-transparent="true"] .bsb-tm-title-pill:hover,
-.bsb-tm-title-pill-wrap[data-transparent="true"] .bsb-tm-title-pill[aria-expanded="true"] {
+.bsb-tm-title-pill-wrap[data-transparent="true"][data-glass-context="surface"] .bsb-tm-title-pill:hover,
+.bsb-tm-title-pill-wrap[data-transparent="true"][data-glass-context="surface"] .bsb-tm-title-pill[aria-expanded="true"] {
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    inset 0 -1px 0 rgba(188, 195, 206, 0.18),
-    0 6px 12px rgba(15, 23, 42, 0.05),
-    0 14px 24px rgba(15, 23, 42, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    inset 0 -1px 0 color-mix(in srgb, var(--bsb-category-accent, #2f9e72) 18%, rgba(148, 163, 184, 0.05)),
+    0 4px 10px rgba(15, 23, 42, 0.05),
+    0 10px 20px rgba(15, 23, 42, 0.06),
     0 0 0 1px rgba(255, 255, 255, 0.18);
-  filter: saturate(1.06) brightness(1.02);
+  filter: saturate(1.03) brightness(1.01);
 }
 
 .bsb-tm-title-pill svg,
@@ -9434,6 +9472,11 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
 }
 
 .sponsorThumbnailLabel {
+  --bsb-thumbnail-dot-size: 5px;
+  --bsb-thumbnail-dot-stroke: 1.5px;
+  --bsb-thumbnail-dot-left: 10px;
+  --bsb-thumbnail-dot-opacity: 0.85;
+  --bsb-thumbnail-dot-glow: 5px;
   --bsb-thumbnail-current-width: var(--bsb-thumbnail-collapsed-width, 38px);
   --bsb-thumbnail-current-padding: 9px;
   display: flex;
@@ -9482,7 +9525,7 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
     padding 280ms var(--bsb-ease-fluid);
 }
 
-.sponsorThumbnailLabel[data-transparent="true"] {
+.sponsorThumbnailLabel[data-transparent="true"][data-glass-context="overlay"] {
   border: 1px solid color-mix(in srgb, var(--category-accent, #ffffff) 34%, rgba(255, 255, 255, 0.3));
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015));
   backdrop-filter: none;
@@ -9493,7 +9536,7 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
     0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 
-.sponsorThumbnailLabel[data-transparent="true"]::after {
+.sponsorThumbnailLabel[data-transparent="true"][data-glass-context="overlay"]::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -9515,7 +9558,50 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
   mix-blend-mode: screen;
 }
 
+.sponsorThumbnailLabel[data-transparent="true"][data-glass-context="overlay"][data-glass-variant="light"] {
+  border: 1px solid color-mix(
+    in srgb,
+    var(--category-display-accent, var(--category-accent, #ffffff)) 28%,
+    rgba(255, 255, 255, 0.46)
+  );
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--category-display-accent, var(--category-accent, #ffffff)) 10%, rgba(255, 255, 255, 0.92)),
+    color-mix(in srgb, var(--category-display-accent, var(--category-accent, #ffffff)) 16%, rgba(241, 245, 249, 0.74))
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    inset 0 -1px 0 color-mix(
+      in srgb,
+      var(--category-display-accent, var(--category-accent, #ffffff)) 16%,
+      rgba(148, 163, 184, 0.08)
+    ),
+    0 3px 8px rgba(15, 23, 42, 0.04),
+    0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.sponsorThumbnailLabel[data-transparent="true"][data-glass-context="overlay"][data-glass-variant="light"]::after {
+  background:
+    radial-gradient(
+      circle at 18% -10%,
+      color-mix(in srgb, var(--category-display-accent, var(--category-accent, #ffffff)) 22%, rgba(255, 255, 255, 0.44)) 0%,
+      transparent 34%
+    ),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.05) 32%, transparent 56%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--category-display-accent, var(--category-accent, #ffffff)) 10%, rgba(255, 255, 255, 0.12)),
+      color-mix(in srgb, var(--category-display-accent, var(--category-accent, #ffffff)) 18%, rgba(231, 238, 245, 0.08))
+    ),
+    linear-gradient(112deg, transparent 24%, rgba(255, 255, 255, 0.2) 32%, transparent 46%);
+  opacity: 0.82;
+  backdrop-filter: saturate(144%) brightness(1.03);
+}
+
 .sponsorThumbnailLabel[data-placement="corner"] {
+  --bsb-thumbnail-dot-size: 4px;
+  --bsb-thumbnail-dot-left: 7px;
+  --bsb-thumbnail-dot-glow: 4px;
   height: 19px;
   min-width: var(--bsb-thumbnail-current-width, 19px);
   max-width: 180px;
@@ -9530,13 +9616,30 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
     0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 
-.sponsorThumbnailLabel[data-placement="corner"][data-transparent="true"] {
+.sponsorThumbnailLabel[data-placement="corner"][data-transparent="true"][data-glass-context="overlay"] {
   border-color: color-mix(in srgb, var(--category-accent, #ffffff) 28%, rgba(255, 255, 255, 0.28));
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.24),
     inset 0 -1px 0 color-mix(in srgb, var(--category-accent, #ffffff) 12%, rgba(15, 23, 42, 0.05)),
     0 3px 8px rgba(15, 23, 42, 0.055),
     0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.sponsorThumbnailLabel[data-placement="corner"][data-transparent="true"][data-glass-context="overlay"][data-glass-variant="light"] {
+  border-color: color-mix(
+    in srgb,
+    var(--category-display-accent, var(--category-accent, #ffffff)) 24%,
+    rgba(255, 255, 255, 0.44)
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    inset 0 -1px 0 color-mix(
+      in srgb,
+      var(--category-display-accent, var(--category-accent, #ffffff)) 14%,
+      rgba(148, 163, 184, 0.08)
+    ),
+    0 2px 6px rgba(15, 23, 42, 0.035),
+    0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 .bsb-tm-thumbnail-slot[data-placement="corner"] .sponsorThumbnailLabelVisible {
@@ -9546,19 +9649,22 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
 .sponsorThumbnailLabel::before {
   content: "";
   position: absolute;
-  left: 9px;
-  width: 4px;
-  height: 4px;
+  top: 50%;
+  left: var(--bsb-thumbnail-dot-left);
+  width: var(--bsb-thumbnail-dot-size);
+  height: var(--bsb-thumbnail-dot-size);
   border-radius: 50%;
-  border: 1.5px solid currentColor;
-  opacity: 0.85;
-  box-shadow: 0 0 4px color-mix(in srgb, currentColor 40%, transparent);
+  border: var(--bsb-thumbnail-dot-stroke) solid currentColor;
+  opacity: var(--bsb-thumbnail-dot-opacity);
+  box-shadow: 0 0 var(--bsb-thumbnail-dot-glow) color-mix(in srgb, currentColor 40%, transparent);
   flex-shrink: 0;
   z-index: 2;
+  transform: translateY(-50%);
 }
 
-.sponsorThumbnailLabel[data-placement="corner"]::before {
-  left: 7px;
+.sponsorThumbnailLabel[data-transparent="true"][data-glass-context="overlay"][data-glass-variant="light"]::before {
+  border-color: var(--category-display-accent, currentColor);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--category-display-accent, currentColor) 40%, transparent);
 }
 
 .sponsorThumbnailLabel .bsb-tm-thumbnail-text-stack {
@@ -9594,6 +9700,11 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
   transition:
     opacity 180ms var(--bsb-ease-swift),
     transform 280ms var(--bsb-ease-fluid);
+}
+
+.sponsorThumbnailLabel[data-transparent="true"][data-glass-context="overlay"][data-glass-variant="light"] .bsb-tm-thumbnail-short-label,
+.sponsorThumbnailLabel[data-transparent="true"][data-glass-context="overlay"][data-glass-variant="light"] .bsb-tm-thumbnail-label {
+  text-shadow: none;
 }
 
 .sponsorThumbnailLabel .bsb-tm-thumbnail-short-label > span {
