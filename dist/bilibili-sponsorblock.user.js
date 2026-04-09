@@ -1846,7 +1846,7 @@
       // id
       __publicField(this, "handleKeydown", (event) => {
         if (event.key === "Escape" && !this.backdrop.hidden) {
-          this.close();
+          this.close("user");
         }
       });
       __publicField(this, "handleViewportResize", () => {
@@ -1859,7 +1859,7 @@
       this.backdrop.hidden = true;
       this.backdrop.addEventListener("click", (event) => {
         if (event.target === this.backdrop) {
-          this.close();
+          this.close("user");
         }
       });
       this.panel.className = "bsb-tm-panel";
@@ -1898,7 +1898,10 @@
         this.open();
         return;
       }
-      this.close();
+      this.close("user");
+    }
+    isOpen() {
+      return !this.backdrop.hidden;
     }
     open(tab = this.activeTab) {
       this.mount();
@@ -1909,14 +1912,19 @@
       document.documentElement.classList.add("bsb-tm-panel-open");
       document.addEventListener("keydown", this.handleKeydown);
     }
-    close() {
+    close(reason = "user") {
+      var _a, _b;
+      const wasOpen = !this.backdrop.hidden;
       this.backdrop.hidden = true;
       this.detachViewportListeners();
       document.documentElement.classList.remove("bsb-tm-panel-open");
       document.removeEventListener("keydown", this.handleKeydown);
+      if (wasOpen) {
+        (_b = (_a = this.callbacks).onClose) == null ? void 0 : _b.call(_a, reason);
+      }
     }
     unmount() {
-      this.close();
+      this.close("system");
       this.backdrop.remove();
     }
     updateConfig(config) {
@@ -2380,7 +2388,10 @@
         button.setAttribute("aria-selected", String(active));
       }
       for (const [sectionTab, section] of this.sections) {
-        section.hidden = sectionTab !== tab;
+        const active = sectionTab === tab;
+        section.hidden = !active;
+        section.setAttribute("aria-hidden", String(!active));
+        section.dataset.active = String(active);
       }
       this.content.scrollTop = (options == null ? void 0 : options.preserveScroll) ? (_b = (_a = options.scrollTop) != null ? _a : this.contentScrollByTab[tab]) != null ? _b : 0 : 0;
     }
@@ -2643,7 +2654,7 @@
       closeButton.className = "bsb-tm-button secondary bsb-tm-header-action bsb-tm-panel-close";
       closeButton.textContent = "\u5173\u95ED";
       closeButton.addEventListener("click", () => {
-        this.close();
+        this.close("user");
       });
       actions.append(helpButton, closeButton);
       header.append(titleWrap, actions);
@@ -2653,7 +2664,9 @@
       const section = document.createElement("section");
       section.className = "bsb-tm-panel-section";
       section.dataset.section = name;
+      section.dataset.active = "false";
       section.id = `${this.panelId}-section-${name}`;
+      section.setAttribute("aria-hidden", "true");
       return section;
     }
     createSectionHeading(titleText, descriptionText) {
@@ -5232,6 +5245,7 @@
       __publicField(this, "pendingRefresh", false);
       __publicField(this, "pendingForceFetch", false);
       __publicField(this, "pendingVisibleRefresh", false);
+      __publicField(this, "pendingPanelOpenTab", null);
       __publicField(this, "lastTickTime", null);
       __publicField(this, "lastAnnouncedSignature", "");
       __publicField(this, "handleVisibilityChange", () => {
@@ -5240,6 +5254,9 @@
           const nextForceFetch = this.pendingForceFetch;
           this.pendingForceFetch = false;
           this.scheduleRefresh(nextForceFetch);
+        }
+        if (!document.hidden) {
+          this.restorePendingPanelOpen();
         }
       });
       __publicField(this, "handleVideoSignal", (event) => {
@@ -5322,7 +5339,12 @@
             message: "\u6240\u6709\u811A\u672C\u8BBE\u7F6E\u5DF2\u6062\u590D\u4E3A\u521D\u59CB\u9ED8\u8BA4\u503C\u3002",
             durationMs: 4e3
           });
-        })
+        }),
+        onClose: (reason) => {
+          if (reason === "user") {
+            this.pendingPanelOpenTab = null;
+          }
+        }
       });
       this.titleBadge = new TitleBadge({
         onVote: (segment, type) => __async(this, null, function* () {
@@ -5371,6 +5393,7 @@
         window.addEventListener(VIDEO_SIGNAL_EVENT, this.handleVideoSignal);
         window.addEventListener("bsb_mbga_live_fallback", this.handleMbgaLiveFallback);
         yield this.refreshCurrentVideo(true);
+        this.restorePendingPanelOpen();
         this.stopObservingUrl = observeUrlChanges(() => {
           this.syncCompactVideoHeader();
           this.scheduleRefresh(true);
@@ -5399,13 +5422,14 @@
       });
     }
     togglePanel() {
+      this.pendingPanelOpenTab = null;
       this.panel.toggle();
     }
     openPanel() {
-      this.panel.open();
+      this.openPanelWithIntent("overview");
     }
     openHelp() {
-      this.panel.open("help");
+      this.openPanelWithIntent("help");
     }
     clearCache() {
       return __async(this, null, function* () {
@@ -5466,6 +5490,17 @@
         this.pendingForceFetch = false;
         void this.refreshCurrentVideo(nextForceFetch);
       }, 120);
+    }
+    openPanelWithIntent(tab) {
+      this.pendingPanelOpenTab = tab;
+      this.restorePendingPanelOpen();
+    }
+    restorePendingPanelOpen() {
+      if (!this.pendingPanelOpenTab || !this.started || document.hidden) {
+        return;
+      }
+      const tab = this.pendingPanelOpenTab;
+      this.panel.open(tab);
     }
     refreshCurrentVideo(forceFetch = false) {
       return __async(this, null, function* () {
@@ -8250,6 +8285,10 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
   padding-bottom: 16px;
 }
 
+.bsb-tm-panel-section[hidden] {
+  display: none !important;
+}
+
 .bsb-tm-section-heading {
   display: grid;
   gap: 6px;
@@ -9850,13 +9889,13 @@ ${inlineFeedbackStyles}
           });
         }
       );
-      yield runtime.start();
       gmRegisterMenuCommand("\u6253\u5F00 BSB \u63A7\u5236\u53F0", () => controller.openPanel());
       gmRegisterMenuCommand("\u6253\u5F00 BSB \u5E2E\u52A9", () => controller.openHelp());
       gmRegisterMenuCommand("\u5207\u6362 BSB \u63A7\u5236\u53F0", () => controller.togglePanel());
       gmRegisterMenuCommand("\u6E05\u7406 BSB \u7F13\u5B58", () => {
         void controller.clearCache();
       });
+      yield runtime.start();
     });
   }
   function ready() {

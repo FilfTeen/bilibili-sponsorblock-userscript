@@ -91,7 +91,6 @@ async function bootstrap(): Promise<void> {
       });
     }
   );
-  await runtime.start();
 
   gmRegisterMenuCommand("打开 BSB 控制台", () => controller.openPanel());
   gmRegisterMenuCommand("打开 BSB 帮助", () => controller.openHelp());
@@ -99,6 +98,8 @@ async function bootstrap(): Promise<void> {
   gmRegisterMenuCommand("清理 BSB 缓存", () => {
     void controller.clearCache();
   });
+
+  await runtime.start();
 }
 
 function ready(): Promise<void> {

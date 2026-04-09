@@ -28,9 +28,11 @@ type PanelCallbacks = {
   onCategoryModeChange: (category: Category, mode: CategoryMode) => Promise<void>;
   onClearCache: () => Promise<void>;
   onReset: () => Promise<void>;
+  onClose?: (reason: "user" | "system") => void;
 };
 
 export type PanelTab = "overview" | "behavior" | "filters" | "mbga" | "help";
+export type PanelCloseReason = "user" | "system";
 
 const TAB_LABELS: Record<PanelTab, string> = {
   overview: "概览",
@@ -77,7 +79,7 @@ export class SettingsPanel {
   private readonly pendingConfirmations = new Set<string>(); // id
   private readonly handleKeydown = (event: KeyboardEvent) => {
     if (event.key === "Escape" && !this.backdrop.hidden) {
-      this.close();
+      this.close("user");
     }
   };
   private readonly handleViewportResize = () => {
@@ -97,7 +99,7 @@ export class SettingsPanel {
     this.backdrop.hidden = true;
     this.backdrop.addEventListener("click", (event) => {
       if (event.target === this.backdrop) {
-        this.close();
+        this.close("user");
       }
     });
 
@@ -143,7 +145,11 @@ export class SettingsPanel {
       this.open();
       return;
     }
-    this.close();
+    this.close("user");
+  }
+
+  isOpen(): boolean {
+    return !this.backdrop.hidden;
   }
 
   open(tab: PanelTab = this.activeTab): void {
@@ -156,15 +162,19 @@ export class SettingsPanel {
     document.addEventListener("keydown", this.handleKeydown);
   }
 
-  close(): void {
+  close(reason: PanelCloseReason = "user"): void {
+    const wasOpen = !this.backdrop.hidden;
     this.backdrop.hidden = true;
     this.detachViewportListeners();
     document.documentElement.classList.remove("bsb-tm-panel-open");
     document.removeEventListener("keydown", this.handleKeydown);
+    if (wasOpen) {
+      this.callbacks.onClose?.(reason);
+    }
   }
 
   unmount(): void {
-    this.close();
+    this.close("system");
     this.backdrop.remove();
   }
 
@@ -647,7 +657,10 @@ export class SettingsPanel {
       button.setAttribute("aria-selected", String(active));
     }
     for (const [sectionTab, section] of this.sections) {
-      section.hidden = sectionTab !== tab;
+      const active = sectionTab === tab;
+      section.hidden = !active;
+      section.setAttribute("aria-hidden", String(!active));
+      section.dataset.active = String(active);
     }
     this.content.scrollTop = options?.preserveScroll ? (options.scrollTop ?? this.contentScrollByTab[tab] ?? 0) : 0;
   }
@@ -988,7 +1001,7 @@ export class SettingsPanel {
     closeButton.className = "bsb-tm-button secondary bsb-tm-header-action bsb-tm-panel-close";
     closeButton.textContent = "关闭";
     closeButton.addEventListener("click", () => {
-      this.close();
+      this.close("user");
     });
 
     actions.append(helpButton, closeButton);
@@ -1000,7 +1013,9 @@ export class SettingsPanel {
     const section = document.createElement("section");
     section.className = "bsb-tm-panel-section";
     section.dataset.section = name;
+    section.dataset.active = "false";
     section.id = `${this.panelId}-section-${name}`;
+    section.setAttribute("aria-hidden", "true");
     return section;
   }
 
