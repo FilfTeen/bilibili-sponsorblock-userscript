@@ -272,7 +272,8 @@ function ensurePageFilterNeutralized(doc: Document): void {
       continue;
     }
     const inlineFilter = [element.style.filter, element.style.webkitFilter].join(" ");
-    const computedFilter = globalThis.getComputedStyle?.(element).filter ?? "";
+    const computedStyle = typeof getComputedStyle === "function" ? getComputedStyle(element) : null;
+    const computedFilter = computedStyle ? computedStyle.filter : "";
     if (!/grayscale/iu.test(`${inlineFilter} ${computedFilter}`)) {
       continue;
     }

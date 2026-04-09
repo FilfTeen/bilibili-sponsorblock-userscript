@@ -7623,13 +7623,13 @@
     return url.hostname === "www.bilibili.com" && (url.pathname === "/" || url.pathname.startsWith("/?"));
   }
   function ensurePageFilterNeutralized(doc) {
-    var _a, _b;
     for (const element of [doc.documentElement, doc.body]) {
       if (!(element instanceof HTMLElement)) {
         continue;
       }
       const inlineFilter = [element.style.filter, element.style.webkitFilter].join(" ");
-      const computedFilter = (_b = (_a = globalThis.getComputedStyle) == null ? void 0 : _a.call(globalThis, element).filter) != null ? _b : "";
+      const computedStyle = typeof getComputedStyle === "function" ? getComputedStyle(element) : null;
+      const computedFilter = computedStyle ? computedStyle.filter : "";
       if (!/grayscale/iu.test(`${inlineFilter} ${computedFilter}`)) {
         continue;
       }
