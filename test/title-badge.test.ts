@@ -45,6 +45,35 @@ describe("title badge", () => {
     expect(document.querySelector(".bsb-tm-title-pill-wrap")?.getAttribute("data-category")).toBe("exclusive_access");
   });
 
+  it("mounts inside the title without rewriting the title parent layout", () => {
+    document.body.innerHTML = `
+      <div class="video-info-container">
+        <div class="video-info-title-inner">
+          <h1 class="video-title">测试视频</h1>
+        </div>
+      </div>
+    `;
+
+    const badge = new TitleBadge({
+      onVote: vi.fn(async () => "submitted" as const),
+      onLocalDecision: vi.fn(async () => {}),
+      onOpenSettings: vi.fn()
+    });
+
+    badge.setSegment(fullSegment);
+
+    const title = document.querySelector<HTMLElement>(".video-title");
+    const parent = title?.parentElement;
+    expect(title?.classList.contains("bsb-tm-title-text")).toBe(false);
+    expect(parent?.classList.contains("bsb-tm-title-layout")).toBe(false);
+    expect(parent?.querySelector(":scope > .bsb-tm-title-accessories")).toBeTruthy();
+
+    badge.destroy();
+
+    expect(parent?.querySelector(":scope > .bsb-tm-title-accessories")).toBeNull();
+    expect(parent?.classList.contains("bsb-tm-title-layout")).toBe(false);
+  });
+
   it("keeps feedback buttons visible but disabled for label-only badges", async () => {
     document.body.innerHTML = `
       <div class="video-info-container">

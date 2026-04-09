@@ -20,6 +20,7 @@
 - 能力说明: [docs/CAPABILITIES.md](./docs/CAPABILITIES.md)
 - 技术文档: [docs/TECHNICAL.md](./docs/TECHNICAL.md)
 - 误差与可靠性说明: [docs/RELIABILITY.md](./docs/RELIABILITY.md)
+- Safari 播放器背后文本调查: [docs/SAFARI_PLAYER_OVERLAY_INVESTIGATION.md](./docs/SAFARI_PLAYER_OVERLAY_INVESTIGATION.md)
 - 免责声明: [DISCLAIMER.md](./DISCLAIMER.md)
 - Attribution: [NOTICE.md](./NOTICE.md)
 
@@ -194,6 +195,7 @@ npm run build
 npm run smoke:bilibili
 npm run capture:bilibili
 npm run validate:safari
+npm run investigate:safari-player -- --sample-id demo --window-type existing_logged_in_window --login-state logged_in --compact-header on
 ```
 
 构建输出:

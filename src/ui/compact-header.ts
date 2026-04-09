@@ -16,6 +16,13 @@ type ProfileSeed = {
   avatarSrc: string | null;
 };
 
+const NATIVE_HEADER_HIDDEN_ATTR = "data-bsb-native-header-hidden";
+const NATIVE_HEADER_ROOT_SELECTORS = [
+  "#biliMainHeader",
+  ".bili-header.fixed-header",
+  ".bili-header__bar.mini-header"
+] as const;
+
 const GENERIC_PROFILE_LABELS = new Set([
   "",
   "个人主页",
@@ -314,6 +321,7 @@ export class CompactVideoHeader {
       document.body.prepend(this.root);
     }
     document.documentElement.classList.add("bsb-tm-video-header-compact");
+    this.applyNativeHeaderState(true);
     this.retriesRemaining = 10;
     this.sync();
   }
@@ -334,6 +342,7 @@ export class CompactVideoHeader {
       return;
     }
 
+    this.applyNativeHeaderState(true);
     const searchSeed = resolveSearchSeed();
     const resolvedProfileSeed = resolveProfileSeed();
     const globalProfileSeed = resolveProfileSeedFromGlobals();
@@ -365,6 +374,7 @@ export class CompactVideoHeader {
     this.remoteProfilePromise = null;
     this.root.remove();
     document.documentElement.classList.remove("bsb-tm-video-header-compact");
+    this.applyNativeHeaderState(false);
   }
 
   destroy(): void {
@@ -384,6 +394,33 @@ export class CompactVideoHeader {
       }
       this.sync();
     }, 400);
+  }
+
+  private applyNativeHeaderState(hidden: boolean): void {
+    const roots = this.resolveNativeHeaderRoots();
+    for (const root of roots) {
+      if (hidden) {
+        root.setAttribute(NATIVE_HEADER_HIDDEN_ATTR, "true");
+      } else {
+        root.removeAttribute(NATIVE_HEADER_HIDDEN_ATTR);
+      }
+    }
+
+    if (!hidden) {
+      for (const orphaned of document.querySelectorAll<HTMLElement>(`[${NATIVE_HEADER_HIDDEN_ATTR}="true"]`)) {
+        orphaned.removeAttribute(NATIVE_HEADER_HIDDEN_ATTR);
+      }
+    }
+  }
+
+  private resolveNativeHeaderRoots(): HTMLElement[] {
+    const found = new Set<HTMLElement>();
+    for (const selector of NATIVE_HEADER_ROOT_SELECTORS) {
+      for (const node of document.querySelectorAll<HTMLElement>(selector)) {
+        found.add(node);
+      }
+    }
+    return Array.from(found);
   }
 
   private syncProfileObserver(profileSeed: ProfileSeed): void {

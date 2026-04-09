@@ -127,6 +127,13 @@ export class ConfigStore {
   private config = cloneDefaultConfig();
   private readonly listeners = new Set<ConfigListener>();
 
+  private notifyListeners(): void {
+    const snapshot = this.getSnapshot();
+    for (const listener of this.listeners) {
+      listener(snapshot);
+    }
+  }
+
   async load(): Promise<StoredConfig> {
     this.config = normalizeConfig(await gmGetValue<StoredConfig | null>(CONFIG_STORAGE_KEY, null));
     return this.getSnapshot();
@@ -148,19 +155,30 @@ export class ConfigStore {
   }
 
   async update(updater: (config: StoredConfig) => StoredConfig): Promise<StoredConfig> {
-    this.config = normalizeConfig(updater(this.getSnapshot()));
-    await gmSetValue(CONFIG_STORAGE_KEY, this.config);
-    for (const listener of this.listeners) {
-      listener(this.getSnapshot());
+    const previous = this.getSnapshot();
+    const next = normalizeConfig(updater(previous));
+    this.config = next;
+    this.notifyListeners();
+    try {
+      await gmSetValue(CONFIG_STORAGE_KEY, this.config);
+    } catch (error) {
+      this.config = previous;
+      this.notifyListeners();
+      throw error;
     }
     return this.getSnapshot();
   }
 
   async reset(): Promise<StoredConfig> {
-    await gmSetValue(CONFIG_STORAGE_KEY, null);
+    const previous = this.getSnapshot();
     this.config = cloneDefaultConfig();
-    for (const listener of this.listeners) {
-      listener(this.getSnapshot());
+    this.notifyListeners();
+    try {
+      await gmSetValue(CONFIG_STORAGE_KEY, null);
+    } catch (error) {
+      this.config = previous;
+      this.notifyListeners();
+      throw error;
     }
     return this.getSnapshot();
   }
