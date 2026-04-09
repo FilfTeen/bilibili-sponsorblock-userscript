@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 from selenium import webdriver
+from selenium.common.exceptions import WebDriverException
 from selenium.webdriver.safari.options import Options
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -14,9 +15,13 @@ OUTPUT_DIR = REPO_ROOT / "output" / "safari"
 
 TARGETS = [
     ("video-main", "https://www.bilibili.com/video/BV1HDcMz5Ep3/"),
+    ("video-main-placeholder-enabled", "https://www.bilibili.com/video/BV1HDcMz5Ep3/"),
     ("video-comments", "https://www.bilibili.com/video/BV14vPfzMEwN/"),
     ("search", "https://search.bilibili.com/all?keyword=%E6%9E%81%E5%AE%A2%E6%B9%BE"),
 ]
+
+CONFIG_STORAGE_KEY = "bsb_tm_config_v1"
+PLACEHOLDER_SEARCH_TEXT = "橘鸦Juya · 6小时前更新"
 
 SHIMS = r"""
 window.__BSB_TM_TEST_STORE__ = window.__BSB_TM_TEST_STORE__ || {};
@@ -101,10 +106,62 @@ def collect_snapshot(driver: webdriver.Safari) -> dict[str, object]:
           compactHeader: Boolean(document.querySelector(".bsb-tm-video-header-shell")),
           compactHeaderAvatar: document.querySelector(".bsb-tm-video-header-avatar")?.getAttribute("src") ?? null,
           compactHeaderFallback: Boolean(document.querySelector(".bsb-tm-video-header-profile-fallback")),
+          compactHeaderPlaceholder: document.querySelector(".bsb-tm-video-header-fallback-search input")?.getAttribute("placeholder") ?? null,
           thumbnailLabels: document.querySelectorAll(".sponsorThumbnailLabelVisible").length,
           sidebarLabels: document.querySelectorAll(".right-container .sponsorThumbnailLabelVisible, .rec-list .sponsorThumbnailLabelVisible, .next-play-list .sponsorThumbnailLabelVisible").length,
           commentLocationBadges: document.querySelectorAll("[data-bsb-comment-location='true']").length,
           commentBadges: document.querySelectorAll("[data-bsb-comment-badge='true']").length
+        };
+        """
+    )
+
+
+def prepare_placeholder_search_validation(driver: webdriver.Safari) -> None:
+    driver.execute_script(
+        f"""
+        window.__BSB_TM_TEST_STORE__ = window.__BSB_TM_TEST_STORE__ || {{}};
+        window.__BSB_TM_TEST_STORE__[{json.dumps(CONFIG_STORAGE_KEY)}] = {{
+          compactHeaderSearchPlaceholderEnabled: true
+        }};
+        const nativeInput = document.querySelector(".bili-header__bar.mini-header .nav-search-input, .bili-header__bar.mini-header input[type='search'], .nav-search-input, input[type='search']");
+        if (nativeInput instanceof HTMLInputElement) {{
+          nativeInput.value = "";
+          nativeInput.placeholder = {json.dumps(PLACEHOLDER_SEARCH_TEXT)};
+        }}
+        window.__BSB_LAST_OPEN__ = null;
+        window.open = function(url) {{
+          window.__BSB_LAST_OPEN__ = url;
+          return null;
+        }};
+        """
+    )
+
+
+def collect_placeholder_search_validation(driver: webdriver.Safari) -> dict[str, object]:
+    return driver.execute_script(
+        """
+        const form = document.querySelector(".bsb-tm-video-header-fallback-search");
+        const input = form?.querySelector("input");
+        const button = form?.querySelector("button");
+        const genericPlaceholder = "搜索 B 站内容";
+        if (input instanceof HTMLInputElement) {
+          input.value = "";
+          input.placeholder = "橘鸦Juya · 6小时前更新";
+        }
+        const hiddenPlaceholderBeforeSubmit = input instanceof HTMLInputElement ? input.placeholder : null;
+        if (form instanceof HTMLFormElement) {
+          if (typeof form.requestSubmit === "function") {
+            form.requestSubmit(button instanceof HTMLButtonElement ? button : undefined);
+          } else if (button instanceof HTMLButtonElement) {
+            button.click();
+          } else {
+            form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+          }
+        }
+        return {
+          compactHeaderSearchPlaceholder: hiddenPlaceholderBeforeSubmit,
+          compactHeaderSearchValue: input instanceof HTMLInputElement ? input.value : null,
+          compactHeaderLastOpenedUrl: window.__BSB_LAST_OPEN__ ?? null
         };
         """
     )
@@ -122,11 +179,29 @@ def main() -> None:
             driver.get(url)
             wait_for_ready_state(driver)
             driver.execute_script(SHIMS)
+            if slug == "video-main":
+                driver.execute_script(
+                    """
+                    window.__BSB_TM_TEST_STORE__ = window.__BSB_TM_TEST_STORE__ || {};
+                    window.__BSB_TM_TEST_STORE__["bsb_tm_config_v1"] = {
+                      compactHeaderPlaceholderVisible: false,
+                      compactHeaderSearchPlaceholderEnabled: false
+                    };
+                    """
+                )
+            if slug == "video-main-placeholder-enabled":
+                prepare_placeholder_search_validation(driver)
             driver.execute_script(runtime)
             wait_for_script_activity(driver)
             time.sleep(3)
-            results[slug] = collect_snapshot(driver)
-            driver.save_screenshot(str(OUTPUT_DIR / f"{slug}.png"))
+            snapshot = collect_snapshot(driver)
+            if slug == "video-main-placeholder-enabled":
+                snapshot["placeholderSearch"] = collect_placeholder_search_validation(driver)
+            results[slug] = snapshot
+            try:
+                driver.save_screenshot(str(OUTPUT_DIR / f"{slug}.png"))
+            except WebDriverException:
+                snapshot["screenshotError"] = True
     finally:
         driver.quit()
 

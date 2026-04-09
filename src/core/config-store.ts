@@ -45,6 +45,10 @@ export function normalizeConfig(input: Partial<StoredConfig> | null | undefined)
   next.enableCache = input.enableCache ?? next.enableCache;
   next.showPreviewBar = input.showPreviewBar ?? next.showPreviewBar;
   next.compactVideoHeader = input.compactVideoHeader ?? next.compactVideoHeader;
+  next.compactHeaderPlaceholderVisible =
+    input.compactHeaderPlaceholderVisible ?? next.compactHeaderPlaceholderVisible;
+  next.compactHeaderSearchPlaceholderEnabled =
+    input.compactHeaderSearchPlaceholderEnabled ?? next.compactHeaderSearchPlaceholderEnabled;
   next.noticeDurationSec = clampNumber(
     Number.isFinite(input.noticeDurationSec) ? Number(input.noticeDurationSec) : next.noticeDurationSec,
     1,

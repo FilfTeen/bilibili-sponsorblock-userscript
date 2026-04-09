@@ -316,6 +316,22 @@ export class SettingsPanel {
               async (checked) => {
                 await this.callbacks.onPatchConfig({ compactVideoHeader: checked });
               }
+            ),
+            this.createCheckbox(
+              "显示灰字广告文案",
+              "默认关闭。关闭后，紧凑顶部栏只显示通用占位提示，不展示原生搜索框里的灰字广告内容。",
+              this.config.compactHeaderPlaceholderVisible,
+              async (checked) => {
+                await this.callbacks.onPatchConfig({ compactHeaderPlaceholderVisible: checked });
+              }
+            ),
+            this.createCheckbox(
+              "允许搜索灰字广告文案",
+              "默认关闭。开启后，若紧凑顶部栏搜索框为空，且当前实际显示的是非通用灰字广告文案，点击搜索或按回车会直接搜索该文案。",
+              this.config.compactHeaderSearchPlaceholderEnabled,
+              async (checked) => {
+                await this.callbacks.onPatchConfig({ compactHeaderSearchPlaceholderEnabled: checked });
+              }
             )
           ],
           "single-column"

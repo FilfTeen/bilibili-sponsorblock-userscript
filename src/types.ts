@@ -83,6 +83,8 @@ export interface StoredConfig {
   minDurationSec: number;
   showPreviewBar: boolean;
   compactVideoHeader: boolean;
+  compactHeaderPlaceholderVisible: boolean;
+  compactHeaderSearchPlaceholderEnabled: boolean;
   thumbnailLabelMode: ThumbnailLabelMode;
   categoryModes: Record<Category, CategoryMode>;
   categoryColorOverrides: CategoryColorOverrides;

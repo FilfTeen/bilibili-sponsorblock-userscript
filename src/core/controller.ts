@@ -1029,6 +1029,10 @@ export class ScriptController {
   }
 
   private syncCompactVideoHeader(): void {
+    this.compactHeader.setOptions({
+      placeholderVisible: this.currentConfig.compactHeaderPlaceholderVisible,
+      searchPlaceholderEnabled: this.currentConfig.compactHeaderSearchPlaceholderEnabled
+    });
     const shouldCompact =
       this.started &&
       this.currentConfig.enabled &&

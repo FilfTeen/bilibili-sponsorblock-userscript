@@ -142,6 +142,8 @@ export const DEFAULT_CONFIG: StoredConfig = {
   minDurationSec: 0,
   showPreviewBar: true,
   compactVideoHeader: true,
+  compactHeaderPlaceholderVisible: false,
+  compactHeaderSearchPlaceholderEnabled: false,
   thumbnailLabelMode: "overlay",
   categoryModes: DEFAULT_CATEGORY_MODES,
   categoryColorOverrides: {},

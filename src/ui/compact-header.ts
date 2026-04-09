@@ -5,6 +5,11 @@ type SearchSeed = {
   value: string;
 };
 
+type CompactHeaderOptions = {
+  placeholderVisible: boolean;
+  searchPlaceholderEnabled: boolean;
+};
+
 type ProfileSeed = {
   href: string;
   label: string;
@@ -30,6 +35,17 @@ const SEARCH_INPUT_SELECTORS = [
   ".nav-search-input",
   "input[type='search']"
 ] as const;
+
+const GENERIC_SEARCH_PLACEHOLDERS = new Set([
+  "",
+  "搜索 B 站内容",
+  "搜索b站内容",
+  "搜索内容",
+  "搜索视频、番剧或 up 主",
+  "搜索"
+]);
+
+const DEFAULT_SEARCH_PLACEHOLDER = "搜索 B 站内容";
 
 const PROFILE_ROOT_SELECTORS = [
   ".bili-header__bar.mini-header .right-entry",
@@ -129,16 +145,42 @@ function resolveSearchSeed(): SearchSeed {
     const input = document.querySelector(selector);
     if (input instanceof HTMLInputElement) {
       return {
-        placeholder: input.placeholder?.trim() || "搜索 B 站内容",
+        placeholder: input.placeholder?.trim() || DEFAULT_SEARCH_PLACEHOLDER,
         value: input.value?.trim() || ""
       };
     }
   }
 
   return {
-    placeholder: "搜索 B 站内容",
+    placeholder: DEFAULT_SEARCH_PLACEHOLDER,
     value: ""
   };
+}
+
+function resolveDisplayedPlaceholder(seed: SearchSeed, placeholderVisible: boolean): string {
+  const rawPlaceholder = seed.placeholder.trim();
+  if (placeholderVisible && rawPlaceholder) {
+    return rawPlaceholder;
+  }
+  return DEFAULT_SEARCH_PLACEHOLDER;
+}
+
+function resolveSearchKeyword(seed: SearchSeed, options: CompactHeaderOptions): string {
+  const directKeyword = seed.value.trim();
+  if (directKeyword) {
+    return directKeyword;
+  }
+
+  if (!options.searchPlaceholderEnabled) {
+    return "";
+  }
+
+  const placeholder = resolveDisplayedPlaceholder(seed, options.placeholderVisible).trim();
+  if (!placeholder || GENERIC_SEARCH_PLACEHOLDERS.has(placeholder)) {
+    return "";
+  }
+
+  return placeholder;
 }
 
 function resolveProfileSeed(): ProfileSeed {
@@ -174,13 +216,13 @@ function resolveProfileSeed(): ProfileSeed {
   };
 }
 
-function createSearchForm(seed: SearchSeed): HTMLFormElement {
+function createSearchForm(seed: SearchSeed, options: CompactHeaderOptions): HTMLFormElement {
   const form = document.createElement("form");
   form.className = "bsb-tm-video-header-fallback-search";
 
   const input = document.createElement("input");
   input.type = "search";
-  input.placeholder = seed.placeholder;
+  input.placeholder = resolveDisplayedPlaceholder(seed, options.placeholderVisible);
   input.value = seed.value;
   input.autocomplete = "off";
   input.spellcheck = false;
@@ -194,7 +236,13 @@ function createSearchForm(seed: SearchSeed): HTMLFormElement {
   form.append(input, button);
   form.addEventListener("submit", (event) => {
     event.preventDefault();
-    const keyword = input.value.trim();
+    const keyword = resolveSearchKeyword(
+      {
+        placeholder: input.placeholder,
+        value: input.value
+      },
+      options
+    );
     if (!keyword) {
       return;
     }
@@ -246,6 +294,10 @@ export class CompactVideoHeader {
   private lastResolvedProfileSeed: ProfileSeed | null = null;
   private remoteProfileSeed: ProfileSeed | null = null;
   private remoteProfilePromise: Promise<void> | null = null;
+  private options: CompactHeaderOptions = {
+    placeholderVisible: false,
+    searchPlaceholderEnabled: false
+  };
 
   constructor() {
     this.root.className = "bsb-tm-video-header-shell";
@@ -266,6 +318,17 @@ export class CompactVideoHeader {
     this.sync();
   }
 
+  setOptions(next: Partial<CompactHeaderOptions>): void {
+    this.options = {
+      ...this.options,
+      ...next
+    };
+
+    if (this.mounted) {
+      this.sync();
+    }
+  }
+
   sync(): void {
     if (!this.mounted) {
       return;
@@ -282,7 +345,7 @@ export class CompactVideoHeader {
       this.lastResolvedProfileSeed = authoritativeProfileSeed;
     }
     const profileSeed = authoritativeProfileSeed ?? this.lastResolvedProfileSeed ?? resolvedProfileSeed;
-    this.searchSlot.replaceChildren(createSearchForm(searchSeed));
+    this.searchSlot.replaceChildren(createSearchForm(searchSeed, this.options));
     this.profileSlot.replaceChildren(createProfileLink(profileSeed));
     this.syncProfileObserver(profileSeed);
     void this.ensureRemoteProfileSeed();

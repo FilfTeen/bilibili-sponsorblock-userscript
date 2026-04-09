@@ -307,6 +307,8 @@
     minDurationSec: 0,
     showPreviewBar: true,
     compactVideoHeader: true,
+    compactHeaderPlaceholderVisible: false,
+    compactHeaderSearchPlaceholderEnabled: false,
     thumbnailLabelMode: "overlay",
     categoryModes: DEFAULT_CATEGORY_MODES,
     categoryColorOverrides: {},
@@ -758,7 +760,7 @@
     });
   }
   function normalizeConfig(input) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q;
     const next = cloneDefaultConfig();
     if (!input) {
       return next;
@@ -768,6 +770,8 @@
     next.enableCache = (_b = input.enableCache) != null ? _b : next.enableCache;
     next.showPreviewBar = (_c = input.showPreviewBar) != null ? _c : next.showPreviewBar;
     next.compactVideoHeader = (_d = input.compactVideoHeader) != null ? _d : next.compactVideoHeader;
+    next.compactHeaderPlaceholderVisible = (_e = input.compactHeaderPlaceholderVisible) != null ? _e : next.compactHeaderPlaceholderVisible;
+    next.compactHeaderSearchPlaceholderEnabled = (_f = input.compactHeaderSearchPlaceholderEnabled) != null ? _f : next.compactHeaderSearchPlaceholderEnabled;
     next.noticeDurationSec = clampNumber(
       Number.isFinite(input.noticeDurationSec) ? Number(input.noticeDurationSec) : next.noticeDurationSec,
       1,
@@ -780,15 +784,15 @@
     );
     next.dynamicFilterMode = input.dynamicFilterMode === "hide" || input.dynamicFilterMode === "label" || input.dynamicFilterMode === "off" ? input.dynamicFilterMode : next.dynamicFilterMode;
     next.commentFilterMode = input.commentFilterMode === "hide" || input.commentFilterMode === "label" || input.commentFilterMode === "off" ? input.commentFilterMode : next.commentFilterMode;
-    next.commentLocationEnabled = (_e = input.commentLocationEnabled) != null ? _e : next.commentLocationEnabled;
-    next.commentHideReplies = (_f = input.commentHideReplies) != null ? _f : next.commentHideReplies;
-    next.commentIpColor = (_g = normalizeHexColor(input.commentIpColor)) != null ? _g : next.commentIpColor;
-    next.commentAdColor = (_h = normalizeHexColor(input.commentAdColor)) != null ? _h : next.commentAdColor;
-    next.mbgaEnabled = (_i = input.mbgaEnabled) != null ? _i : next.mbgaEnabled;
-    next.mbgaBlockTracking = (_j = input.mbgaBlockTracking) != null ? _j : next.mbgaBlockTracking;
-    next.mbgaDisablePcdn = (_k = input.mbgaDisablePcdn) != null ? _k : next.mbgaDisablePcdn;
-    next.mbgaCleanUrl = (_l = input.mbgaCleanUrl) != null ? _l : next.mbgaCleanUrl;
-    next.mbgaSimplifyUi = (_m = input.mbgaSimplifyUi) != null ? _m : next.mbgaSimplifyUi;
+    next.commentLocationEnabled = (_g = input.commentLocationEnabled) != null ? _g : next.commentLocationEnabled;
+    next.commentHideReplies = (_h = input.commentHideReplies) != null ? _h : next.commentHideReplies;
+    next.commentIpColor = (_i = normalizeHexColor(input.commentIpColor)) != null ? _i : next.commentIpColor;
+    next.commentAdColor = (_j = normalizeHexColor(input.commentAdColor)) != null ? _j : next.commentAdColor;
+    next.mbgaEnabled = (_k = input.mbgaEnabled) != null ? _k : next.mbgaEnabled;
+    next.mbgaBlockTracking = (_l = input.mbgaBlockTracking) != null ? _l : next.mbgaBlockTracking;
+    next.mbgaDisablePcdn = (_m = input.mbgaDisablePcdn) != null ? _m : next.mbgaDisablePcdn;
+    next.mbgaCleanUrl = (_n = input.mbgaCleanUrl) != null ? _n : next.mbgaCleanUrl;
+    next.mbgaSimplifyUi = (_o = input.mbgaSimplifyUi) != null ? _o : next.mbgaSimplifyUi;
     if (typeof input.thumbnailLabelMode === "string" && isThumbnailLabelMode(input.thumbnailLabelMode)) {
       next.thumbnailLabelMode = input.thumbnailLabelMode;
     }
@@ -814,11 +818,11 @@
       next.serverAddress = serverAddress;
     }
     for (const category of CATEGORY_ORDER) {
-      const value = (_n = input.categoryModes) == null ? void 0 : _n[category];
+      const value = (_p = input.categoryModes) == null ? void 0 : _p[category];
       if (value && isCategoryMode(value)) {
         next.categoryModes[category] = value;
       }
-      const categoryColor = normalizeHexColor((_o = input.categoryColorOverrides) == null ? void 0 : _o[category]);
+      const categoryColor = normalizeHexColor((_q = input.categoryColorOverrides) == null ? void 0 : _q[category]);
       if (categoryColor) {
         next.categoryColorOverrides[category] = categoryColor;
       }
@@ -2056,6 +2060,22 @@
                 this.config.compactVideoHeader,
                 (checked) => __async(this, null, function* () {
                   yield this.callbacks.onPatchConfig({ compactVideoHeader: checked });
+                })
+              ),
+              this.createCheckbox(
+                "\u663E\u793A\u7070\u5B57\u5E7F\u544A\u6587\u6848",
+                "\u9ED8\u8BA4\u5173\u95ED\u3002\u5173\u95ED\u540E\uFF0C\u7D27\u51D1\u9876\u90E8\u680F\u53EA\u663E\u793A\u901A\u7528\u5360\u4F4D\u63D0\u793A\uFF0C\u4E0D\u5C55\u793A\u539F\u751F\u641C\u7D22\u6846\u91CC\u7684\u7070\u5B57\u5E7F\u544A\u5185\u5BB9\u3002",
+                this.config.compactHeaderPlaceholderVisible,
+                (checked) => __async(this, null, function* () {
+                  yield this.callbacks.onPatchConfig({ compactHeaderPlaceholderVisible: checked });
+                })
+              ),
+              this.createCheckbox(
+                "\u5141\u8BB8\u641C\u7D22\u7070\u5B57\u5E7F\u544A\u6587\u6848",
+                "\u9ED8\u8BA4\u5173\u95ED\u3002\u5F00\u542F\u540E\uFF0C\u82E5\u7D27\u51D1\u9876\u90E8\u680F\u641C\u7D22\u6846\u4E3A\u7A7A\uFF0C\u4E14\u5F53\u524D\u5B9E\u9645\u663E\u793A\u7684\u662F\u975E\u901A\u7528\u7070\u5B57\u5E7F\u544A\u6587\u6848\uFF0C\u70B9\u51FB\u641C\u7D22\u6216\u6309\u56DE\u8F66\u4F1A\u76F4\u63A5\u641C\u7D22\u8BE5\u6587\u6848\u3002",
+                this.config.compactHeaderSearchPlaceholderEnabled,
+                (checked) => __async(this, null, function* () {
+                  yield this.callbacks.onPatchConfig({ compactHeaderSearchPlaceholderEnabled: checked });
                 })
               )
             ],
@@ -3497,6 +3517,15 @@
     ".nav-search-input",
     "input[type='search']"
   ];
+  var GENERIC_SEARCH_PLACEHOLDERS = /* @__PURE__ */ new Set([
+    "",
+    "\u641C\u7D22 B \u7AD9\u5185\u5BB9",
+    "\u641C\u7D22b\u7AD9\u5185\u5BB9",
+    "\u641C\u7D22\u5185\u5BB9",
+    "\u641C\u7D22\u89C6\u9891\u3001\u756A\u5267\u6216 up \u4E3B",
+    "\u641C\u7D22"
+  ]);
+  var DEFAULT_SEARCH_PLACEHOLDER = "\u641C\u7D22 B \u7AD9\u5185\u5BB9";
   var PROFILE_ROOT_SELECTORS = [
     ".bili-header__bar.mini-header .right-entry",
     ".bili-header .right-entry",
@@ -3566,15 +3595,36 @@
       const input = document.querySelector(selector);
       if (input instanceof HTMLInputElement) {
         return {
-          placeholder: ((_a = input.placeholder) == null ? void 0 : _a.trim()) || "\u641C\u7D22 B \u7AD9\u5185\u5BB9",
+          placeholder: ((_a = input.placeholder) == null ? void 0 : _a.trim()) || DEFAULT_SEARCH_PLACEHOLDER,
           value: ((_b = input.value) == null ? void 0 : _b.trim()) || ""
         };
       }
     }
     return {
-      placeholder: "\u641C\u7D22 B \u7AD9\u5185\u5BB9",
+      placeholder: DEFAULT_SEARCH_PLACEHOLDER,
       value: ""
     };
+  }
+  function resolveDisplayedPlaceholder(seed, placeholderVisible) {
+    const rawPlaceholder = seed.placeholder.trim();
+    if (placeholderVisible && rawPlaceholder) {
+      return rawPlaceholder;
+    }
+    return DEFAULT_SEARCH_PLACEHOLDER;
+  }
+  function resolveSearchKeyword(seed, options) {
+    const directKeyword = seed.value.trim();
+    if (directKeyword) {
+      return directKeyword;
+    }
+    if (!options.searchPlaceholderEnabled) {
+      return "";
+    }
+    const placeholder = resolveDisplayedPlaceholder(seed, options.placeholderVisible).trim();
+    if (!placeholder || GENERIC_SEARCH_PLACEHOLDERS.has(placeholder)) {
+      return "";
+    }
+    return placeholder;
   }
   function resolveProfileSeed() {
     var _a, _b;
@@ -3605,12 +3655,12 @@
       avatarSrc: null
     };
   }
-  function createSearchForm(seed) {
+  function createSearchForm(seed, options) {
     const form = document.createElement("form");
     form.className = "bsb-tm-video-header-fallback-search";
     const input = document.createElement("input");
     input.type = "search";
-    input.placeholder = seed.placeholder;
+    input.placeholder = resolveDisplayedPlaceholder(seed, options.placeholderVisible);
     input.value = seed.value;
     input.autocomplete = "off";
     input.spellcheck = false;
@@ -3622,7 +3672,13 @@
     form.append(input, button);
     form.addEventListener("submit", (event) => {
       event.preventDefault();
-      const keyword = input.value.trim();
+      const keyword = resolveSearchKeyword(
+        {
+          placeholder: input.placeholder,
+          value: input.value
+        },
+        options
+      );
       if (!keyword) {
         return;
       }
@@ -3669,6 +3725,10 @@
       __publicField(this, "lastResolvedProfileSeed", null);
       __publicField(this, "remoteProfileSeed", null);
       __publicField(this, "remoteProfilePromise", null);
+      __publicField(this, "options", {
+        placeholderVisible: false,
+        searchPlaceholderEnabled: false
+      });
       this.root.className = "bsb-tm-video-header-shell";
       this.bar.className = "bsb-tm-video-header-bar";
       this.searchSlot.className = "bsb-tm-video-header-search";
@@ -3685,6 +3745,12 @@
       this.retriesRemaining = 10;
       this.sync();
     }
+    setOptions(next) {
+      this.options = __spreadValues(__spreadValues({}, this.options), next);
+      if (this.mounted) {
+        this.sync();
+      }
+    }
     sync() {
       var _a, _b;
       if (!this.mounted) {
@@ -3698,7 +3764,7 @@
         this.lastResolvedProfileSeed = authoritativeProfileSeed;
       }
       const profileSeed = (_b = authoritativeProfileSeed != null ? authoritativeProfileSeed : this.lastResolvedProfileSeed) != null ? _b : resolvedProfileSeed;
-      this.searchSlot.replaceChildren(createSearchForm(searchSeed));
+      this.searchSlot.replaceChildren(createSearchForm(searchSeed, this.options));
       this.profileSlot.replaceChildren(createProfileLink(profileSeed));
       this.syncProfileObserver(profileSeed);
       void this.ensureRemoteProfileSeed();
@@ -5982,6 +6048,10 @@
       this.panel.updateRuntimeStatus(status);
     }
     syncCompactVideoHeader() {
+      this.compactHeader.setOptions({
+        placeholderVisible: this.currentConfig.compactHeaderPlaceholderVisible,
+        searchPlaceholderEnabled: this.currentConfig.compactHeaderSearchPlaceholderEnabled
+      });
       const shouldCompact = this.started && this.currentConfig.enabled && this.currentConfig.compactVideoHeader && supportsVideoFeatures(window.location.href);
       if (shouldCompact) {
         this.compactHeader.mount();
