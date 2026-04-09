@@ -815,32 +815,12 @@ export const styles = `
   position: relative;
 }
 
-.bsb-tm-title-layout {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  flex-wrap: wrap;
-  overflow: visible;
-}
-
 .bsb-tm-title-accessories {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  flex: none;
-  overflow: visible;
-}
-
-.bsb-tm-title-text {
-  min-width: 0;
-  flex: 1 1 auto;
-}
-
-.bsb-tm-title-row {
-  display: flex !important;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
+  gap: 0;
+  float: left;
+  margin-right: 8px;
   overflow: visible;
 }
 
@@ -850,8 +830,6 @@ export const styles = `
   overflow: visible;
   position: relative;
   isolation: isolate;
-  padding-block: 7px;
-  margin-block: -7px;
 }
 
 .bsb-tm-title-pill {
@@ -1625,16 +1603,11 @@ ${inlineFeedbackStyles}
     inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 
-.bsb-tm-video-header-compact .bili-header.fixed-header {
+[data-bsb-native-header-hidden="true"] {
+  visibility: hidden !important;
   opacity: 0 !important;
   pointer-events: none !important;
-  height: 0 !important;
-  overflow: hidden !important;
-}
-
-.bsb-tm-video-header-compact .bili-header__bar.mini-header {
-  opacity: 0 !important;
-  pointer-events: none !important;
+  user-select: none !important;
 }
 
 .bsb-tm-video-header-shell,
@@ -1646,7 +1619,7 @@ ${inlineFeedbackStyles}
 .bsb-tm-video-header-compact .bsb-tm-video-header-shell {
   display: block;
   position: fixed;
-  top: 6px;
+  top: 0;
   left: 50%;
   z-index: 1100;
   width: min(1160px, calc(100vw - 28px));
@@ -1657,10 +1630,6 @@ ${inlineFeedbackStyles}
 .player-full-win .bsb-tm-video-header-shell,
 .player-fullscreen .bsb-tm-video-header-shell {
   display: none !important;
-}
-
-.bsb-tm-video-header-compact .video-container-v1 {
-  margin-top: 10px !important;
 }
 
 .player-full-win .video-container-v1,
@@ -1675,7 +1644,7 @@ ${inlineFeedbackStyles}
   align-items: center;
   gap: 12px;
   min-height: 54px;
-  padding: 7px 14px;
+  padding: 4px 14px;
   border: 1px solid rgba(255, 255, 255, 0.62);
   border-radius: 20px;
   background:
@@ -1829,7 +1798,7 @@ ${inlineFeedbackStyles}
   .bsb-tm-video-header-bar {
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 10px;
-    padding: 8px 12px;
+    padding: 4px 12px;
   }
 }
 
@@ -1887,13 +1856,13 @@ ${inlineFeedbackStyles}
   }
 
   .bsb-tm-video-header-shell {
-    top: 6px;
+    top: 0;
     width: calc(100vw - 16px);
   }
 
   .bsb-tm-video-header-bar {
-    min-height: 52px;
-    padding: 6px 10px;
+    min-height: 48px;
+    padding: 4px 10px;
     border-radius: 18px;
   }
 

@@ -228,6 +228,36 @@ describe("settings panel", () => {
     expect(content?.scrollTop).toBe(188);
   });
 
+  it("reverts a checkbox when persisting the change fails", async () => {
+    const onPatchConfig = vi.fn(async () => {
+      throw new Error("save failed");
+    });
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig,
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const field = Array.from(document.querySelectorAll<HTMLLabelElement>(".bsb-tm-field-toggle")).find((candidate) =>
+      candidate.textContent?.includes("启用紧凑视频顶部栏")
+    );
+    const checkbox = field?.querySelector<HTMLInputElement>("input[type='checkbox']");
+
+    expect(checkbox?.checked).toBe(true);
+    checkbox!.checked = false;
+    checkbox!.dispatchEvent(new Event("change"));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(onPatchConfig).toHaveBeenCalledWith({ compactVideoHeader: false });
+    expect(checkbox?.checked).toBe(true);
+    expect(field?.dataset.controlState).toBe("on");
+  });
+
   it("renders overview feature cards in title-chip-copy order", () => {
     const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
       onPatchConfig: vi.fn(async () => {}),

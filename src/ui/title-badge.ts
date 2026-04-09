@@ -31,7 +31,7 @@ function resolveCopy(segment: SegmentRecord, votingAvailable: boolean): string {
 }
 
 export class TitleBadge {
-  private readonly root = document.createElement("div");
+  private readonly root = document.createElement("span");
   private readonly pillButton = document.createElement("button");
   private readonly titleText = document.createElement("span");
   private readonly popover = document.createElement("div");

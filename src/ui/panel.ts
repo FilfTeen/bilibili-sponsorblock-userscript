@@ -827,8 +827,18 @@ export class SettingsPanel {
     input.setAttribute("role", "switch");
     input.checked = checked;
     input.addEventListener("change", async () => {
-      label.dataset.controlState = input.checked ? "on" : "off";
-      await onChange(input.checked);
+      const nextChecked = input.checked;
+      const previousChecked = !nextChecked;
+      label.dataset.controlState = nextChecked ? "on" : "off";
+      input.disabled = true;
+      try {
+        await onChange(nextChecked);
+      } catch (_error) {
+        input.checked = previousChecked;
+        label.dataset.controlState = previousChecked ? "on" : "off";
+      } finally {
+        input.disabled = false;
+      }
     });
 
     copy.append(title, help);

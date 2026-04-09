@@ -120,7 +120,7 @@
   function gmSetValue(key, value) {
     return __async(this, null, function* () {
       const fn = assertFunction("GM_setValue");
-      fn(key, value);
+      yield fn(key, value);
     });
   }
   function gmAddStyle(css) {
@@ -850,6 +850,12 @@
       __publicField(this, "config", cloneDefaultConfig());
       __publicField(this, "listeners", /* @__PURE__ */ new Set());
     }
+    notifyListeners() {
+      const snapshot = this.getSnapshot();
+      for (const listener of this.listeners) {
+        listener(snapshot);
+      }
+    }
     load() {
       return __async(this, null, function* () {
         this.config = normalizeConfig(yield gmGetValue(CONFIG_STORAGE_KEY, null));
@@ -871,20 +877,31 @@
     }
     update(updater) {
       return __async(this, null, function* () {
-        this.config = normalizeConfig(updater(this.getSnapshot()));
-        yield gmSetValue(CONFIG_STORAGE_KEY, this.config);
-        for (const listener of this.listeners) {
-          listener(this.getSnapshot());
+        const previous = this.getSnapshot();
+        const next = normalizeConfig(updater(previous));
+        this.config = next;
+        this.notifyListeners();
+        try {
+          yield gmSetValue(CONFIG_STORAGE_KEY, this.config);
+        } catch (error) {
+          this.config = previous;
+          this.notifyListeners();
+          throw error;
         }
         return this.getSnapshot();
       });
     }
     reset() {
       return __async(this, null, function* () {
-        yield gmSetValue(CONFIG_STORAGE_KEY, null);
+        const previous = this.getSnapshot();
         this.config = cloneDefaultConfig();
-        for (const listener of this.listeners) {
-          listener(this.getSnapshot());
+        this.notifyListeners();
+        try {
+          yield gmSetValue(CONFIG_STORAGE_KEY, null);
+        } catch (error) {
+          this.config = previous;
+          this.notifyListeners();
+          throw error;
         }
         return this.getSnapshot();
       });
@@ -2552,8 +2569,18 @@
       input.setAttribute("role", "switch");
       input.checked = checked;
       input.addEventListener("change", () => __async(null, null, function* () {
-        label.dataset.controlState = input.checked ? "on" : "off";
-        yield onChange(input.checked);
+        const nextChecked = input.checked;
+        const previousChecked = !nextChecked;
+        label.dataset.controlState = nextChecked ? "on" : "off";
+        input.disabled = true;
+        try {
+          yield onChange(nextChecked);
+        } catch (_error) {
+          input.checked = previousChecked;
+          label.dataset.controlState = previousChecked ? "on" : "off";
+        } finally {
+          input.disabled = false;
+        }
       }));
       copy.append(title, help);
       label.append(copy, input);
@@ -3278,11 +3305,10 @@
     }
     const parent = title.parentElement;
     if (!parent) {
-      title.classList.add("bsb-tm-title-row", "bsb-tm-title-text");
-      return title;
+      return null;
     }
-    parent.classList.add("bsb-tm-title-layout");
-    title.classList.add("bsb-tm-title-text");
+    title.classList.remove("bsb-tm-title-row", "bsb-tm-title-text");
+    parent.classList.remove("bsb-tm-title-layout");
     let accessories = (_a = Array.from(parent.children).find(
       (child) => child instanceof HTMLElement && child.getAttribute(TITLE_ACCESSORY_ATTR) === "true"
     )) != null ? _a : null;
@@ -3298,9 +3324,13 @@
     if (!host || host.getAttribute(TITLE_ACCESSORY_ATTR) !== "true") {
       return;
     }
+    const parent = host.parentElement instanceof HTMLElement ? host.parentElement : null;
+    const title = host.nextElementSibling instanceof HTMLElement ? host.nextElementSibling : null;
     if (host.childElementCount === 0) {
       host.remove();
     }
+    title == null ? void 0 : title.classList.remove("bsb-tm-title-row", "bsb-tm-title-text");
+    parent == null ? void 0 : parent.classList.remove("bsb-tm-title-layout");
   }
   function formatSegmentTime(seconds) {
     const total = Math.max(0, Math.floor(seconds));
@@ -3337,7 +3367,7 @@
   var TitleBadge = class {
     constructor(callbacks) {
       this.callbacks = callbacks;
-      __publicField(this, "root", document.createElement("div"));
+      __publicField(this, "root", document.createElement("span"));
       __publicField(this, "pillButton", document.createElement("button"));
       __publicField(this, "titleText", document.createElement("span"));
       __publicField(this, "popover", document.createElement("div"));
@@ -3638,6 +3668,12 @@
   };
 
   // src/ui/compact-header.ts
+  var NATIVE_HEADER_HIDDEN_ATTR = "data-bsb-native-header-hidden";
+  var NATIVE_HEADER_ROOT_SELECTORS = [
+    "#biliMainHeader",
+    ".bili-header.fixed-header",
+    ".bili-header__bar.mini-header"
+  ];
   var GENERIC_PROFILE_LABELS = /* @__PURE__ */ new Set([
     "",
     "\u4E2A\u4EBA\u4E3B\u9875",
@@ -3881,6 +3917,7 @@
         document.body.prepend(this.root);
       }
       document.documentElement.classList.add("bsb-tm-video-header-compact");
+      this.applyNativeHeaderState(true);
       this.retriesRemaining = 10;
       this.sync();
     }
@@ -3895,6 +3932,7 @@
       if (!this.mounted) {
         return;
       }
+      this.applyNativeHeaderState(true);
       const searchSeed = resolveSearchSeed();
       const resolvedProfileSeed = resolveProfileSeed();
       const globalProfileSeed = resolveProfileSeedFromGlobals();
@@ -3923,6 +3961,7 @@
       this.remoteProfilePromise = null;
       this.root.remove();
       document.documentElement.classList.remove("bsb-tm-video-header-compact");
+      this.applyNativeHeaderState(false);
     }
     destroy() {
       this.unmount();
@@ -3939,6 +3978,30 @@
         }
         this.sync();
       }, 400);
+    }
+    applyNativeHeaderState(hidden) {
+      const roots = this.resolveNativeHeaderRoots();
+      for (const root of roots) {
+        if (hidden) {
+          root.setAttribute(NATIVE_HEADER_HIDDEN_ATTR, "true");
+        } else {
+          root.removeAttribute(NATIVE_HEADER_HIDDEN_ATTR);
+        }
+      }
+      if (!hidden) {
+        for (const orphaned of document.querySelectorAll(`[${NATIVE_HEADER_HIDDEN_ATTR}="true"]`)) {
+          orphaned.removeAttribute(NATIVE_HEADER_HIDDEN_ATTR);
+        }
+      }
+    }
+    resolveNativeHeaderRoots() {
+      const found = /* @__PURE__ */ new Set();
+      for (const selector of NATIVE_HEADER_ROOT_SELECTORS) {
+        for (const node of document.querySelectorAll(selector)) {
+          found.add(node);
+        }
+      }
+      return Array.from(found);
     }
     syncProfileObserver(profileSeed) {
       var _a;
@@ -9042,32 +9105,12 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
   position: relative;
 }
 
-.bsb-tm-title-layout {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  flex-wrap: wrap;
-  overflow: visible;
-}
-
 .bsb-tm-title-accessories {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  flex: none;
-  overflow: visible;
-}
-
-.bsb-tm-title-text {
-  min-width: 0;
-  flex: 1 1 auto;
-}
-
-.bsb-tm-title-row {
-  display: flex !important;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
+  gap: 0;
+  float: left;
+  margin-right: 8px;
   overflow: visible;
 }
 
@@ -9077,8 +9120,6 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
   overflow: visible;
   position: relative;
   isolation: isolate;
-  padding-block: 7px;
-  margin-block: -7px;
 }
 
 .bsb-tm-title-pill {
@@ -9852,16 +9893,11 @@ ${inlineFeedbackStyles}
     inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 
-.bsb-tm-video-header-compact .bili-header.fixed-header {
+[data-bsb-native-header-hidden="true"] {
+  visibility: hidden !important;
   opacity: 0 !important;
   pointer-events: none !important;
-  height: 0 !important;
-  overflow: hidden !important;
-}
-
-.bsb-tm-video-header-compact .bili-header__bar.mini-header {
-  opacity: 0 !important;
-  pointer-events: none !important;
+  user-select: none !important;
 }
 
 .bsb-tm-video-header-shell,
@@ -9873,7 +9909,7 @@ ${inlineFeedbackStyles}
 .bsb-tm-video-header-compact .bsb-tm-video-header-shell {
   display: block;
   position: fixed;
-  top: 6px;
+  top: 0;
   left: 50%;
   z-index: 1100;
   width: min(1160px, calc(100vw - 28px));
@@ -9884,10 +9920,6 @@ ${inlineFeedbackStyles}
 .player-full-win .bsb-tm-video-header-shell,
 .player-fullscreen .bsb-tm-video-header-shell {
   display: none !important;
-}
-
-.bsb-tm-video-header-compact .video-container-v1 {
-  margin-top: 10px !important;
 }
 
 .player-full-win .video-container-v1,
@@ -9902,7 +9934,7 @@ ${inlineFeedbackStyles}
   align-items: center;
   gap: 12px;
   min-height: 54px;
-  padding: 7px 14px;
+  padding: 4px 14px;
   border: 1px solid rgba(255, 255, 255, 0.62);
   border-radius: 20px;
   background:
@@ -10056,7 +10088,7 @@ ${inlineFeedbackStyles}
   .bsb-tm-video-header-bar {
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 10px;
-    padding: 8px 12px;
+    padding: 4px 12px;
   }
 }
 
@@ -10114,13 +10146,13 @@ ${inlineFeedbackStyles}
   }
 
   .bsb-tm-video-header-shell {
-    top: 6px;
+    top: 0;
     width: calc(100vw - 16px);
   }
 
   .bsb-tm-video-header-bar {
-    min-height: 52px;
-    padding: 6px 10px;
+    min-height: 48px;
+    padding: 4px 10px;
     border-radius: 18px;
   }
 

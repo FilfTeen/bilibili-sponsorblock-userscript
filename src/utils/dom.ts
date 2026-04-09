@@ -57,12 +57,11 @@ export function ensureVideoTitleAccessoryHost(): HTMLElement | null {
 
   const parent = title.parentElement;
   if (!parent) {
-    title.classList.add("bsb-tm-title-row", "bsb-tm-title-text");
-    return title;
+    return null;
   }
 
-  parent.classList.add("bsb-tm-title-layout");
-  title.classList.add("bsb-tm-title-text");
+  title.classList.remove("bsb-tm-title-row", "bsb-tm-title-text");
+  parent.classList.remove("bsb-tm-title-layout");
 
   let accessories =
     Array.from(parent.children).find(
@@ -83,9 +82,13 @@ export function cleanupVideoTitleAccessoryHost(host: HTMLElement | null): void {
     return;
   }
 
+  const parent = host.parentElement instanceof HTMLElement ? host.parentElement : null;
+  const title = host.nextElementSibling instanceof HTMLElement ? host.nextElementSibling : null;
   if (host.childElementCount === 0) {
     host.remove();
   }
+  title?.classList.remove("bsb-tm-title-row", "bsb-tm-title-text");
+  parent?.classList.remove("bsb-tm-title-layout");
 }
 
 export function findPlayerButtonHost(video: HTMLVideoElement | null): HTMLElement | null {
