@@ -196,6 +196,32 @@ describe("title badge", () => {
     const wrap = document.querySelector<HTMLElement>(".bsb-tm-title-pill-wrap");
     expect(wrap?.dataset.transparent).toBe("true");
     expect(wrap?.dataset.category).toBe("exclusive_access");
+    expect(wrap?.dataset.glassContext).toBe("surface");
+    expect(wrap?.dataset.glassVariant).toBe("dark");
     expect(wrap?.style.getPropertyValue("--bsb-category-contrast")).toBe("#0f172a");
+  });
+
+  it("falls back to the light glass variant for near-white category overrides", () => {
+    document.body.innerHTML = `
+      <div class="video-info-container">
+        <h1>测试视频</h1>
+      </div>
+    `;
+
+    const badge = new TitleBadge({
+      onVote: vi.fn(async () => "submitted" as const),
+      onLocalDecision: vi.fn(async () => {}),
+      onOpenSettings: vi.fn()
+    });
+
+    badge.setColorOverrides({ exclusive_access: "#ffffff" });
+    badge.setTransparencyEnabled(true);
+    badge.setSegment(fullSegment);
+
+    const wrap = document.querySelector<HTMLElement>(".bsb-tm-title-pill-wrap");
+    expect(wrap?.dataset.glassContext).toBe("surface");
+    expect(wrap?.dataset.glassVariant).toBe("light");
+    expect(wrap?.style.getPropertyValue("--bsb-category-contrast")).toBe("#0f172a");
+    expect(wrap?.style.getPropertyValue("--bsb-category-accent")).toBe("#ffffff");
   });
 });

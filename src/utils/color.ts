@@ -7,6 +7,11 @@ type RGB = {
   b: number;
 };
 
+export type TransparentGlassVariant = "dark" | "light";
+
+const NEAR_WHITE_LUMINANCE_THRESHOLD = 0.82;
+const NEAR_WHITE_MIN_CHANNEL = 232;
+
 function clampChannel(value: number): number {
   return Math.max(0, Math.min(255, Math.round(value)));
 }
@@ -78,6 +83,22 @@ export function getReadableTextColor(hexColor: string): string {
   return relativeLuminance(hexToRgb(hexColor)) > 0.56 ? "#0f172a" : "#ffffff";
 }
 
+export function isNearWhiteColor(hexColor: string): boolean {
+  const rgb = hexToRgb(hexColor);
+  return (
+    relativeLuminance(rgb) > NEAR_WHITE_LUMINANCE_THRESHOLD &&
+    Math.min(rgb.r, rgb.g, rgb.b) >= NEAR_WHITE_MIN_CHANNEL
+  );
+}
+
+export function resolveTransparentGlassVariant(hexColor: string): TransparentGlassVariant {
+  return isNearWhiteColor(hexColor) ? "light" : "dark";
+}
+
+export function resolveGlassDisplayAccent(hexColor: string): string {
+  return isNearWhiteColor(hexColor) ? mixColors(hexColor, "#94a3b8", 0.72) : hexColor;
+}
+
 export type CategoryStyle = {
   accent: string;
   accentStrong: string;
@@ -88,6 +109,8 @@ export type CategoryStyle = {
   glassSurface: string;
   glassBorder: string;
   darkSurface: string;
+  transparentVariant: TransparentGlassVariant;
+  transparentDisplayAccent: string;
 };
 
 export function resolveCategoryAccent(category: Category, overrides?: CategoryColorOverrides): string {
@@ -97,6 +120,7 @@ export function resolveCategoryAccent(category: Category, overrides?: CategoryCo
 export function resolveCategoryStyle(category: Category, overrides?: CategoryColorOverrides): CategoryStyle {
   const accent = resolveCategoryAccent(category, overrides);
   const accentStrong = mixColors(accent, "#0f172a", 0.12);
+  const transparentVariant = resolveTransparentGlassVariant(accent);
   return {
     accent,
     accentStrong,
@@ -106,6 +130,8 @@ export function resolveCategoryStyle(category: Category, overrides?: CategoryCol
     softBorder: rgba(accent, 0.3),
     glassSurface: mixColors(accent, "#ffffff", 0.86),
     glassBorder: rgba(accent, 0.4),
-    darkSurface: rgba(accentStrong, 0.88)
+    darkSurface: rgba(accentStrong, 0.88),
+    transparentVariant,
+    transparentDisplayAccent: resolveGlassDisplayAccent(accent)
   };
 }

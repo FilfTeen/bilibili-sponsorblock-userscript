@@ -32,6 +32,7 @@ describe("thumbnail labels", () => {
     const label = wrapper.querySelector<HTMLElement>(".sponsorThumbnailLabel");
     expect(label).toBeTruthy();
     expect(label?.classList.contains("sponsorThumbnailLabelVisible")).toBe(true);
+    expect(label?.dataset.glassContext).toBe("overlay");
     expect(label?.textContent).toContain("商单广告");
     expect(wrapper.querySelector(".bili-video-card > .bsb-tm-thumbnail-slot > .sponsorThumbnailLabel")).toBeTruthy();
     expect(wrapper.querySelector(".bili-video-card")?.classList.contains("bsb-tm-thumbnail-card-host")).toBe(true);
@@ -342,5 +343,50 @@ describe("thumbnail labels", () => {
     expect(card.dataset.bsbHover).toBe("true");
     expect(slot.dataset.bsbExpanded).toBe("true");
     expect(label.dataset.bsbExpanded).toBe("true");
+  });
+
+  it("falls back to the light glass variant for near-white thumbnail overrides", async () => {
+    window.history.replaceState({}, "", "/");
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "recommended-container_floor-aside";
+    wrapper.innerHTML = `
+      <div class="container">
+        <article class="bili-video-card">
+          <a class="bili-video-card__cover" href="//www.bilibili.com/video/BV17x411w7KC/">
+            <img src="https://example.com/a.jpg" alt="cover">
+          </a>
+        </article>
+      </div>
+    `;
+    document.body.appendChild(wrapper);
+
+    const configStore = new ConfigStore();
+    const snapshot = configStore.getSnapshot();
+    Reflect.set(configStore, "config", {
+      ...snapshot,
+      categoryColorOverrides: {
+        ...snapshot.categoryColorOverrides,
+        sponsor: "#ffffff"
+      },
+      labelTransparency: {
+        ...snapshot.labelTransparency,
+        thumbnailLabel: true
+      }
+    });
+
+    const controller = new ThumbnailLabelController(configStore, new PersistentCache(), new LocalVideoLabelStore());
+    Reflect.set(controller, "client", {
+      getWholeVideoLabel: vi.fn(async () => "sponsor")
+    });
+
+    const refresh = Reflect.get(controller, "refresh") as () => Promise<void>;
+    await refresh.call(controller);
+
+    const label = wrapper.querySelector<HTMLElement>(".sponsorThumbnailLabelVisible");
+    expect(label?.dataset.glassContext).toBe("overlay");
+    expect(label?.dataset.glassVariant).toBe("light");
+    expect(label?.style.getPropertyValue("--category-display-accent")).not.toBe("#ffffff");
+    expect(label?.style.getPropertyValue("--category-contrast")).toBe("#0f172a");
   });
 });
