@@ -65,11 +65,26 @@
   };
 
   // src/platform/gm.ts
-  function resolveWindowFunction(name) {
-    if (typeof window === "undefined") {
-      return void 0;
+  function resolveGlobalFunction(name) {
+    if (typeof window !== "undefined") {
+      const fromWindow = Reflect.get(window, name);
+      if (typeof fromWindow === "function") {
+        return fromWindow;
+      }
     }
-    return Reflect.get(window, name);
+    if (typeof self !== "undefined") {
+      const fromSelf = Reflect.get(self, name);
+      if (typeof fromSelf === "function") {
+        return fromSelf;
+      }
+    }
+    if (typeof global !== "undefined") {
+      const fromGlobal = Reflect.get(global, name);
+      if (typeof fromGlobal === "function") {
+        return fromGlobal;
+      }
+    }
+    return void 0;
   }
   function resolveGrantedFunction(name) {
     switch (name) {
@@ -101,7 +116,7 @@
       default:
         break;
     }
-    const fallback = resolveWindowFunction(name);
+    const fallback = resolveGlobalFunction(name);
     return typeof fallback === "function" ? fallback : void 0;
   }
   function assertFunction(name) {
@@ -5332,6 +5347,18 @@ ${inlineSurfaceFrostedGlass.overlay}
     }
   };
 
+  // src/utils/local-learning.ts
+  var LOCAL_VIDEO_SIGNAL_PERSISTENCE_THRESHOLD = 0.72;
+  function shouldPersistLocalVideoSignal(signal) {
+    return signal.confidence >= LOCAL_VIDEO_SIGNAL_PERSISTENCE_THRESHOLD;
+  }
+  function pickPreferredLocalVideoSignal(commentSignal, pageSignal) {
+    if (commentSignal && pageSignal) {
+      return commentSignal.confidence >= pageSignal.confidence ? commentSignal : pageSignal;
+    }
+    return commentSignal != null ? commentSignal : pageSignal;
+  }
+
   // src/utils/local-video-signal.ts
   var DESCRIPTION_SELECTORS = [
     ".video-desc-container",
@@ -6594,21 +6621,15 @@ ${inlineSurfaceFrostedGlass.overlay}
         }
         const commentSignal = scanCurrentPageCommentSignal(this.currentConfig);
         const pageSignal = inferLocalVideoSignal(context);
-        const localSignal = this.pickPreferredLocalSignal(commentSignal, pageSignal);
+        const localSignal = pickPreferredLocalVideoSignal(commentSignal, pageSignal);
         if (!localSignal || this.currentConfig.categoryModes[localSignal.category] === "off") {
           return null;
         }
-        if (localSignal.confidence >= 0.72) {
+        if (shouldPersistLocalVideoSignal(localSignal)) {
           yield this.localVideoLabelStore.rememberSignal(context.bvid, localSignal);
         }
         return this.buildLocalSignalSegment(context.bvid, localSignal);
       });
-    }
-    pickPreferredLocalSignal(commentSignal, pageSignal) {
-      if (commentSignal && pageSignal) {
-        return commentSignal.confidence >= pageSignal.confidence ? commentSignal : pageSignal;
-      }
-      return commentSignal != null ? commentSignal : pageSignal;
     }
     handleLocalBadgeDecision(segment, decision) {
       return __async(this, null, function* () {

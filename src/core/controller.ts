@@ -33,6 +33,7 @@ import type {
 } from "../types";
 import { roundMinutes } from "../utils/number";
 import { mutationsTouchSelectors } from "../utils/mutation";
+import { pickPreferredLocalVideoSignal, shouldPersistLocalVideoSignal } from "../utils/local-learning";
 import { inferLocalVideoSignal } from "../utils/local-video-signal";
 import { resolveVideoContext } from "../utils/video-context";
 import { debugLog, findVideoElement, formatDurationLabel, resolvePlayerHost } from "../utils/dom";
@@ -1115,27 +1116,16 @@ export class ScriptController {
 
     const commentSignal = scanCurrentPageCommentSignal(this.currentConfig);
     const pageSignal = inferLocalVideoSignal(context);
-    const localSignal = this.pickPreferredLocalSignal(commentSignal, pageSignal);
+    const localSignal = pickPreferredLocalVideoSignal(commentSignal, pageSignal);
     if (!localSignal || this.currentConfig.categoryModes[localSignal.category] === "off") {
       return null;
     }
 
-    if (localSignal.confidence >= 0.72) {
+    if (shouldPersistLocalVideoSignal(localSignal)) {
       await this.localVideoLabelStore.rememberSignal(context.bvid, localSignal);
     }
 
     return this.buildLocalSignalSegment(context.bvid, localSignal);
-  }
-
-  private pickPreferredLocalSignal(
-    commentSignal: LocalVideoSignal | null,
-    pageSignal: LocalVideoSignal | null
-  ): LocalVideoSignal | null {
-    if (commentSignal && pageSignal) {
-      return commentSignal.confidence >= pageSignal.confidence ? commentSignal : pageSignal;
-    }
-
-    return commentSignal ?? pageSignal;
   }
 
   private async handleLocalBadgeDecision(segment: SegmentRecord, decision: "confirm" | "dismiss"): Promise<void> {
