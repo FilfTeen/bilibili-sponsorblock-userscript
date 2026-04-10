@@ -18,6 +18,17 @@ export type CommercialIntentAssessment = {
   exclusiveScore: number;
 };
 
+export type CommercialActionability = {
+  hasActionVerb: boolean;
+  hasCommerceSurface: boolean;
+  hasBenefitCue: boolean;
+  hasPurchaseCue: boolean;
+  hasOwnedSurface: boolean;
+  hasOwnedActionLead: boolean;
+  hasStrongClosure: boolean;
+  hasQuotedOrMockingContext: boolean;
+};
+
 const BENIGN_CONTEXT_PATTERN =
   /广告位|广告学|推广曲|推广大使|同款(?:bgm|BGM|音乐|滤镜)|团购课|营销课|(?:分享|讨论)广告/iu;
 const VIDEO_BENIGN_TOPIC_PATTERN =
@@ -62,6 +73,16 @@ const EXCLUSIVE_RULES: readonly CommercialRule[] = [
   { token: "工程机", pattern: /工程机|样机|内测|beta|试玩|预览版|体验版/iu, weight: 2.4 }
 ];
 
+const CTA_ACTION_PATTERN =
+  /点击|点开|点进|戳|打开|去|领取|领|抢|下单|购买|买|入手|搜索|看我|看主页|主页见|置顶看我/iu;
+const CTA_SURFACE_PATTERN =
+  /评论区(?:置顶)?|蓝链|链接|商品卡|店铺|橱窗|主页|频道|直播间|专栏|收藏夹|合集/iu;
+const CTA_BENEFIT_PATTERN = /优惠(?:券|卷|劵)|红包|福利|返利|返现|折扣|到手价|密令/iu;
+const CTA_PURCHASE_PATTERN = /下单|购买|买|入手/u;
+const CTA_OWNED_SURFACE_PATTERN = /(?:我的|本)?(?:店铺|小店|橱窗|主页|频道|直播间|专栏|收藏夹|合集)/iu;
+const QUOTED_OR_MOCKING_CONTEXT_PATTERN =
+  /玩梗|整活|反串|阴阳怪气|吐槽|调侃|引用|复读|照搬|原话|话术|文案|笑死|绷不住|尬|土味|逆天|离谱|“[^”]{0,24}(?:广告|推广|优惠券|购买|下单|链接)[^”]{0,24}”|"[^"]{0,24}(?:广告|推广|优惠券|购买|下单|链接)[^"]{0,24}"/iu;
+
 function normalizeText(text: string): string {
   return text.replace(/\s+/gu, " ").trim();
 }
@@ -70,9 +91,62 @@ function unique(values: Iterable<string>): string[] {
   return [...new Set([...values].map((value) => value.trim()).filter(Boolean))];
 }
 
+function hasNonNegatedPattern(text: string, pattern: RegExp): boolean {
+  const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
+  const globalPattern = new RegExp(pattern.source, flags);
+  for (const result of text.matchAll(globalPattern)) {
+    const matchedText = result[0];
+    const startIndex = result.index ?? text.indexOf(matchedText);
+    if (startIndex < 0 || isNegatedMatch(text, startIndex)) {
+      continue;
+    }
+    return true;
+  }
+  return false;
+}
+
 function isNegatedMatch(text: string, startIndex: number): boolean {
   const prefix = text.slice(Math.max(0, startIndex - 8), startIndex).replace(/\s+/gu, "");
   return NEGATED_MATCH_PREFIX_PATTERN.test(prefix);
+}
+
+export function inspectCommercialActionability(text: string): CommercialActionability {
+  const normalized = normalizeText(text);
+  if (!normalized) {
+    return {
+      hasActionVerb: false,
+      hasCommerceSurface: false,
+      hasBenefitCue: false,
+      hasPurchaseCue: false,
+      hasOwnedSurface: false,
+      hasOwnedActionLead: false,
+      hasStrongClosure: false,
+      hasQuotedOrMockingContext: false
+    };
+  }
+
+  const hasActionVerb = hasNonNegatedPattern(normalized, CTA_ACTION_PATTERN);
+  const hasCommerceSurface = hasNonNegatedPattern(normalized, CTA_SURFACE_PATTERN);
+  const hasBenefitCue = hasNonNegatedPattern(normalized, CTA_BENEFIT_PATTERN);
+  const hasPurchaseCue = hasNonNegatedPattern(normalized, CTA_PURCHASE_PATTERN);
+  const hasOwnedSurface = hasNonNegatedPattern(normalized, CTA_OWNED_SURFACE_PATTERN);
+  const hasOwnedActionLead = hasOwnedSurface && (hasActionVerb || /主页见|置顶看我/iu.test(normalized));
+  const hasStrongClosure =
+    (hasActionVerb && hasCommerceSurface) ||
+    (hasBenefitCue && (hasCommerceSurface || hasPurchaseCue)) ||
+    (hasPurchaseCue && hasCommerceSurface) ||
+    hasOwnedActionLead;
+
+  return {
+    hasActionVerb,
+    hasCommerceSurface,
+    hasBenefitCue,
+    hasPurchaseCue,
+    hasOwnedSurface,
+    hasOwnedActionLead,
+    hasStrongClosure,
+    hasQuotedOrMockingContext: QUOTED_OR_MOCKING_CONTEXT_PATTERN.test(normalized)
+  };
 }
 
 function collectRuleHits(text: string, rules: readonly CommercialRule[]): { score: number; matches: string[] } {
@@ -80,20 +154,7 @@ function collectRuleHits(text: string, rules: readonly CommercialRule[]): { scor
   let score = 0;
 
   for (const rule of rules) {
-    const flags = rule.pattern.flags.includes("g") ? rule.pattern.flags : `${rule.pattern.flags}g`;
-    const globalPattern = new RegExp(rule.pattern.source, flags);
-    let matched = false;
-    for (const result of text.matchAll(globalPattern)) {
-      const matchedText = result[0];
-      const startIndex = result.index ?? text.indexOf(matchedText);
-      if (startIndex < 0 || isNegatedMatch(text, startIndex)) {
-        continue;
-      }
-      matched = true;
-      break;
-    }
-
-    if (matched) {
+    if (hasNonNegatedPattern(text, rule.pattern)) {
       matches.push(rule.token);
       score += rule.weight;
     }
