@@ -1,7 +1,7 @@
 import type { DynamicSponsorMatch, StoredConfig } from "../types";
 import { ConfigStore } from "../core/config-store";
 import { collectPatternMatches, isLikelyPromoText, regexFromStoredPattern } from "../utils/pattern";
-import { analyzeCommercialIntent } from "../utils/commercial-intent";
+import { analyzeCommercialIntent, inspectCommercialActionability } from "../utils/commercial-intent";
 import { debugLog } from "../utils/dom";
 import { mutationsTouchSelectors } from "../utils/mutation";
 import { observeUrlChanges } from "../utils/navigation";
@@ -29,6 +29,9 @@ const currentInlineBadgeAppearance = {
   dynamicBadge: false
 };
 
+const DYNAMIC_STRONG_MATCHES = new Set(["赞助", "商务合作", "商品卡", "优惠券", "购买指引"]);
+const DYNAMIC_INVITATION_PATTERN = /邀请码|体验码|兑换码|注册码/iu;
+
 export function classifyDynamicItem(
   element: HTMLElement,
   config: Pick<StoredConfig, "dynamicRegexPattern" | "dynamicRegexKeywordMinMatches">
@@ -54,27 +57,41 @@ export function classifyDynamicItem(
     .map((node) => node.textContent ?? "")
     .join(" ");
   const storedMatches = pattern ? collectPatternMatches(text, pattern) : [];
-  if (pattern && !isLikelyPromoText(text, storedMatches, config.dynamicRegexKeywordMinMatches)) {
-    const assessment = analyzeCommercialIntent(text, {
-      storedMatches,
-      minMatches: config.dynamicRegexKeywordMinMatches
-    });
-    if (!assessment.category) {
-      return null;
-    }
-
-    return {
-      category:
-        assessment.category === "selfpromo" ? "dynamicSponsor_forward_sponsor" : "dynamicSponsor_suspicion_sponsor",
-      matches: storedMatches.length > 0 ? storedMatches : assessment.matches
-    };
-  }
-
   const assessment = analyzeCommercialIntent(text, {
     storedMatches,
     minMatches: config.dynamicRegexKeywordMinMatches
   });
   if (!assessment.category) {
+    return null;
+  }
+
+  const actionability = inspectCommercialActionability(text);
+  const hasStrongToken = assessment.matches.some((match) => DYNAMIC_STRONG_MATCHES.has(match));
+  const hasInvitationLead = DYNAMIC_INVITATION_PATTERN.test(text);
+  const hasStrongEvidence = actionability.hasStrongClosure || hasStrongToken || hasInvitationLead;
+
+  if (actionability.hasQuotedOrMockingContext) {
+    return null;
+  }
+
+  if (
+    pattern &&
+    !isLikelyPromoText(text, storedMatches, config.dynamicRegexKeywordMinMatches) &&
+    !hasStrongEvidence &&
+    assessment.category !== "selfpromo"
+  ) {
+    return null;
+  }
+
+  if (assessment.category === "sponsor" && !hasStrongEvidence) {
+    return null;
+  }
+
+  if (assessment.category === "selfpromo" && !actionability.hasOwnedActionLead) {
+    return null;
+  }
+
+  if (assessment.category === "exclusive_access" && !actionability.hasStrongClosure && assessment.exclusiveScore < 3.2) {
     return null;
   }
 

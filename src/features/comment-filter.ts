@@ -1,7 +1,7 @@
 import type { Category, LocalVideoSignal, StoredConfig } from "../types";
 import { ConfigStore } from "../core/config-store";
 import { collectPatternMatches, isLikelyPromoText, regexFromStoredPattern } from "../utils/pattern";
-import { analyzeCommercialIntent } from "../utils/commercial-intent";
+import { analyzeCommercialIntent, inspectCommercialActionability } from "../utils/commercial-intent";
 import { debugLog } from "../utils/dom";
 import { mutationsTouchSelectors } from "../utils/mutation";
 import { observeUrlChanges } from "../utils/navigation";
@@ -65,6 +65,9 @@ type CommentTarget = {
   thread: HTMLElement;
   kind: "comment" | "reply";
 };
+
+const COMMENT_STRONG_MATCHES = new Set(["赞助", "商务合作", "商品卡", "优惠券", "购买指引"]);
+const COMMENT_INVITATION_PATTERN = /邀请码|体验码|兑换码|注册码/iu;
 
 function getActionRendererNode(commentRenderer: CommentRenderer): HTMLElement | null {
   return (
@@ -177,27 +180,41 @@ export function classifyCommentRenderer(
   const pattern = regexFromStoredPattern(config.dynamicRegexPattern);
   const text = extractCommentText(commentRenderer);
   const storedMatches = pattern ? collectPatternMatches(text, pattern) : [];
-  if (pattern && !isLikelyPromoText(text, storedMatches, config.dynamicRegexKeywordMinMatches)) {
-    const assessment = analyzeCommercialIntent(text, {
-      storedMatches,
-      minMatches: config.dynamicRegexKeywordMinMatches
-    });
-    if (!assessment.category) {
-      return null;
-    }
-
-    return {
-      reason: "suspicion",
-      category: assessment.category,
-      matches: storedMatches.length > 0 ? storedMatches : assessment.matches
-    };
-  }
-
   const assessment = analyzeCommercialIntent(text, {
     storedMatches,
     minMatches: config.dynamicRegexKeywordMinMatches
   });
   if (!assessment.category) {
+    return null;
+  }
+
+  const actionability = inspectCommercialActionability(text);
+  const hasStrongToken = assessment.matches.some((match) => COMMENT_STRONG_MATCHES.has(match));
+  const hasInvitationLead = COMMENT_INVITATION_PATTERN.test(text);
+  const hasStrongEvidence = actionability.hasStrongClosure || hasStrongToken || hasInvitationLead;
+
+  if (actionability.hasQuotedOrMockingContext) {
+    return null;
+  }
+
+  if (
+    pattern &&
+    !isLikelyPromoText(text, storedMatches, config.dynamicRegexKeywordMinMatches) &&
+    !hasStrongEvidence &&
+    assessment.category !== "selfpromo"
+  ) {
+    return null;
+  }
+
+  if (assessment.category === "sponsor" && !hasStrongEvidence) {
+    return null;
+  }
+
+  if (assessment.category === "selfpromo" && !actionability.hasOwnedActionLead && assessment.selfpromoScore < 2.6) {
+    return null;
+  }
+
+  if (assessment.category === "exclusive_access" && !actionability.hasStrongClosure && assessment.exclusiveScore < 3.2) {
     return null;
   }
 
