@@ -20,8 +20,11 @@ export type CommercialIntentAssessment = {
 
 const BENIGN_CONTEXT_PATTERN =
   /广告位|广告学|推广曲|推广大使|同款(?:bgm|BGM|音乐|滤镜)|团购课|营销课|(?:分享|讨论)广告/iu;
+const VIDEO_BENIGN_TOPIC_PATTERN =
+  /(?:普通)?(?:测评|评测)|体验(?:记录|分享|感受)|发布会|展会|开放日|媒体日|活动记录|现场(?:体验|直击)?|新品(?:解析|说明)|技术说明|参数对比/iu;
 const DISCLAIMER_PATTERN =
-  /(?:不是|并非|完全不算|真不是)(?:广告|商单|恰饭)|(?:无广|无广告|无赞助|非商单|非广告|自费购买|自费购入|自己买的|个人自费|无商业合作)/iu;
+  /(?:不是|并非|完全不算|真不是)(?:广告|商单|恰饭)|(?:无广|无广告|无赞助|非商单|非广告|自费购买|自费购入|自己买的|个人自费|无商业合作|没收钱|未收钱|没有接广告|自己花钱买的|自掏腰包)/iu;
+const NEGATED_MATCH_PREFIX_PATTERN = /(?:无|没|没有|非|不是|并非|不算|并不是|未|并无|别|勿)$/u;
 
 const SPONSOR_STRONG_RULES: readonly CommercialRule[] = [
   { token: "商单", pattern: /商单|恰饭|金主/iu, weight: 4.2 },
@@ -29,7 +32,12 @@ const SPONSOR_STRONG_RULES: readonly CommercialRule[] = [
   { token: "商务合作", pattern: /商务合作|商业合作|品牌合作|联合出品|合作推广/iu, weight: 3.9 },
   { token: "商品卡", pattern: /商品卡|店铺橱窗|购物车|蓝链|专属链接/iu, weight: 3.8 },
   { token: "优惠券", pattern: /优惠(?:券|卷|劵)|折扣码|密令|红包|返利|返现/iu, weight: 3.4 },
-  { token: "购买指引", pattern: /(?:立即|直接|马上)?(?:下单|购买)|购买链接|购买清单|使用清单|开箱清单|评论区(?:置顶)?/iu, weight: 3.3 }
+  {
+    token: "购买指引",
+    pattern:
+      /(?:立即|直接|马上|点击|戳|去)[^。！？\n]{0,6}(?:下单|购买)|(?:下单|购买)(?:链接|入口|方式|清单)|购买链接|购买清单|使用清单|开箱清单|评论区(?:置顶)?[^。！？\n]{0,10}(?:链接|蓝链|商品卡|领券|购买|下单)/iu,
+    weight: 3.3
+  }
 ];
 
 const SPONSOR_SUPPORT_RULES: readonly CommercialRule[] = [
@@ -62,12 +70,30 @@ function unique(values: Iterable<string>): string[] {
   return [...new Set([...values].map((value) => value.trim()).filter(Boolean))];
 }
 
+function isNegatedMatch(text: string, startIndex: number): boolean {
+  const prefix = text.slice(Math.max(0, startIndex - 8), startIndex).replace(/\s+/gu, "");
+  return NEGATED_MATCH_PREFIX_PATTERN.test(prefix);
+}
+
 function collectRuleHits(text: string, rules: readonly CommercialRule[]): { score: number; matches: string[] } {
   const matches: string[] = [];
   let score = 0;
 
   for (const rule of rules) {
-    if (rule.pattern.test(text)) {
+    const flags = rule.pattern.flags.includes("g") ? rule.pattern.flags : `${rule.pattern.flags}g`;
+    const globalPattern = new RegExp(rule.pattern.source, flags);
+    let matched = false;
+    for (const result of text.matchAll(globalPattern)) {
+      const matchedText = result[0];
+      const startIndex = result.index ?? text.indexOf(matchedText);
+      if (startIndex < 0 || isNegatedMatch(text, startIndex)) {
+        continue;
+      }
+      matched = true;
+      break;
+    }
+
+    if (matched) {
       matches.push(rule.token);
       score += rule.weight;
     }
@@ -133,6 +159,7 @@ export function analyzeCommercialIntent(
   const hasOwnedSurface =
     /(?:我的|本)?(?:频道|店铺|小店|橱窗|直播间|主页|作品|活动|课程|专栏)/iu.test(normalized);
   const benignContext = BENIGN_CONTEXT_PATTERN.test(normalized);
+  const benignVideoTopic = VIDEO_BENIGN_TOPIC_PATTERN.test(normalized);
 
   if (benignContext && sponsorStrong.score === 0 && exclusive.score === 0 && !hasExplicitCTA && !hasOwnedSurface) {
     return {
@@ -167,6 +194,11 @@ export function analyzeCommercialIntent(
   if (benignContext && sponsorStrong.score === 0 && selfpromoScore < 2.8) {
     sponsorScore = Math.max(0, sponsorScore - 1.8);
     selfpromoScore = Math.max(0, selfpromoScore - 1.5);
+  }
+
+  if (benignVideoTopic && sponsorStrong.score === 0 && !hasExplicitCTA) {
+    sponsorScore = Math.max(0, sponsorScore - 1.9);
+    selfpromoScore = Math.max(0, selfpromoScore - 0.9);
   }
 
   let category: CommercialCategory | null = null;
