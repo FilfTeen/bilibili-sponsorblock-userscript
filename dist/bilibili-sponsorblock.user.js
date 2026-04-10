@@ -66,14 +66,25 @@
 
   // src/platform/gm.ts
   function resolveGlobalFunction(name) {
-    const fromGlobalThis = Reflect.get(globalThis, name);
-    if (typeof fromGlobalThis === "function") {
-      return fromGlobalThis;
+    if (typeof window !== "undefined") {
+      const fromWindow = Reflect.get(window, name);
+      if (typeof fromWindow === "function") {
+        return fromWindow;
+      }
     }
-    if (typeof window === "undefined") {
-      return void 0;
+    if (typeof self !== "undefined") {
+      const fromSelf = Reflect.get(self, name);
+      if (typeof fromSelf === "function") {
+        return fromSelf;
+      }
     }
-    return Reflect.get(window, name);
+    if (typeof global !== "undefined") {
+      const fromGlobal = Reflect.get(global, name);
+      if (typeof fromGlobal === "function") {
+        return fromGlobal;
+      }
+    }
+    return void 0;
   }
   function resolveGrantedFunction(name) {
     switch (name) {

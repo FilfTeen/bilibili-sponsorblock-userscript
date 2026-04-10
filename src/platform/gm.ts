@@ -1,16 +1,28 @@
 import type { FetchResponse } from "../types";
 
 function resolveGlobalFunction(name: string): unknown {
-  const fromGlobalThis = Reflect.get(globalThis as unknown as Record<string, unknown>, name);
-  if (typeof fromGlobalThis === "function") {
-    return fromGlobalThis;
+  if (typeof window !== "undefined") {
+    const fromWindow = Reflect.get(window as unknown as Record<string, unknown>, name);
+    if (typeof fromWindow === "function") {
+      return fromWindow;
+    }
   }
 
-  if (typeof window === "undefined") {
-    return undefined;
+  if (typeof self !== "undefined") {
+    const fromSelf = Reflect.get(self as unknown as Record<string, unknown>, name);
+    if (typeof fromSelf === "function") {
+      return fromSelf;
+    }
   }
 
-  return Reflect.get(window as unknown as Record<string, unknown>, name);
+  if (typeof global !== "undefined") {
+    const fromGlobal = Reflect.get(global as unknown as Record<string, unknown>, name);
+    if (typeof fromGlobal === "function") {
+      return fromGlobal;
+    }
+  }
+
+  return undefined;
 }
 
 type KnownGrantedFunction =
