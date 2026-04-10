@@ -11,6 +11,7 @@ import {
   resolveVueCommentLocation,
   scanCurrentPageCommentSignal
 } from "../src/features/comment-filter";
+import { COMMENT_RECOGNITION_SAMPLES } from "./fixtures/recognition-samples";
 
 function createCommentRenderer(
   withGoods = true,
@@ -244,6 +245,18 @@ describe("comment filter", () => {
       category: "sponsor",
       source: "comment-suspicion"
     });
+  });
+
+  it("evaluates the approved shared comment corpus", () => {
+    const approvedSamples = COMMENT_RECOGNITION_SAMPLES.filter((sample) => sample.humanVerdict === "confirmed");
+    const results = approvedSamples.map((sample) =>
+      classifyCommentRenderer(createCommentRenderer(Boolean(sample.input.hasGoodsLink), sample.input.text) as HTMLElement & { shadowRoot: ShadowRoot }, {
+        dynamicRegexPattern: sample.input.regexPattern ?? "/评论区|优惠券|广告|推广|好物推荐|邀请码|主页|店铺|橱窗/gi",
+        dynamicRegexKeywordMinMatches: sample.input.regexKeywordMinMatches ?? 1
+      })?.category ?? null
+    );
+
+    expect(results).toEqual(["sponsor", "sponsor", "selfpromo", null, null, "sponsor"]);
   });
 
   it("reads comment locations from renderer data before legacy DOM fallbacks", () => {

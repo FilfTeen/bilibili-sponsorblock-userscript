@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { analyzeCommercialIntent } from "../src/utils/commercial-intent";
+import { VIDEO_RECOGNITION_SAMPLES } from "./fixtures/recognition-samples";
 
 describe("commercial intent analysis", () => {
   it("prefers sponsor classification for explicit commercial CTA copy", () => {
@@ -37,5 +38,24 @@ describe("commercial intent analysis", () => {
     const result = analyzeCommercialIntent("某品牌发布会现场体验，聊聊新品设计，没有购买链接");
 
     expect(result.category).toBeNull();
+  });
+
+  it("keeps shared video corpus aligned at the commercial-intent layer", () => {
+    const sharedCases = VIDEO_RECOGNITION_SAMPLES.filter(
+      (sample) =>
+        sample.humanVerdict === "confirmed" &&
+        (sample.id === "video-hit-sponsor-cta" ||
+          sample.id === "video-hit-exclusive-access" ||
+          sample.id === "video-pass-disclaimer-review")
+    );
+    const categories = sharedCases.map((sample) => {
+      const text = [sample.input.title, sample.input.description, ...(sample.input.tags ?? [])].filter(Boolean).join(" ");
+      return analyzeCommercialIntent(text, {
+        storedMatches: sample.input.storedMatches ?? [],
+        minMatches: 1
+      }).category;
+    });
+
+    expect(categories).toEqual(["sponsor", "exclusive_access", null]);
   });
 });
