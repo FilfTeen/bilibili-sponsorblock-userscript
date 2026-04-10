@@ -875,17 +875,7 @@ ${titleSurfaceFrostedGlass.overlay}
 }
 
 .bsb-tm-title-pill-wrap[data-transparent="true"][data-glass-context="surface"] .bsb-tm-title-pill::after {
-  content: "";
-  position: absolute;
-  inset: 1px;
-  z-index: 1;
-  border-radius: inherit;
-  pointer-events: none;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.48), rgba(255, 255, 255, 0.08) 26%, transparent 54%),
-    linear-gradient(108deg, transparent 14%, rgba(255, 255, 255, 0.34) 20%, rgba(255, 255, 255, 0.06) 30%, transparent 42%);
-  opacity: 0.78;
-  mix-blend-mode: screen;
+  content: none;
 }
 
 .bsb-tm-title-pill-wrap[data-transparent="true"][data-glass-context="surface"] .bsb-tm-title-pill > * {
@@ -904,12 +894,11 @@ ${titleSurfaceFrostedGlass.overlay}
 .bsb-tm-title-pill-wrap[data-transparent="true"][data-glass-context="surface"] .bsb-tm-title-pill:hover,
 .bsb-tm-title-pill-wrap[data-transparent="true"][data-glass-context="surface"] .bsb-tm-title-pill[aria-expanded="true"] {
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.82),
-    inset 0 -1px 0 color-mix(in srgb, var(--bsb-category-accent, #2f9e72) 18%, rgba(148, 163, 184, 0.05)),
-    0 4px 10px rgba(15, 23, 42, 0.05),
-    0 10px 20px rgba(15, 23, 42, 0.06),
-    0 0 0 1px rgba(255, 255, 255, 0.18);
-  filter: saturate(1.03) brightness(1.01);
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    inset 0 -1px 0 color-mix(in srgb, var(--bsb-category-accent, #2f9e72) 12%, rgba(15, 23, 42, 0.06)),
+    0 8px 18px rgba(15, 23, 42, 0.06),
+    0 16px 28px rgba(15, 23, 42, 0.03);
+  filter: saturate(1.04) brightness(1.02);
 }
 
 .bsb-tm-title-pill svg,
@@ -1191,6 +1180,20 @@ ${titleSurfaceFrostedGlass.overlay}
     0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 
+.sponsorThumbnailLabel[data-placement="default"][data-transparent="true"][data-glass-context="overlay"] {
+  border-color: color-mix(in srgb, var(--category-accent, #ffffff) 20%, rgba(255, 255, 255, 0.12));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--category-accent, #ffffff) 8%, rgba(255, 255, 255, 0.1)),
+    color-mix(in srgb, var(--category-accent, #ffffff) 12%, rgba(255, 255, 255, 0.03))
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 -1px 0 color-mix(in srgb, var(--category-accent, #ffffff) 10%, rgba(15, 23, 42, 0.04)),
+    0 6px 14px rgba(15, 23, 42, 0.08),
+    0 12px 22px rgba(15, 23, 42, 0.04);
+}
+
 .sponsorThumbnailLabel[data-transparent="true"][data-glass-context="overlay"]::after {
   content: "";
   position: absolute;
@@ -1211,6 +1214,21 @@ ${titleSurfaceFrostedGlass.overlay}
   opacity: 0.94;
   backdrop-filter: blur(4px) saturate(162%) brightness(1.04);
   mix-blend-mode: screen;
+}
+
+.sponsorThumbnailLabel[data-placement="default"][data-transparent="true"][data-glass-context="overlay"]::after {
+  background:
+    radial-gradient(circle at 18% 12%, color-mix(in srgb, var(--category-accent, #ffffff) 20%, rgba(255, 255, 255, 0.18)) 0%, transparent 42%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.03) 34%, transparent 62%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--category-accent, #ffffff) 18%, rgba(255, 255, 255, 0.2)),
+      color-mix(in srgb, var(--category-accent, #ffffff) 30%, rgba(15, 23, 42, 0.08))
+    ),
+    linear-gradient(112deg, transparent 18%, rgba(255, 255, 255, 0.08) 28%, transparent 42%);
+  opacity: 0.92;
+  backdrop-filter: blur(4px) saturate(150%) brightness(1.02);
+  mix-blend-mode: normal;
 }
 
 .sponsorThumbnailLabel[data-transparent="true"][data-glass-context="overlay"][data-glass-variant="light"] {
@@ -1235,6 +1253,28 @@ ${titleSurfaceFrostedGlass.overlay}
     0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
+.sponsorThumbnailLabel[data-placement="default"][data-transparent="true"][data-glass-context="overlay"][data-glass-variant="light"] {
+  border-color: color-mix(
+    in srgb,
+    var(--category-display-accent, var(--category-accent, #ffffff)) 18%,
+    rgba(255, 255, 255, 0.2)
+  );
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--category-display-accent, var(--category-accent, #ffffff)) 9%, rgba(255, 255, 255, 0.14)),
+    color-mix(in srgb, var(--category-display-accent, var(--category-accent, #ffffff)) 14%, rgba(241, 245, 249, 0.05))
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    inset 0 -1px 0 color-mix(
+      in srgb,
+      var(--category-display-accent, var(--category-accent, #ffffff)) 8%,
+      rgba(15, 23, 42, 0.04)
+    ),
+    0 5px 12px rgba(15, 23, 42, 0.045),
+    0 10px 18px rgba(15, 23, 42, 0.025);
+}
+
 .sponsorThumbnailLabel[data-transparent="true"][data-glass-context="overlay"][data-glass-variant="light"]::after {
   background:
     radial-gradient(
@@ -1251,6 +1291,25 @@ ${titleSurfaceFrostedGlass.overlay}
     linear-gradient(112deg, transparent 24%, rgba(255, 255, 255, 0.2) 32%, transparent 46%);
   opacity: 0.82;
   backdrop-filter: saturate(144%) brightness(1.03);
+}
+
+.sponsorThumbnailLabel[data-placement="default"][data-transparent="true"][data-glass-context="overlay"][data-glass-variant="light"]::after {
+  background:
+    radial-gradient(
+      circle at 18% 12%,
+      color-mix(in srgb, var(--category-display-accent, var(--category-accent, #ffffff)) 16%, rgba(255, 255, 255, 0.22)) 0%,
+      transparent 42%
+    ),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.03) 34%, transparent 62%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--category-display-accent, var(--category-accent, #ffffff)) 14%, rgba(255, 255, 255, 0.18)),
+      color-mix(in srgb, var(--category-display-accent, var(--category-accent, #ffffff)) 18%, rgba(231, 238, 245, 0.08))
+    ),
+    linear-gradient(112deg, transparent 18%, rgba(255, 255, 255, 0.08) 28%, transparent 42%);
+  opacity: 0.88;
+  backdrop-filter: blur(4px) saturate(142%) brightness(1.02);
+  mix-blend-mode: normal;
 }
 
 .sponsorThumbnailLabel[data-placement="corner"] {

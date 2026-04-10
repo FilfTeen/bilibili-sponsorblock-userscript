@@ -80,6 +80,7 @@ ${inlineSurfaceFrostedGlass.base}
 
 .bsb-tm-inline-chip[data-appearance="glass"][data-glass-context="surface"]::after {
 ${inlineSurfaceFrostedGlass.overlay}
+  z-index: 0;
 }
 
 .bsb-tm-inline-chip::before {
@@ -92,12 +93,19 @@ ${inlineSurfaceFrostedGlass.overlay}
   box-shadow:
     0 0 0 2px rgba(255, 255, 255, 0.14),
     0 0 14px color-mix(in srgb, var(--bsb-inline-accent) 72%, transparent);
+  position: relative;
+  z-index: 1;
 }
 
 .bsb-tm-inline-chip[data-appearance="glass"][data-glass-context="surface"]::before {
   box-shadow:
     0 0 0 2px rgba(255, 255, 255, 0.24),
     0 0 10px color-mix(in srgb, var(--bsb-inline-accent) 38%, transparent);
+}
+
+.bsb-tm-inline-chip__label {
+  position: relative;
+  z-index: 1;
 }
 
 .bsb-tm-inline-chip--inline,
@@ -218,6 +226,7 @@ export function createInlineBadge(
   appearance: InlineBadgeAppearance = "solid"
 ): HTMLDivElement {
   const badge = document.createElement("div");
+  const label = document.createElement("span");
   const accent = customColor ?? DEFAULT_TONE_ACCENTS[tone];
   badge.className = `bsb-tm-inline-chip bsb-tm-inline-chip--${layout}`;
   badge.setAttribute(attrName, "true");
@@ -228,7 +237,9 @@ export function createInlineBadge(
     badge.dataset.glassContext = "surface";
   }
   badge.title = text;
-  badge.textContent = text;
+  label.className = "bsb-tm-inline-chip__label";
+  label.textContent = text;
+  badge.append(label);
   if (customColor) {
     badge.style.setProperty("--bsb-inline-accent", customColor);
     // Use color-mix to derive surfaces for glassmorphism
