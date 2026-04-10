@@ -7777,6 +7777,23 @@ ${inlineSurfaceFrostedGlass.overlay}
     sentry.getCurrentHub = () => hub;
     win.Sentry = sentry;
   }
+  function installWebRtcStubs(win) {
+    try {
+      class StubPeerConnection {
+        addEventListener() {
+        }
+        createDataChannel() {
+        }
+      }
+      class StubDataChannel {
+      }
+      installGlobalValue(win, "RTCPeerConnection", StubPeerConnection);
+      installGlobalValue(win, "RTCDataChannel", StubDataChannel);
+      installGlobalValue(win, "webkitRTCPeerConnection", StubPeerConnection);
+      installGlobalValue(win, "webkitRTCDataChannel", StubDataChannel);
+    } catch (_error) {
+    }
+  }
   function completeBlockedXhr(xhr, win, url, decision) {
     var _a, _b;
     const status = (_a = decision.syntheticStatus) != null ? _a : 204;
@@ -7961,21 +7978,6 @@ ${inlineSurfaceFrostedGlass.overlay}
       return;
     }
     win[MBGA_MARKS.blockTracking] = true;
-    try {
-      class StubPeerConnection {
-        addEventListener() {
-        }
-        createDataChannel() {
-        }
-      }
-      class StubDataChannel {
-      }
-      installGlobalValue(win, "RTCPeerConnection", StubPeerConnection);
-      installGlobalValue(win, "RTCDataChannel", StubDataChannel);
-      installGlobalValue(win, "webkitRTCPeerConnection", StubPeerConnection);
-      installGlobalValue(win, "webkitRTCDataChannel", StubDataChannel);
-    } catch (_error) {
-    }
     if (typeof win.fetch === "function") {
       const originalFetch = win.fetch.bind(win);
       win.fetch = function(input, init) {
@@ -8072,6 +8074,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       return;
     }
     win[MBGA_MARKS.pcdnDisabler] = true;
+    installWebRtcStubs(win);
     installGlobalValue(win, "PCDNLoader", class {
     });
     installGlobalValue(
@@ -8382,7 +8385,7 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
     {
       id: "disable-pcdn",
       kind: "network",
-      safetyNotes: "Only rewrites known P2P/CDN hosts for video and live pages.",
+      safetyNotes: "Only rewrites known P2P/CDN hosts and installs transport stubs on video and live pages.",
       enabled: (config) => config.mbgaEnabled && config.mbgaDisablePcdn,
       match: (ctx) => isVideoPage(ctx.url) || isLivePage(ctx.url),
       apply: mountPcdnDisabler
