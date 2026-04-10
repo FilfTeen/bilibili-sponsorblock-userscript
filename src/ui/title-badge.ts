@@ -79,6 +79,7 @@ export class TitleBadge {
     this.pillButton.type = "button";
     this.pillButton.className = "bsb-tm-title-pill";
     this.pillButton.setAttribute("aria-expanded", "false");
+    this.titleText.className = "bsb-tm-title-pill-label";
     this.pillButton.append(createSponsorShieldIcon(), this.titleText);
     this.pillButton.addEventListener("click", (event) => {
       event.preventDefault();
@@ -256,8 +257,12 @@ export class TitleBadge {
     }
 
     if (this.mountedHost !== host || this.root.parentElement !== host) {
+      const previousHost = this.mountedHost;
       host.append(this.root);
       this.mountedHost = host;
+      if (previousHost && previousHost !== host) {
+        cleanupVideoTitleAccessoryHost(previousHost);
+      }
     }
   }
 

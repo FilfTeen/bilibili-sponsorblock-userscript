@@ -823,25 +823,41 @@ export const styles = `
 .bsb-tm-title-accessories {
   display: inline-flex;
   align-items: center;
+  flex: none;
+  flex-shrink: 0;
   gap: 0;
   float: left;
+  inline-size: max-content;
   margin-right: 8px;
+  max-width: max-content;
+  white-space: nowrap;
   overflow: visible;
 }
 
 .bsb-tm-title-pill-wrap {
   display: inline-flex;
   align-items: center;
+  flex: none;
+  flex-shrink: 0;
+  inline-size: max-content;
+  max-width: max-content;
+  min-width: max-content;
   overflow: visible;
   position: relative;
   isolation: isolate;
+  white-space: nowrap;
 }
 
 .bsb-tm-title-pill {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: none;
+  flex-shrink: 0;
   gap: 6px;
+  inline-size: max-content;
+  max-width: max-content;
+  min-width: max-content;
   position: relative;
   isolation: isolate;
   overflow: hidden;
@@ -854,6 +870,7 @@ export const styles = `
   padding: 7px 13px;
   font: 650 13px/1.1 var(--bsb-font-display);
   letter-spacing: 0.01em;
+  white-space: nowrap;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.14),
     0 6px 12px rgba(15, 23, 42, 0.06);
@@ -863,6 +880,14 @@ export const styles = `
     background 220ms var(--bsb-ease-swift),
     border-color 220ms var(--bsb-ease-swift),
     transform 220ms var(--bsb-ease-fluid);
+}
+
+.bsb-tm-title-pill-label {
+  display: block;
+  min-width: 0;
+  overflow-wrap: normal;
+  white-space: nowrap;
+  word-break: keep-all;
 }
 
 .bsb-tm-title-pill-wrap[data-transparent="true"][data-glass-context="surface"] .bsb-tm-title-pill {

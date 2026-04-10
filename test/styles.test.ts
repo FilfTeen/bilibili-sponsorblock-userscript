@@ -33,6 +33,24 @@ describe("shared glass contexts", () => {
     );
   });
 
+  it("keeps title badge accessories on a non-shrinking single-line layout contract", () => {
+    expect(styles).toMatch(
+      /\.bsb-tm-title-accessories \{[\s\S]*flex-shrink: 0;[\s\S]*float: left;[\s\S]*inline-size: max-content;[\s\S]*white-space: nowrap;/
+    );
+    expect(styles).toMatch(
+      /\.bsb-tm-title-pill-wrap \{[\s\S]*flex-shrink: 0;[\s\S]*inline-size: max-content;[\s\S]*min-width: max-content;[\s\S]*white-space: nowrap;/
+    );
+    expect(styles).toMatch(
+      /\.bsb-tm-title-pill \{[\s\S]*flex-shrink: 0;[\s\S]*inline-size: max-content;[\s\S]*min-width: max-content;[\s\S]*white-space: nowrap;/
+    );
+  });
+
+  it("prevents title badge label text from collapsing into vertical wrapping", () => {
+    expect(styles).toMatch(
+      /\.bsb-tm-title-pill-label \{[\s\S]*overflow-wrap: normal;[\s\S]*white-space: nowrap;[\s\S]*word-break: keep-all;/
+    );
+  });
+
   it("uses optical dot sizing so default thumbnail labels read like the right-rail circle", () => {
     expect(styles).toMatch(
       /\.sponsorThumbnailLabel \{[\s\S]*--bsb-thumbnail-dot-size: 5px;[\s\S]*--bsb-thumbnail-dot-stroke: 1\.5px;[\s\S]*--bsb-thumbnail-dot-left: 10px;/
