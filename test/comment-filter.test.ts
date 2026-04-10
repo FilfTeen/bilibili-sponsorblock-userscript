@@ -197,6 +197,18 @@ describe("comment filter", () => {
     expect(match).toBeNull();
   });
 
+  it("does not treat mocked quoted promo copy as a real sponsor comment", () => {
+    const match = classifyCommentRenderer(
+      createCommentRenderer(false, "笑死，这条“点评论区置顶领取优惠券”的广告话术也太土了") as HTMLElement & { shadowRoot: ShadowRoot },
+      {
+        dynamicRegexPattern: "/评论区|优惠券|广告/gi",
+        dynamicRegexKeywordMinMatches: 1
+      }
+    );
+
+    expect(match).toBeNull();
+  });
+
   it("upgrades invitation-style promo comments to sponsor signals", () => {
     const match = classifyCommentRenderer(
       createCommentRenderer(false, "感谢点赞！上期好物推荐里我还有几个邀请码") as HTMLElement & { shadowRoot: ShadowRoot },

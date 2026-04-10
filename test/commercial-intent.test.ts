@@ -26,4 +26,16 @@ describe("commercial intent analysis", () => {
 
     expect(result.category).toBeNull();
   });
+
+  it("does not treat negated commercial copy as sponsor intent", () => {
+    const result = analyzeCommercialIntent("本期非商单，自费购买，主要聊聊这台机器的上手体验");
+
+    expect(result.category).toBeNull();
+  });
+
+  it("keeps ordinary event coverage out of sponsor when no CTA is present", () => {
+    const result = analyzeCommercialIntent("某品牌发布会现场体验，聊聊新品设计，没有购买链接");
+
+    expect(result.category).toBeNull();
+  });
 });

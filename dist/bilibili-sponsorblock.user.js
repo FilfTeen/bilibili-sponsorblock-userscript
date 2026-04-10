@@ -447,14 +447,20 @@
 
   // src/utils/commercial-intent.ts
   var BENIGN_CONTEXT_PATTERN = /广告位|广告学|推广曲|推广大使|同款(?:bgm|BGM|音乐|滤镜)|团购课|营销课|(?:分享|讨论)广告/iu;
-  var DISCLAIMER_PATTERN = /(?:不是|并非|完全不算|真不是)(?:广告|商单|恰饭)|(?:无广|无广告|无赞助|非商单|非广告|自费购买|自费购入|自己买的|个人自费|无商业合作)/iu;
+  var VIDEO_BENIGN_TOPIC_PATTERN = /(?:普通)?(?:测评|评测)|体验(?:记录|分享|感受)|发布会|展会|开放日|媒体日|活动记录|现场(?:体验|直击)?|新品(?:解析|说明)|技术说明|参数对比/iu;
+  var DISCLAIMER_PATTERN = /(?:不是|并非|完全不算|真不是)(?:广告|商单|恰饭)|(?:无广|无广告|无赞助|非商单|非广告|自费购买|自费购入|自己买的|个人自费|无商业合作|没收钱|未收钱|没有接广告|自己花钱买的|自掏腰包)/iu;
+  var NEGATED_MATCH_PREFIX_PATTERN = /(?:无|没|没有|非|不是|并非|不算|并不是|未|并无|别|勿)$/u;
   var SPONSOR_STRONG_RULES = [
     { token: "\u5546\u5355", pattern: /商单|恰饭|金主/iu, weight: 4.2 },
     { token: "\u8D5E\u52A9", pattern: /本期视频由|由.+赞助|感谢.+赞助|赞助播出|品牌支持|官方支持|合作伙伴/iu, weight: 4.1 },
     { token: "\u5546\u52A1\u5408\u4F5C", pattern: /商务合作|商业合作|品牌合作|联合出品|合作推广/iu, weight: 3.9 },
     { token: "\u5546\u54C1\u5361", pattern: /商品卡|店铺橱窗|购物车|蓝链|专属链接/iu, weight: 3.8 },
     { token: "\u4F18\u60E0\u5238", pattern: /优惠(?:券|卷|劵)|折扣码|密令|红包|返利|返现/iu, weight: 3.4 },
-    { token: "\u8D2D\u4E70\u6307\u5F15", pattern: /(?:立即|直接|马上)?(?:下单|购买)|购买链接|购买清单|使用清单|开箱清单|评论区(?:置顶)?/iu, weight: 3.3 }
+    {
+      token: "\u8D2D\u4E70\u6307\u5F15",
+      pattern: /(?:立即|直接|马上|点击|戳|去)[^。！？\n]{0,6}(?:下单|购买)|(?:下单|购买)(?:链接|入口|方式|清单)|购买链接|购买清单|使用清单|开箱清单|评论区(?:置顶)?[^。！？\n]{0,10}(?:链接|蓝链|商品卡|领券|购买|下单)/iu,
+      weight: 3.3
+    }
   ];
   var SPONSOR_SUPPORT_RULES = [
     { token: "\u5E7F\u544A", pattern: /广告|推广|促销|大促|特价|秒杀|热卖/iu, weight: 1.2 },
@@ -475,17 +481,73 @@
     { token: "\u9996\u53D1", pattern: /首发|首批|首个|最先/iu, weight: 2.1 },
     { token: "\u5DE5\u7A0B\u673A", pattern: /工程机|样机|内测|beta|试玩|预览版|体验版/iu, weight: 2.4 }
   ];
+  var CTA_ACTION_PATTERN = /点击|点开|点进|戳|打开|去|领取|领|抢|下单|购买|买|入手|搜索|看我|看主页|主页见|置顶看我/iu;
+  var CTA_SURFACE_PATTERN = /评论区(?:置顶)?|蓝链|链接|商品卡|店铺|橱窗|主页|频道|直播间|专栏|收藏夹|合集/iu;
+  var CTA_BENEFIT_PATTERN = /优惠(?:券|卷|劵)|红包|福利|返利|返现|折扣|到手价|密令/iu;
+  var CTA_PURCHASE_PATTERN = /下单|购买|买|入手/u;
+  var CTA_OWNED_SURFACE_PATTERN = /(?:我的|本)?(?:店铺|小店|橱窗|主页|频道|直播间|专栏|收藏夹|合集)/iu;
+  var QUOTED_OR_MOCKING_CONTEXT_PATTERN = /玩梗|整活|反串|阴阳怪气|吐槽|调侃|引用|复读|照搬|原话|话术|文案|笑死|绷不住|尬|土味|逆天|离谱|“[^”]{0,24}(?:广告|推广|优惠券|购买|下单|链接)[^”]{0,24}”|"[^"]{0,24}(?:广告|推广|优惠券|购买|下单|链接)[^"]{0,24}"/iu;
   function normalizeText(text) {
     return text.replace(/\s+/gu, " ").trim();
   }
   function unique(values) {
     return [...new Set([...values].map((value) => value.trim()).filter(Boolean))];
   }
+  function hasNonNegatedPattern(text, pattern) {
+    var _a;
+    const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
+    const globalPattern = new RegExp(pattern.source, flags);
+    for (const result of text.matchAll(globalPattern)) {
+      const matchedText = result[0];
+      const startIndex = (_a = result.index) != null ? _a : text.indexOf(matchedText);
+      if (startIndex < 0 || isNegatedMatch(text, startIndex)) {
+        continue;
+      }
+      return true;
+    }
+    return false;
+  }
+  function isNegatedMatch(text, startIndex) {
+    const prefix = text.slice(Math.max(0, startIndex - 8), startIndex).replace(/\s+/gu, "");
+    return NEGATED_MATCH_PREFIX_PATTERN.test(prefix);
+  }
+  function inspectCommercialActionability(text) {
+    const normalized = normalizeText(text);
+    if (!normalized) {
+      return {
+        hasActionVerb: false,
+        hasCommerceSurface: false,
+        hasBenefitCue: false,
+        hasPurchaseCue: false,
+        hasOwnedSurface: false,
+        hasOwnedActionLead: false,
+        hasStrongClosure: false,
+        hasQuotedOrMockingContext: false
+      };
+    }
+    const hasActionVerb = hasNonNegatedPattern(normalized, CTA_ACTION_PATTERN);
+    const hasCommerceSurface = hasNonNegatedPattern(normalized, CTA_SURFACE_PATTERN);
+    const hasBenefitCue = hasNonNegatedPattern(normalized, CTA_BENEFIT_PATTERN);
+    const hasPurchaseCue = hasNonNegatedPattern(normalized, CTA_PURCHASE_PATTERN);
+    const hasOwnedSurface = hasNonNegatedPattern(normalized, CTA_OWNED_SURFACE_PATTERN);
+    const hasOwnedActionLead = hasOwnedSurface && (hasActionVerb || /主页见|置顶看我/iu.test(normalized));
+    const hasStrongClosure = hasActionVerb && hasCommerceSurface || hasBenefitCue && (hasCommerceSurface || hasPurchaseCue) || hasPurchaseCue && hasCommerceSurface || hasOwnedActionLead;
+    return {
+      hasActionVerb,
+      hasCommerceSurface,
+      hasBenefitCue,
+      hasPurchaseCue,
+      hasOwnedSurface,
+      hasOwnedActionLead,
+      hasStrongClosure,
+      hasQuotedOrMockingContext: QUOTED_OR_MOCKING_CONTEXT_PATTERN.test(normalized)
+    };
+  }
   function collectRuleHits(text, rules) {
     const matches = [];
     let score = 0;
     for (const rule of rules) {
-      if (rule.pattern.test(text)) {
+      if (hasNonNegatedPattern(text, rule.pattern)) {
         matches.push(rule.token);
         score += rule.weight;
       }
@@ -536,6 +598,7 @@
     );
     const hasOwnedSurface = /(?:我的|本)?(?:频道|店铺|小店|橱窗|直播间|主页|作品|活动|课程|专栏)/iu.test(normalized);
     const benignContext = BENIGN_CONTEXT_PATTERN.test(normalized);
+    const benignVideoTopic = VIDEO_BENIGN_TOPIC_PATTERN.test(normalized);
     if (benignContext && sponsorStrong.score === 0 && exclusive.score === 0 && !hasExplicitCTA && !hasOwnedSurface) {
       return {
         category: null,
@@ -564,6 +627,10 @@
     if (benignContext && sponsorStrong.score === 0 && selfpromoScore < 2.8) {
       sponsorScore = Math.max(0, sponsorScore - 1.8);
       selfpromoScore = Math.max(0, selfpromoScore - 1.5);
+    }
+    if (benignVideoTopic && sponsorStrong.score === 0 && !hasExplicitCTA) {
+      sponsorScore = Math.max(0, sponsorScore - 1.9);
+      selfpromoScore = Math.max(0, selfpromoScore - 0.9);
     }
     let category = null;
     if (exclusiveScore >= 2.2 && exclusiveScore >= sponsorScore + 0.35 && exclusiveScore >= selfpromoScore + 0.2) {
@@ -1955,6 +2022,9 @@
     }
     isOpen() {
       return !this.backdrop.hidden;
+    }
+    getActiveTab() {
+      return this.activeTab;
     }
     open(tab = this.activeTab) {
       this.mount();
@@ -3423,6 +3493,7 @@
       this.pillButton.type = "button";
       this.pillButton.className = "bsb-tm-title-pill";
       this.pillButton.setAttribute("aria-expanded", "false");
+      this.titleText.className = "bsb-tm-title-pill-label";
       this.pillButton.append(createSponsorShieldIcon(), this.titleText);
       this.pillButton.addEventListener("click", (event) => {
         event.preventDefault();
@@ -3558,8 +3629,12 @@
         return;
       }
       if (this.mountedHost !== host || this.root.parentElement !== host) {
+        const previousHost = this.mountedHost;
         host.append(this.root);
         this.mountedHost = host;
+        if (previousHost && previousHost !== host) {
+          cleanupVideoTitleAccessoryHost(previousHost);
+        }
       }
     }
     ensurePopoverMounted() {
@@ -4532,6 +4607,8 @@ ${inlineSurfaceFrostedGlass.overlay}
     commentBadge: false,
     commentLocation: false
   };
+  var COMMENT_STRONG_MATCHES = /* @__PURE__ */ new Set(["\u8D5E\u52A9", "\u5546\u52A1\u5408\u4F5C", "\u5546\u54C1\u5361", "\u4F18\u60E0\u5238", "\u8D2D\u4E70\u6307\u5F15"]);
+  var COMMENT_INVITATION_PATTERN = /邀请码|体验码|兑换码|注册码/iu;
   function getActionRendererNode(commentRenderer) {
     var _a, _b, _c, _d, _e, _f;
     return (_f = (_e = (_c = (_a = commentRenderer.shadowRoot) == null ? void 0 : _a.querySelector("bili-comment-action-buttons-renderer")) != null ? _c : (_b = commentRenderer.shadowRoot) == null ? void 0 : _b.querySelector("#main bili-comment-action-buttons-renderer")) != null ? _e : (_d = commentRenderer.shadowRoot) == null ? void 0 : _d.querySelector("#footer bili-comment-action-buttons-renderer")) != null ? _f : null;
@@ -4619,25 +4696,30 @@ ${inlineSurfaceFrostedGlass.overlay}
     const pattern = regexFromStoredPattern(config.dynamicRegexPattern);
     const text = extractCommentText(commentRenderer);
     const storedMatches = pattern ? collectPatternMatches(text, pattern) : [];
-    if (pattern && !isLikelyPromoText(text, storedMatches, config.dynamicRegexKeywordMinMatches)) {
-      const assessment2 = analyzeCommercialIntent(text, {
-        storedMatches,
-        minMatches: config.dynamicRegexKeywordMinMatches
-      });
-      if (!assessment2.category) {
-        return null;
-      }
-      return {
-        reason: "suspicion",
-        category: assessment2.category,
-        matches: storedMatches.length > 0 ? storedMatches : assessment2.matches
-      };
-    }
     const assessment = analyzeCommercialIntent(text, {
       storedMatches,
       minMatches: config.dynamicRegexKeywordMinMatches
     });
     if (!assessment.category) {
+      return null;
+    }
+    const actionability = inspectCommercialActionability(text);
+    const hasStrongToken = assessment.matches.some((match) => COMMENT_STRONG_MATCHES.has(match));
+    const hasInvitationLead = COMMENT_INVITATION_PATTERN.test(text);
+    const hasStrongEvidence = actionability.hasStrongClosure || hasStrongToken || hasInvitationLead;
+    if (actionability.hasQuotedOrMockingContext) {
+      return null;
+    }
+    if (pattern && !isLikelyPromoText(text, storedMatches, config.dynamicRegexKeywordMinMatches) && !hasStrongEvidence && assessment.category !== "selfpromo") {
+      return null;
+    }
+    if (assessment.category === "sponsor" && !hasStrongEvidence) {
+      return null;
+    }
+    if (assessment.category === "selfpromo" && !actionability.hasOwnedActionLead && assessment.selfpromoScore < 2.6) {
+      return null;
+    }
+    if (assessment.category === "exclusive_access" && !actionability.hasStrongClosure && assessment.exclusiveScore < 3.2) {
       return null;
     }
     return {
@@ -5272,16 +5354,76 @@ ${inlineSurfaceFrostedGlass.overlay}
     }
     return [...values].join(" ");
   }
+  var TITLE_STRONG_SPONSOR_MATCHES = /* @__PURE__ */ new Set(["\u8D5E\u52A9", "\u5546\u52A1\u5408\u4F5C", "\u5546\u54C1\u5361", "\u4F18\u60E0\u5238", "\u8D2D\u4E70\u6307\u5F15"]);
+  var TITLE_STRONG_SELFPROMO_MATCHES = /* @__PURE__ */ new Set(["\u81EA\u5BB6\u5E97\u94FA", "\u81EA\u5BB6\u9891\u9053"]);
+  function analyzeSurface(text) {
+    if (!text) {
+      return null;
+    }
+    return analyzeCommercialIntent(text, {
+      minMatches: 1
+    });
+  }
+  function hasStrongTitleSponsorEvidence(assessment) {
+    return Boolean(
+      assessment && assessment.sponsorScore >= 4.1 && assessment.matches.some((match) => TITLE_STRONG_SPONSOR_MATCHES.has(match))
+    );
+  }
+  function hasStrongTitleSelfpromoEvidence(assessment) {
+    return Boolean(
+      assessment && assessment.selfpromoScore >= 2.3 && assessment.matches.some((match) => TITLE_STRONG_SELFPROMO_MATCHES.has(match))
+    );
+  }
+  function hasStrongTitleExclusiveEvidence(assessment) {
+    return Boolean(assessment && (assessment.exclusiveScore >= 4.5 || assessment.matches.includes("\u62A2\u5148\u4F53\u9A8C")));
+  }
+  function hasStrongNonTitleEvidence(category, assessments) {
+    return assessments.some((assessment) => {
+      if (!assessment) {
+        return false;
+      }
+      if (category === "sponsor") {
+        return assessment.sponsorScore >= 3.3;
+      }
+      if (category === "selfpromo") {
+        return assessment.selfpromoScore >= 2.3;
+      }
+      return assessment.exclusiveScore >= 3;
+    });
+  }
+  function resolveVideoAssessment(titleAssessment, descriptionAssessment, tagAssessment, combinedAssessment) {
+    if (!combinedAssessment.category) {
+      return null;
+    }
+    const nonTitleAssessments = [descriptionAssessment, tagAssessment];
+    const hasNonTitleEvidence = hasStrongNonTitleEvidence(combinedAssessment.category, nonTitleAssessments);
+    if (combinedAssessment.category === "sponsor") {
+      if (!hasNonTitleEvidence && !hasStrongTitleSponsorEvidence(titleAssessment)) {
+        return null;
+      }
+    } else if (combinedAssessment.category === "selfpromo") {
+      if (!hasNonTitleEvidence && !hasStrongTitleSelfpromoEvidence(titleAssessment)) {
+        return null;
+      }
+    } else if (!hasNonTitleEvidence && !hasStrongTitleExclusiveEvidence(titleAssessment)) {
+      return null;
+    }
+    return combinedAssessment;
+  }
   function inferLocalVideoSignal(context) {
     var _a, _b, _c;
     const title = (_b = (_a = context.title) == null ? void 0 : _a.replace(/\s+/gu, " ").trim()) != null ? _b : "";
     const description = collectTextFromSelectors(DESCRIPTION_SELECTORS);
     const tags = collectTextFromSelectors(TAG_SELECTORS);
     const combined = [title, description, tags].filter(Boolean).join(" ");
-    const assessment = analyzeCommercialIntent(combined, {
+    const titleAssessment = analyzeSurface(title);
+    const descriptionAssessment = analyzeSurface(description);
+    const tagAssessment = analyzeSurface(tags);
+    const combinedAssessment = analyzeCommercialIntent(combined, {
       minMatches: 1
     });
-    if (!assessment.category) {
+    const assessment = resolveVideoAssessment(titleAssessment, descriptionAssessment, tagAssessment, combinedAssessment);
+    if (!assessment || !assessment.category) {
       return null;
     }
     return {
@@ -5565,6 +5707,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       __publicField(this, "pendingForceFetch", false);
       __publicField(this, "pendingVisibleRefresh", false);
       __publicField(this, "pendingPanelOpenTab", null);
+      __publicField(this, "panelRestoreArmed", false);
       __publicField(this, "lastTickTime", null);
       __publicField(this, "lastAnnouncedSignature", "");
       __publicField(this, "handleVisibilityChange", () => {
@@ -5661,7 +5804,12 @@ ${inlineSurfaceFrostedGlass.overlay}
         }),
         onClose: (reason) => {
           if (reason === "user") {
+            this.panelRestoreArmed = false;
             this.pendingPanelOpenTab = null;
+            return;
+          }
+          if (this.panelRestoreArmed) {
+            this.pendingPanelOpenTab = this.panel.getActiveTab();
           }
         }
       });
@@ -5743,6 +5891,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       });
     }
     togglePanel() {
+      this.panelRestoreArmed = false;
       this.pendingPanelOpenTab = null;
       this.panel.toggle();
     }
@@ -5813,6 +5962,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       }, 120);
     }
     openPanelWithIntent(tab) {
+      this.panelRestoreArmed = true;
       this.pendingPanelOpenTab = tab;
       this.restorePendingPanelOpen();
     }
@@ -5821,6 +5971,7 @@ ${inlineSurfaceFrostedGlass.overlay}
         return;
       }
       const tab = this.pendingPanelOpenTab;
+      this.pendingPanelOpenTab = null;
       this.panel.open(tab);
     }
     refreshCurrentVideo(forceFetch = false) {
@@ -6631,6 +6782,8 @@ ${inlineSurfaceFrostedGlass.overlay}
   var currentInlineBadgeAppearance2 = {
     dynamicBadge: false
   };
+  var DYNAMIC_STRONG_MATCHES = /* @__PURE__ */ new Set(["\u8D5E\u52A9", "\u5546\u52A1\u5408\u4F5C", "\u5546\u54C1\u5361", "\u4F18\u60E0\u5238", "\u8D2D\u4E70\u6307\u5F15"]);
+  var DYNAMIC_INVITATION_PATTERN = /邀请码|体验码|兑换码|注册码/iu;
   function classifyDynamicItem(element, config) {
     if (element.querySelector(".bili-dyn-card-goods.hide-border")) {
       return {
@@ -6652,24 +6805,30 @@ ${inlineSurfaceFrostedGlass.overlay}
       return (_a = node.textContent) != null ? _a : "";
     }).join(" ");
     const storedMatches = pattern ? collectPatternMatches(text, pattern) : [];
-    if (pattern && !isLikelyPromoText(text, storedMatches, config.dynamicRegexKeywordMinMatches)) {
-      const assessment2 = analyzeCommercialIntent(text, {
-        storedMatches,
-        minMatches: config.dynamicRegexKeywordMinMatches
-      });
-      if (!assessment2.category) {
-        return null;
-      }
-      return {
-        category: assessment2.category === "selfpromo" ? "dynamicSponsor_forward_sponsor" : "dynamicSponsor_suspicion_sponsor",
-        matches: storedMatches.length > 0 ? storedMatches : assessment2.matches
-      };
-    }
     const assessment = analyzeCommercialIntent(text, {
       storedMatches,
       minMatches: config.dynamicRegexKeywordMinMatches
     });
     if (!assessment.category) {
+      return null;
+    }
+    const actionability = inspectCommercialActionability(text);
+    const hasStrongToken = assessment.matches.some((match) => DYNAMIC_STRONG_MATCHES.has(match));
+    const hasInvitationLead = DYNAMIC_INVITATION_PATTERN.test(text);
+    const hasStrongEvidence = actionability.hasStrongClosure || hasStrongToken || hasInvitationLead;
+    if (actionability.hasQuotedOrMockingContext) {
+      return null;
+    }
+    if (pattern && !isLikelyPromoText(text, storedMatches, config.dynamicRegexKeywordMinMatches) && !hasStrongEvidence && assessment.category !== "selfpromo") {
+      return null;
+    }
+    if (assessment.category === "sponsor" && !hasStrongEvidence) {
+      return null;
+    }
+    if (assessment.category === "selfpromo" && !actionability.hasOwnedActionLead) {
+      return null;
+    }
+    if (assessment.category === "exclusive_access" && !actionability.hasStrongClosure && assessment.exclusiveScore < 3.2) {
       return null;
     }
     return {
@@ -7623,6 +7782,23 @@ ${inlineSurfaceFrostedGlass.overlay}
     sentry.getCurrentHub = () => hub;
     win.Sentry = sentry;
   }
+  function installWebRtcStubs(win) {
+    try {
+      class StubPeerConnection {
+        addEventListener() {
+        }
+        createDataChannel() {
+        }
+      }
+      class StubDataChannel {
+      }
+      installGlobalValue(win, "RTCPeerConnection", StubPeerConnection);
+      installGlobalValue(win, "RTCDataChannel", StubDataChannel);
+      installGlobalValue(win, "webkitRTCPeerConnection", StubPeerConnection);
+      installGlobalValue(win, "webkitRTCDataChannel", StubDataChannel);
+    } catch (_error) {
+    }
+  }
   function completeBlockedXhr(xhr, win, url, decision) {
     var _a, _b;
     const status = (_a = decision.syntheticStatus) != null ? _a : 204;
@@ -7807,21 +7983,6 @@ ${inlineSurfaceFrostedGlass.overlay}
       return;
     }
     win[MBGA_MARKS.blockTracking] = true;
-    try {
-      class StubPeerConnection {
-        addEventListener() {
-        }
-        createDataChannel() {
-        }
-      }
-      class StubDataChannel {
-      }
-      installGlobalValue(win, "RTCPeerConnection", StubPeerConnection);
-      installGlobalValue(win, "RTCDataChannel", StubDataChannel);
-      installGlobalValue(win, "webkitRTCPeerConnection", StubPeerConnection);
-      installGlobalValue(win, "webkitRTCDataChannel", StubDataChannel);
-    } catch (_error) {
-    }
     if (typeof win.fetch === "function") {
       const originalFetch = win.fetch.bind(win);
       win.fetch = function(input, init) {
@@ -7918,6 +8079,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       return;
     }
     win[MBGA_MARKS.pcdnDisabler] = true;
+    installWebRtcStubs(win);
     installGlobalValue(win, "PCDNLoader", class {
     });
     installGlobalValue(
@@ -8228,7 +8390,7 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
     {
       id: "disable-pcdn",
       kind: "network",
-      safetyNotes: "Only rewrites known P2P/CDN hosts for video and live pages.",
+      safetyNotes: "Only rewrites known P2P/CDN hosts and installs transport stubs on video and live pages.",
       enabled: (config) => config.mbgaEnabled && config.mbgaDisablePcdn,
       match: (ctx) => isVideoPage(ctx.url) || isLivePage(ctx.url),
       apply: mountPcdnDisabler
@@ -9183,25 +9345,41 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
 .bsb-tm-title-accessories {
   display: inline-flex;
   align-items: center;
+  flex: none;
+  flex-shrink: 0;
   gap: 0;
   float: left;
+  inline-size: max-content;
   margin-right: 8px;
+  max-width: max-content;
+  white-space: nowrap;
   overflow: visible;
 }
 
 .bsb-tm-title-pill-wrap {
   display: inline-flex;
   align-items: center;
+  flex: none;
+  flex-shrink: 0;
+  inline-size: max-content;
+  max-width: max-content;
+  min-width: max-content;
   overflow: visible;
   position: relative;
   isolation: isolate;
+  white-space: nowrap;
 }
 
 .bsb-tm-title-pill {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: none;
+  flex-shrink: 0;
   gap: 6px;
+  inline-size: max-content;
+  max-width: max-content;
+  min-width: max-content;
   position: relative;
   isolation: isolate;
   overflow: hidden;
@@ -9214,6 +9392,7 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
   padding: 7px 13px;
   font: 650 13px/1.1 var(--bsb-font-display);
   letter-spacing: 0.01em;
+  white-space: nowrap;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.14),
     0 6px 12px rgba(15, 23, 42, 0.06);
@@ -9223,6 +9402,14 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
     background 220ms var(--bsb-ease-swift),
     border-color 220ms var(--bsb-ease-swift),
     transform 220ms var(--bsb-ease-fluid);
+}
+
+.bsb-tm-title-pill-label {
+  display: block;
+  min-width: 0;
+  overflow-wrap: normal;
+  white-space: nowrap;
+  word-break: keep-all;
 }
 
 .bsb-tm-title-pill-wrap[data-transparent="true"][data-glass-context="surface"] .bsb-tm-title-pill {

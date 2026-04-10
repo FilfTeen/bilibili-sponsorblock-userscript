@@ -184,6 +184,22 @@ function installSentryShim(win: UnsafeWindow): void {
   win.Sentry = sentry;
 }
 
+function installWebRtcStubs(win: UnsafeWindow): void {
+  try {
+    class StubPeerConnection {
+      addEventListener(): void {}
+      createDataChannel(): void {}
+    }
+    class StubDataChannel {}
+    installGlobalValue(win, "RTCPeerConnection", StubPeerConnection);
+    installGlobalValue(win, "RTCDataChannel", StubDataChannel);
+    installGlobalValue(win, "webkitRTCPeerConnection", StubPeerConnection);
+    installGlobalValue(win, "webkitRTCDataChannel", StubDataChannel);
+  } catch (_error) {
+    // WebRTC is best-effort only.
+  }
+}
+
 function completeBlockedXhr(xhr: XMLHttpRequest, win: UnsafeWindow, url: string, decision: MbgaNetworkDecision): void {
   const status = decision.syntheticStatus ?? 204;
   const body = decision.syntheticBody ?? "";
@@ -395,20 +411,6 @@ function mountBlockTracking(ctx: MbgaContext): void {
   }
   win[MBGA_MARKS.blockTracking] = true;
 
-  try {
-    class StubPeerConnection {
-      addEventListener(): void {}
-      createDataChannel(): void {}
-    }
-    class StubDataChannel {}
-    installGlobalValue(win, "RTCPeerConnection", StubPeerConnection);
-    installGlobalValue(win, "RTCDataChannel", StubDataChannel);
-    installGlobalValue(win, "webkitRTCPeerConnection", StubPeerConnection);
-    installGlobalValue(win, "webkitRTCDataChannel", StubDataChannel);
-  } catch (_error) {
-    // WebRTC is best-effort only.
-  }
-
   if (typeof win.fetch === "function") {
     const originalFetch = win.fetch.bind(win);
     win.fetch = function (input: string | URL | Request, init?: RequestInit): Promise<Response> {
@@ -514,6 +516,7 @@ function mountPcdnDisabler(ctx: MbgaContext): void {
   }
   win[MBGA_MARKS.pcdnDisabler] = true;
 
+  installWebRtcStubs(win);
   installGlobalValue(win, "PCDNLoader", class {});
   installGlobalValue(
     win,
@@ -847,7 +850,7 @@ export const MBGA_RULES: MbgaRule[] = [
   {
     id: "disable-pcdn",
     kind: "network",
-    safetyNotes: "Only rewrites known P2P/CDN hosts for video and live pages.",
+    safetyNotes: "Only rewrites known P2P/CDN hosts and installs transport stubs on video and live pages.",
     enabled: (config) => config.mbgaEnabled && config.mbgaDisablePcdn,
     match: (ctx) => isVideoPage(ctx.url) || isLivePage(ctx.url),
     apply: mountPcdnDisabler

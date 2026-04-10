@@ -95,6 +95,14 @@ function createFakeLocation(href: string): Location {
   } as unknown as Location;
 }
 
+function defineConfigurableValue(target: object, key: PropertyKey, value: unknown): void {
+  Object.defineProperty(target, key, {
+    configurable: true,
+    writable: true,
+    value
+  });
+}
+
 function createFakeWindow(href: string) {
   const fakeWindow = Object.create(window) as Window & typeof globalThis & Record<string, unknown>;
   Object.defineProperty(fakeWindow, "location", {
@@ -113,6 +121,20 @@ function createFakeWindow(href: string) {
     value: installLocalStorageStub()
   });
   return fakeWindow;
+}
+
+function stubWindowLocation(href: string): () => void {
+  const original = Object.getOwnPropertyDescriptor(window, "location");
+  Object.defineProperty(window, "location", {
+    configurable: true,
+    value: createFakeLocation(href)
+  });
+
+  return () => {
+    if (original) {
+      Object.defineProperty(window, "location", original);
+    }
+  };
 }
 
 beforeEach(() => {
@@ -222,6 +244,29 @@ describe("MBGA network interception", () => {
     expect(onLoad).toHaveBeenCalledTimes(1);
     expect(onLoadEnd).toHaveBeenCalledTimes(1);
   });
+
+  it("does not install WebRTC stubs for the telemetry blocking rule", () => {
+    const rule = getRule("block-telemetry-reporters");
+    const fakeWindow = createFakeWindow("https://www.bilibili.com/");
+    defineConfigurableValue(fakeWindow, "RTCPeerConnection", undefined);
+    defineConfigurableValue(fakeWindow, "RTCDataChannel", undefined);
+    defineConfigurableValue(fakeWindow, "webkitRTCPeerConnection", undefined);
+    defineConfigurableValue(fakeWindow, "webkitRTCDataChannel", undefined);
+    fakeWindow.fetch = vi.fn(async () => new Response("ok", { status: 200 }));
+    fakeWindow.XMLHttpRequest = FakeXmlHttpRequest as unknown as typeof XMLHttpRequest;
+
+    rule.apply({
+      config: cloneDefaultConfig(),
+      doc: document,
+      win: fakeWindow,
+      url: new URL(fakeWindow.location.href)
+    });
+
+    expect(fakeWindow.RTCPeerConnection).toBeUndefined();
+    expect(fakeWindow.RTCDataChannel).toBeUndefined();
+    expect(fakeWindow.webkitRTCPeerConnection).toBeUndefined();
+    expect(fakeWindow.webkitRTCDataChannel).toBeUndefined();
+  });
 });
 
 describe("MBGA page guards", () => {
@@ -237,6 +282,76 @@ describe("MBGA page guards", () => {
 
     window.fetch = originalFetch;
     (window as Window & typeof globalThis & Record<string, unknown>).__BSB_MBGA_BLOCK_TRACKING__ = undefined;
+  });
+
+  it("does not install WebRTC stubs when disable-pcdn is enabled on non-video pages", () => {
+    const config = cloneDefaultConfig();
+    config.mbgaBlockTracking = false;
+    config.mbgaCleanUrl = false;
+    config.mbgaDisablePcdn = true;
+
+    const restoreLocation = stubWindowLocation("https://www.bilibili.com/read/cv123456");
+    const originalPeerConnection = Object.getOwnPropertyDescriptor(window, "RTCPeerConnection");
+    const originalDataChannel = Object.getOwnPropertyDescriptor(window, "RTCDataChannel");
+    const originalWebkitPeerConnection = Object.getOwnPropertyDescriptor(window, "webkitRTCPeerConnection");
+    const originalWebkitDataChannel = Object.getOwnPropertyDescriptor(window, "webkitRTCDataChannel");
+    defineConfigurableValue(window, "RTCPeerConnection", undefined);
+    defineConfigurableValue(window, "RTCDataChannel", undefined);
+    defineConfigurableValue(window, "webkitRTCPeerConnection", undefined);
+    defineConfigurableValue(window, "webkitRTCDataChannel", undefined);
+
+    mountMbga(config);
+
+    expect((window as Window & typeof globalThis & Record<string, unknown>).RTCPeerConnection).toBeUndefined();
+    expect((window as Window & typeof globalThis & Record<string, unknown>).RTCDataChannel).toBeUndefined();
+    expect((window as Window & typeof globalThis & Record<string, unknown>).webkitRTCPeerConnection).toBeUndefined();
+    expect((window as Window & typeof globalThis & Record<string, unknown>).webkitRTCDataChannel).toBeUndefined();
+
+    restoreLocation();
+    if (originalPeerConnection) {
+      Object.defineProperty(window, "RTCPeerConnection", originalPeerConnection);
+    }
+    if (originalDataChannel) {
+      Object.defineProperty(window, "RTCDataChannel", originalDataChannel);
+    }
+    if (originalWebkitPeerConnection) {
+      Object.defineProperty(window, "webkitRTCPeerConnection", originalWebkitPeerConnection);
+    }
+    if (originalWebkitDataChannel) {
+      Object.defineProperty(window, "webkitRTCDataChannel", originalWebkitDataChannel);
+    }
+  });
+
+  it("installs WebRTC stubs through disable-pcdn on video pages", () => {
+    const rule = getRule("disable-pcdn");
+    const fakeWindow = createFakeWindow("https://www.bilibili.com/video/BV1xx/");
+    defineConfigurableValue(fakeWindow, "RTCPeerConnection", undefined);
+    defineConfigurableValue(fakeWindow, "RTCDataChannel", undefined);
+    defineConfigurableValue(fakeWindow, "webkitRTCPeerConnection", undefined);
+    defineConfigurableValue(fakeWindow, "webkitRTCDataChannel", undefined);
+    defineConfigurableValue(fakeWindow, "PCDNLoader", undefined);
+    defineConfigurableValue(fakeWindow, "BPP2PSDK", undefined);
+    defineConfigurableValue(fakeWindow, "SeederSDK", undefined);
+    fakeWindow.XMLHttpRequest = FakeXmlHttpRequest as unknown as typeof XMLHttpRequest;
+    defineConfigurableValue(fakeWindow, "HTMLMediaElement", class {});
+
+    const ctx: MbgaContext = {
+      config: cloneDefaultConfig(),
+      doc: document,
+      win: fakeWindow,
+      url: new URL(fakeWindow.location.href)
+    };
+
+    expect(rule.match(ctx)).toBe(true);
+    rule.apply(ctx);
+
+    expect(typeof fakeWindow.RTCPeerConnection).toBe("function");
+    expect(typeof fakeWindow.RTCDataChannel).toBe("function");
+    expect(typeof fakeWindow.webkitRTCPeerConnection).toBe("function");
+    expect(typeof fakeWindow.webkitRTCDataChannel).toBe("function");
+    expect(typeof fakeWindow.PCDNLoader).toBe("function");
+    expect(typeof fakeWindow.BPP2PSDK).toBe("function");
+    expect(typeof fakeWindow.SeederSDK).toBe("function");
   });
 
   it("injects the dynamic wide mode toggle and persists opt-out", () => {
