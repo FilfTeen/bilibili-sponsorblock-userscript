@@ -1,6 +1,11 @@
 import type { FetchResponse } from "../types";
 
-function resolveWindowFunction(name: string): unknown {
+function resolveGlobalFunction(name: string): unknown {
+  const fromGlobalThis = Reflect.get(globalThis as unknown as Record<string, unknown>, name);
+  if (typeof fromGlobalThis === "function") {
+    return fromGlobalThis;
+  }
+
   if (typeof window === "undefined") {
     return undefined;
   }
@@ -46,7 +51,7 @@ function resolveGrantedFunction(name: string): KnownGrantedFunction | undefined 
       break;
   }
 
-  const fallback = resolveWindowFunction(name);
+  const fallback = resolveGlobalFunction(name);
   return typeof fallback === "function" ? (fallback as unknown as KnownGrantedFunction) : undefined;
 }
 

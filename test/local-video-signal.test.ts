@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { inferLocalVideoSignal } from "../src/utils/local-video-signal";
+import { VIDEO_RECOGNITION_SAMPLES } from "./fixtures/recognition-samples";
 
 describe("local video signal", () => {
   it("detects exclusive-access wording from title text", () => {
@@ -85,5 +86,22 @@ describe("local video signal", () => {
     });
 
     expect(signal).toBeNull();
+  });
+
+  it("evaluates the approved shared video corpus through page heuristics", () => {
+    const approvedSamples = VIDEO_RECOGNITION_SAMPLES.filter((sample) => sample.humanVerdict === "confirmed");
+    const results = approvedSamples.map((sample) => {
+      const description = sample.input.description
+        ? `<div class="video-desc-container">${sample.input.description}</div>`
+        : "";
+      const tags =
+        sample.input.tags && sample.input.tags.length > 0
+          ? `<div class="video-tag-container">${sample.input.tags.map((tag) => `<a class="tag-link">${tag}</a>`).join("")}</div>`
+          : "";
+      document.body.innerHTML = `${description}${tags}`;
+      return inferLocalVideoSignal({ title: sample.input.title })?.category ?? null;
+    });
+
+    expect(results).toEqual(["sponsor", "exclusive_access", null, null, null, null]);
   });
 });
