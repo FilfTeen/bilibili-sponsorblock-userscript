@@ -100,6 +100,7 @@ export class ScriptController {
   private pendingForceFetch = false;
   private pendingVisibleRefresh = false;
   private pendingPanelOpenTab: PanelTab | null = null;
+  private panelRestoreArmed = false;
   private lastTickTime: number | null = null;
   private lastAnnouncedSignature = "";
   private readonly handleVisibilityChange = () => {
@@ -210,7 +211,13 @@ export class ScriptController {
       },
       onClose: (reason) => {
         if (reason === "user") {
+          this.panelRestoreArmed = false;
           this.pendingPanelOpenTab = null;
+          return;
+        }
+
+        if (this.panelRestoreArmed) {
+          this.pendingPanelOpenTab = this.panel.getActiveTab();
         }
       }
     });
@@ -298,6 +305,7 @@ export class ScriptController {
   }
 
   togglePanel(): void {
+    this.panelRestoreArmed = false;
     this.pendingPanelOpenTab = null;
     this.panel.toggle();
   }
@@ -376,6 +384,7 @@ export class ScriptController {
   }
 
   private openPanelWithIntent(tab: PanelTab): void {
+    this.panelRestoreArmed = true;
     this.pendingPanelOpenTab = tab;
     this.restorePendingPanelOpen();
   }
@@ -386,6 +395,7 @@ export class ScriptController {
     }
 
     const tab = this.pendingPanelOpenTab;
+    this.pendingPanelOpenTab = null;
     this.panel.open(tab);
   }
 

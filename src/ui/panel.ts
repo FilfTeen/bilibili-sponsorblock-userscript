@@ -156,6 +156,10 @@ export class SettingsPanel {
     return !this.backdrop.hidden;
   }
 
+  getActiveTab(): PanelTab {
+    return this.activeTab;
+  }
+
   open(tab: PanelTab = this.activeTab): void {
     this.mount();
     this.attachViewportListeners();

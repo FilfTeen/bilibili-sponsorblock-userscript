@@ -1956,6 +1956,9 @@
     isOpen() {
       return !this.backdrop.hidden;
     }
+    getActiveTab() {
+      return this.activeTab;
+    }
     open(tab = this.activeTab) {
       this.mount();
       this.attachViewportListeners();
@@ -5565,6 +5568,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       __publicField(this, "pendingForceFetch", false);
       __publicField(this, "pendingVisibleRefresh", false);
       __publicField(this, "pendingPanelOpenTab", null);
+      __publicField(this, "panelRestoreArmed", false);
       __publicField(this, "lastTickTime", null);
       __publicField(this, "lastAnnouncedSignature", "");
       __publicField(this, "handleVisibilityChange", () => {
@@ -5661,7 +5665,12 @@ ${inlineSurfaceFrostedGlass.overlay}
         }),
         onClose: (reason) => {
           if (reason === "user") {
+            this.panelRestoreArmed = false;
             this.pendingPanelOpenTab = null;
+            return;
+          }
+          if (this.panelRestoreArmed) {
+            this.pendingPanelOpenTab = this.panel.getActiveTab();
           }
         }
       });
@@ -5743,6 +5752,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       });
     }
     togglePanel() {
+      this.panelRestoreArmed = false;
       this.pendingPanelOpenTab = null;
       this.panel.toggle();
     }
@@ -5813,6 +5823,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       }, 120);
     }
     openPanelWithIntent(tab) {
+      this.panelRestoreArmed = true;
       this.pendingPanelOpenTab = tab;
       this.restorePendingPanelOpen();
     }
@@ -5821,6 +5832,7 @@ ${inlineSurfaceFrostedGlass.overlay}
         return;
       }
       const tab = this.pendingPanelOpenTab;
+      this.pendingPanelOpenTab = null;
       this.panel.open(tab);
     }
     refreshCurrentVideo(forceFetch = false) {

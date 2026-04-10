@@ -18,6 +18,23 @@ function createController(): ScriptController {
   );
 }
 
+function setDocumentHidden(hidden: boolean): () => void {
+  const original = Object.getOwnPropertyDescriptor(document, "hidden");
+  Object.defineProperty(document, "hidden", {
+    configurable: true,
+    value: hidden
+  });
+
+  return () => {
+    if (original) {
+      Object.defineProperty(document, "hidden", original);
+      return;
+    }
+
+    Reflect.deleteProperty(document, "hidden");
+  };
+}
+
 const skipSegment: SegmentRecord = {
   UUID: "segment-skip",
   category: "sponsor",
@@ -202,5 +219,42 @@ describe("script controller", () => {
     await controller.start();
 
     expect(document.querySelector<HTMLElement>(".bsb-tm-panel-backdrop")?.hidden).toBe(true);
+  });
+
+  it("does not force the panel back to the original menu tab after visibility recovery", async () => {
+    const controller = createController();
+    vi.spyOn(controller as any, "refreshCurrentVideo").mockImplementation(async () => {});
+
+    await controller.start();
+    controller.openHelp();
+    document.querySelector<HTMLButtonElement>("[data-tab='filters']")?.click();
+    expect(document.querySelector<HTMLButtonElement>("[data-tab='filters']")?.classList.contains("active")).toBe(true);
+
+    const restoreHidden = setDocumentHidden(true);
+    document.dispatchEvent(new Event("visibilitychange"));
+    restoreHidden();
+
+    const restoreVisible = setDocumentHidden(false);
+    document.dispatchEvent(new Event("visibilitychange"));
+    restoreVisible();
+
+    expect(document.querySelector<HTMLButtonElement>("[data-tab='filters']")?.classList.contains("active")).toBe(true);
+    expect(document.querySelector<HTMLElement>("[data-section='filters']")?.hidden).toBe(false);
+  });
+
+  it("restores the current active tab after a system stop/start", async () => {
+    const controller = createController();
+    vi.spyOn(controller as any, "refreshCurrentVideo").mockImplementation(async () => {});
+
+    await controller.start();
+    controller.openHelp();
+    document.querySelector<HTMLButtonElement>("[data-tab='filters']")?.click();
+    expect(document.querySelector<HTMLButtonElement>("[data-tab='filters']")?.classList.contains("active")).toBe(true);
+
+    controller.stop();
+    await controller.start();
+
+    expect(document.querySelector<HTMLButtonElement>("[data-tab='filters']")?.classList.contains("active")).toBe(true);
+    expect(document.querySelector<HTMLElement>("[data-section='filters']")?.hidden).toBe(false);
   });
 });
