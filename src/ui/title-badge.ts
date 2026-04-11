@@ -18,6 +18,8 @@ const DEFAULT_COPY =
 const LABEL_ONLY_COPY = "这个标签来自整视频标签结果，但当前没有可直接反馈的投票记录。";
 const LOCAL_SIGNAL_COPY = "这个标签来自本地页面线索，而不是 SponsorBlock 社区已收录的整视频记录。";
 const LOCKED_COPY = "这条整视频标签的反馈已在本机提交。为避免重复投票，当前按钮已锁定。";
+const LOCAL_LOCKED_COPY =
+  "已提交。本地学习会在后续继续保留或忽略此判断；该操作对当前视频不可重复提交。";
 
 function resolveCopy(segment: SegmentRecord, votingAvailable: boolean): string {
   const base = CATEGORY_DESCRIPTIONS[segment.category] ?? DEFAULT_COPY;
@@ -211,8 +213,8 @@ export class TitleBadge {
     this.root.style.setProperty("--bsb-category-glass-border", style.glassBorder);
     this.titleText.textContent = CATEGORY_LABELS[segment.category];
     this.description.textContent = resolveCopy(segment, this.votingAvailable);
-    this.upvoteButton.disabled = !this.localActionsAvailable && (!this.votingAvailable || this.voteLocked);
-    this.downvoteButton.disabled = !this.localActionsAvailable && (!this.votingAvailable || this.voteLocked);
+    this.upvoteButton.disabled = this.voteLocked || (!this.localActionsAvailable && !this.votingAvailable);
+    this.downvoteButton.disabled = this.voteLocked || (!this.localActionsAvailable && !this.votingAvailable);
     this.upvoteButton.hidden = false;
     this.downvoteButton.hidden = false;
     this.upvoteButton.title = this.votingAvailable
@@ -220,20 +222,26 @@ export class TitleBadge {
         ? "这条整视频标签的反馈已提交"
         : "把这条整视频标签标记为正确"
       : this.localActionsAvailable
-        ? "把这条本地标签记为可信，并在后续继续保留"
+        ? this.voteLocked
+          ? "本地反馈已提交，当前视频不可重复操作"
+          : "把这条本地标签记为可信，并在后续继续保留"
         : "当前没有可直接反馈的 SponsorBlock 投票记录";
     this.downvoteButton.title = this.votingAvailable
       ? this.voteLocked
         ? "这条整视频标签的反馈已提交"
         : "把这条整视频标签标记为有误"
       : this.localActionsAvailable
-        ? "忽略这条本地标签，并停止继续提示当前视频"
+        ? this.voteLocked
+          ? "本地反馈已提交，当前视频不可重复操作"
+          : "忽略这条本地标签，并停止继续提示当前视频"
         : "当前没有可直接反馈的 SponsorBlock 投票记录";
     this.upvoteButton.lastChild && (this.upvoteButton.lastChild.textContent = this.votingAvailable ? "标记正确" : this.localActionsAvailable ? "保留本地标签" : "标记正确");
     this.downvoteButton.lastChild && (this.downvoteButton.lastChild.textContent = this.votingAvailable ? "标记有误" : this.localActionsAvailable ? "忽略此视频" : "标记有误");
     this.feedbackHint.hidden = this.votingAvailable && !this.localActionsAvailable && !this.voteLocked;
     this.feedbackHint.textContent = this.localActionsAvailable
-      ? "这条提示来自本地评论或页面线索。你可以保留它，也可以忽略并阻止当前视频继续触发本地提示。"
+      ? this.voteLocked
+        ? LOCAL_LOCKED_COPY
+        : "这条提示来自本地评论或页面线索。你可以保留它，也可以忽略并阻止当前视频继续触发本地提示。提交后当前视频不可重复反馈。"
       : this.voteLocked
         ? LOCKED_COPY
       : "这条标签目前只有整视频标签结果，没有可直接投票的 SponsorBlock UUID。";
@@ -245,7 +253,9 @@ export class TitleBadge {
           ? `${CATEGORY_LABELS[segment.category]}，点击查看说明，反馈已提交`
           : `${CATEGORY_LABELS[segment.category]}，点击查看说明和反馈按钮`
         : this.localActionsAvailable
-          ? `${CATEGORY_LABELS[segment.category]}，点击查看本地学习按钮`
+          ? this.voteLocked
+            ? `${CATEGORY_LABELS[segment.category]}，点击查看本地学习说明，反馈已提交`
+            : `${CATEGORY_LABELS[segment.category]}，点击查看本地学习按钮`
           : `${CATEGORY_LABELS[segment.category]}，点击查看说明和不可用反馈按钮`
     );
   }
@@ -372,20 +382,25 @@ export class TitleBadge {
   }
 
   private async handleVote(type: TitleBadgeVoteType): Promise<void> {
-    if (!this.currentSegment || (this.voteLocked && this.votingAvailable)) {
+    if (!this.currentSegment || this.voteLocked) {
       return;
     }
 
+    const segment = this.currentSegment;
     this.setBusy(true);
     try {
       if (this.votingAvailable) {
-        const result = await this.callbacks.onVote(this.currentSegment, type);
+        const result = await this.callbacks.onVote(segment, type);
         if (result !== "error") {
           this.voteLocked = true;
-          this.applyAppearance(this.currentSegment);
+          this.applyAppearance(segment);
         }
       } else if (this.localActionsAvailable) {
-        await this.callbacks.onLocalDecision(this.currentSegment, type === 1 ? "confirm" : "dismiss");
+        await this.callbacks.onLocalDecision(segment, type === 1 ? "confirm" : "dismiss");
+        if (this.currentSegment === segment) {
+          this.voteLocked = true;
+          this.applyAppearance(segment);
+        }
       } else {
         return;
       }
@@ -398,7 +413,7 @@ export class TitleBadge {
   private setBusy(busy: boolean): void {
     for (const button of [this.upvoteButton, this.downvoteButton, this.settingsButton]) {
       if (button === this.upvoteButton || button === this.downvoteButton) {
-        button.disabled = busy || (this.localActionsAvailable ? false : !this.votingAvailable || this.voteLocked);
+        button.disabled = busy || this.voteLocked || (!this.localActionsAvailable && !this.votingAvailable);
       } else {
         button.disabled = busy;
       }

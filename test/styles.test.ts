@@ -63,6 +63,28 @@ describe("shared glass contexts", () => {
     );
   });
 
+  it("keeps compact video header offset from the viewport and uses equal padding", () => {
+    expect(styles).toContain("--bsb-compact-header-gap: 8px;");
+    expect(styles).toContain("--bsb-compact-header-padding: 8px;");
+    expect(styles).toMatch(
+      /\.bsb-tm-video-header-compact \.bsb-tm-video-header-shell \{[\s\S]*top: var\(--bsb-compact-header-gap\);[\s\S]*width: min\(1160px, calc\(100vw - \(var\(--bsb-compact-header-gap\) \* 2\)\)\);/
+    );
+    expect(styles).toMatch(
+      /\.bsb-tm-video-header-bar \{[\s\S]*box-sizing: border-box;[\s\S]*padding: var\(--bsb-compact-header-padding\);/
+    );
+  });
+
+  it("places notices below the compact video header and animates dismissal", () => {
+    expect(styles).toMatch(
+      /\.bsb-tm-video-header-compact \{[\s\S]*--bsb-notice-top: calc\([\s\S]*var\(--bsb-compact-header-gap\)[\s\S]*var\(--bsb-compact-header-estimated-height\)[\s\S]*var\(--bsb-compact-header-padding\)/
+    );
+    expect(styles).toMatch(
+      /\.bsb-tm-notice-root\.is-floating \{[\s\S]*top: var\(--bsb-notice-top\);[\s\S]*bottom: auto;/
+    );
+    expect(styles).toContain(".bsb-tm-notice.is-leaving");
+    expect(styles).toContain("@keyframes bsbNoticeOut");
+  });
+
   it("removes the edge highlight treatment from default overlay thumbnail pills only", () => {
     expect(styles).toContain('.sponsorThumbnailLabel[data-placement="default"][data-transparent="true"][data-glass-context="overlay"] {');
     expect(styles).toContain("border-color: color-mix(in srgb, var(--category-accent, #ffffff) 20%, rgba(255, 255, 255, 0.12));");

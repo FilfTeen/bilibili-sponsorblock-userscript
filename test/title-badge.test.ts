@@ -182,6 +182,12 @@ describe("title badge", () => {
       }),
       "dismiss"
     );
+
+    document.querySelector<HTMLButtonElement>(".bsb-tm-title-pill")?.click();
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+    expect(keepButton?.disabled).toBe(true);
+    expect(dismissButton?.disabled).toBe(true);
+    expect(document.querySelector(".bsb-tm-title-popover-hint")?.textContent).toContain("不可重复提交");
   });
 
   it("keeps all three popover actions mounted after layout changes", async () => {

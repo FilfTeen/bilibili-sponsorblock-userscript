@@ -216,6 +216,7 @@
   var CACHE_STORAGE_KEY = "bsb_tm_cache_v1";
   var USER_ID_STORAGE_KEY = "bsb_tm_user_id_v1";
   var LOCAL_LABEL_STORAGE_KEY = "bsb_tm_local_video_labels_v1";
+  var COMMENT_FEEDBACK_STORAGE_KEY = "bsb_tm_comment_feedback_v1";
   var VOTE_HISTORY_STORAGE_KEY = "bsb_tm_vote_history_v1";
   var BRIDGE_FLAG = "__BSB_TM_PAGE_BRIDGE__";
   var REQUEST_TIMEOUT_MS = 8e3;
@@ -495,11 +496,14 @@
     { token: "\u9996\u53D1", pattern: /首发|首批|首个|最先/iu, weight: 2.1 },
     { token: "\u5DE5\u7A0B\u673A", pattern: /工程机|样机|内测|beta|试玩|预览版|体验版/iu, weight: 2.4 }
   ];
-  var CTA_ACTION_PATTERN = /点击|点开|点进|戳|打开|去|领取|领|抢|下单|购买|买|入手|搜索|看我|看主页|主页见|置顶看我/iu;
-  var CTA_SURFACE_PATTERN = /评论区(?:置顶)?|蓝链|链接|商品卡|店铺|橱窗|主页|频道|直播间|专栏|收藏夹|合集/iu;
+  var CTA_ACTION_PATTERN = /点击|点开|点进|戳|打开|去|领取|领|抢|下单|购买|买|入手|搜索|看我|看主页|主页见|置顶看我|试一下|试试|体验一下|立即体验|戳体验/iu;
+  var CTA_SURFACE_PATTERN = /评论区(?:置顶)?|蓝链|链接|商品卡|店铺|橱窗|主页|频道|直播间|专栏|收藏夹|合集|官网|网址/iu;
   var CTA_BENEFIT_PATTERN = /优惠(?:券|卷|劵)|红包|福利|返利|返现|折扣|到手价|密令/iu;
   var CTA_PURCHASE_PATTERN = /下单|购买|买|入手/u;
   var CTA_OWNED_SURFACE_PATTERN = /(?:我的|本)?(?:店铺|小店|橱窗|主页|频道|直播间|专栏|收藏夹|合集)/iu;
+  var EXTERNAL_LINK_PATTERN = /https?:\/\/|www\.|(?:^|[\s:：])(?:[a-z0-9-]+\.)+(?:com|cn|net|org|io|app)(?:\/|\b)/iu;
+  var EXPERIENCE_CUE_PATTERN = /戳体验|立即体验|去体验|体验一下|试一下|试试|试用|可以试|值得试/iu;
+  var PRODUCT_OR_SERVICE_CUE_PATTERN = /工具|产品|服务|平台|软件|app|APP|官网|网站|做视频|剪辑|素材|后期|效率/iu;
   var QUOTED_OR_MOCKING_CONTEXT_PATTERN = /玩梗|整活|反串|阴阳怪气|吐槽|调侃|引用|复读|照搬|原话|话术|文案|笑死|绷不住|尬|土味|逆天|离谱|“[^”]{0,24}(?:广告|推广|优惠券|购买|下单|链接)[^”]{0,24}”|"[^"]{0,24}(?:广告|推广|优惠券|购买|下单|链接)[^"]{0,24}"/iu;
   function normalizeText(text) {
     return text.replace(/\s+/gu, " ").trim();
@@ -535,17 +539,23 @@
         hasPurchaseCue: false,
         hasOwnedSurface: false,
         hasOwnedActionLead: false,
+        hasExternalLink: false,
+        hasExperienceCue: false,
+        hasProductOrServiceCue: false,
         hasStrongClosure: false,
         hasQuotedOrMockingContext: false
       };
     }
-    const hasActionVerb = hasNonNegatedPattern(normalized, CTA_ACTION_PATTERN);
-    const hasCommerceSurface = hasNonNegatedPattern(normalized, CTA_SURFACE_PATTERN);
+    const hasExternalLink = hasNonNegatedPattern(normalized, EXTERNAL_LINK_PATTERN);
+    const hasExperienceCue = hasNonNegatedPattern(normalized, EXPERIENCE_CUE_PATTERN);
+    const hasProductOrServiceCue = hasNonNegatedPattern(normalized, PRODUCT_OR_SERVICE_CUE_PATTERN);
+    const hasActionVerb = hasNonNegatedPattern(normalized, CTA_ACTION_PATTERN) || hasExperienceCue;
+    const hasCommerceSurface = hasNonNegatedPattern(normalized, CTA_SURFACE_PATTERN) || hasExternalLink;
     const hasBenefitCue = hasNonNegatedPattern(normalized, CTA_BENEFIT_PATTERN);
     const hasPurchaseCue = hasNonNegatedPattern(normalized, CTA_PURCHASE_PATTERN);
     const hasOwnedSurface = hasNonNegatedPattern(normalized, CTA_OWNED_SURFACE_PATTERN);
     const hasOwnedActionLead = hasOwnedSurface && (hasActionVerb || /主页见|置顶看我/iu.test(normalized));
-    const hasStrongClosure = hasActionVerb && hasCommerceSurface || hasBenefitCue && (hasCommerceSurface || hasPurchaseCue) || hasPurchaseCue && hasCommerceSurface || hasOwnedActionLead;
+    const hasStrongClosure = hasActionVerb && hasCommerceSurface || hasBenefitCue && (hasCommerceSurface || hasPurchaseCue) || hasPurchaseCue && hasCommerceSurface || hasExternalLink && hasExperienceCue && hasProductOrServiceCue || hasOwnedActionLead;
     return {
       hasActionVerb,
       hasCommerceSurface,
@@ -553,6 +563,9 @@
       hasPurchaseCue,
       hasOwnedSurface,
       hasOwnedActionLead,
+      hasExternalLink,
+      hasExperienceCue,
+      hasProductOrServiceCue,
       hasStrongClosure,
       hasQuotedOrMockingContext: QUOTED_OR_MOCKING_CONTEXT_PATTERN.test(normalized)
     };
@@ -607,6 +620,7 @@
     let sponsorScore = sponsorStrong.score + sponsorSupport.score;
     let selfpromoScore = selfpromo.score;
     let exclusiveScore = exclusive.score;
+    const actionability = inspectCommercialActionability(normalized);
     const hasExplicitCTA = /评论区(?:置顶)?|(?:购买|下单|点击|打开).{0,8}(?:链接|蓝链)|(?:领|抢)(?:券|红包|福利)|优惠(?:券|卷|劵)|商品卡/iu.test(
       normalized
     );
@@ -630,6 +644,9 @@
     }
     if (hasExplicitCTA) {
       sponsorScore += 1.45;
+    }
+    if (actionability.hasExternalLink && actionability.hasExperienceCue && actionability.hasProductOrServiceCue && sponsorSupport.matches.includes("\u5BFC\u8D2D\u8BCD")) {
+      sponsorScore += 2.25;
     }
     if (hasOwnedSurface && /(?:评论区|置顶|链接|主页|店铺|橱窗|直播间)/iu.test(normalized)) {
       selfpromoScore += 1.4;
@@ -1922,7 +1939,7 @@
     show(options) {
       var _a, _b, _c;
       this.ensureAttached();
-      this.dismiss(options.id);
+      this.removeNotice(options.id);
       const notice = document.createElement("div");
       notice.className = "bsb-tm-notice";
       notice.dataset.noticeId = options.id;
@@ -1974,15 +1991,35 @@
       if (!notice) {
         return;
       }
+      if (notice.classList.contains("is-leaving")) {
+        return;
+      }
+      notice.classList.add("is-leaving");
+      const remove = () => {
+        this.removeNotice(id, notice);
+      };
+      notice.addEventListener("animationend", remove, { once: true });
+      window.setTimeout(remove, 260);
+    }
+    clear() {
+      for (const id of [...this.notices.keys()]) {
+        this.removeNotice(id);
+      }
+    }
+    removeNotice(id, expected) {
+      const timerId = this.timers.get(id);
+      if (timerId) {
+        window.clearTimeout(timerId);
+        this.timers.delete(id);
+      }
+      const notice = this.notices.get(id);
+      if (!notice || expected && notice !== expected) {
+        return;
+      }
       notice.remove();
       this.notices.delete(id);
       if (this.notices.size === 0) {
         this.root.remove();
-      }
-    }
-    clear() {
-      for (const id of [...this.notices.keys()]) {
-        this.dismiss(id);
       }
     }
   };
@@ -3511,6 +3548,7 @@
   var LABEL_ONLY_COPY = "\u8FD9\u4E2A\u6807\u7B7E\u6765\u81EA\u6574\u89C6\u9891\u6807\u7B7E\u7ED3\u679C\uFF0C\u4F46\u5F53\u524D\u6CA1\u6709\u53EF\u76F4\u63A5\u53CD\u9988\u7684\u6295\u7968\u8BB0\u5F55\u3002";
   var LOCAL_SIGNAL_COPY = "\u8FD9\u4E2A\u6807\u7B7E\u6765\u81EA\u672C\u5730\u9875\u9762\u7EBF\u7D22\uFF0C\u800C\u4E0D\u662F SponsorBlock \u793E\u533A\u5DF2\u6536\u5F55\u7684\u6574\u89C6\u9891\u8BB0\u5F55\u3002";
   var LOCKED_COPY = "\u8FD9\u6761\u6574\u89C6\u9891\u6807\u7B7E\u7684\u53CD\u9988\u5DF2\u5728\u672C\u673A\u63D0\u4EA4\u3002\u4E3A\u907F\u514D\u91CD\u590D\u6295\u7968\uFF0C\u5F53\u524D\u6309\u94AE\u5DF2\u9501\u5B9A\u3002";
+  var LOCAL_LOCKED_COPY = "\u5DF2\u63D0\u4EA4\u3002\u672C\u5730\u5B66\u4E60\u4F1A\u5728\u540E\u7EED\u7EE7\u7EED\u4FDD\u7559\u6216\u5FFD\u7565\u6B64\u5224\u65AD\uFF1B\u8BE5\u64CD\u4F5C\u5BF9\u5F53\u524D\u89C6\u9891\u4E0D\u53EF\u91CD\u590D\u63D0\u4EA4\u3002";
   function resolveCopy(segment, votingAvailable) {
     var _a;
     const base = (_a = CATEGORY_DESCRIPTIONS[segment.category]) != null ? _a : DEFAULT_COPY;
@@ -3680,20 +3718,20 @@
       this.root.style.setProperty("--bsb-category-glass-border", style.glassBorder);
       this.titleText.textContent = CATEGORY_LABELS[segment.category];
       this.description.textContent = resolveCopy(segment, this.votingAvailable);
-      this.upvoteButton.disabled = !this.localActionsAvailable && (!this.votingAvailable || this.voteLocked);
-      this.downvoteButton.disabled = !this.localActionsAvailable && (!this.votingAvailable || this.voteLocked);
+      this.upvoteButton.disabled = this.voteLocked || !this.localActionsAvailable && !this.votingAvailable;
+      this.downvoteButton.disabled = this.voteLocked || !this.localActionsAvailable && !this.votingAvailable;
       this.upvoteButton.hidden = false;
       this.downvoteButton.hidden = false;
-      this.upvoteButton.title = this.votingAvailable ? this.voteLocked ? "\u8FD9\u6761\u6574\u89C6\u9891\u6807\u7B7E\u7684\u53CD\u9988\u5DF2\u63D0\u4EA4" : "\u628A\u8FD9\u6761\u6574\u89C6\u9891\u6807\u7B7E\u6807\u8BB0\u4E3A\u6B63\u786E" : this.localActionsAvailable ? "\u628A\u8FD9\u6761\u672C\u5730\u6807\u7B7E\u8BB0\u4E3A\u53EF\u4FE1\uFF0C\u5E76\u5728\u540E\u7EED\u7EE7\u7EED\u4FDD\u7559" : "\u5F53\u524D\u6CA1\u6709\u53EF\u76F4\u63A5\u53CD\u9988\u7684 SponsorBlock \u6295\u7968\u8BB0\u5F55";
-      this.downvoteButton.title = this.votingAvailable ? this.voteLocked ? "\u8FD9\u6761\u6574\u89C6\u9891\u6807\u7B7E\u7684\u53CD\u9988\u5DF2\u63D0\u4EA4" : "\u628A\u8FD9\u6761\u6574\u89C6\u9891\u6807\u7B7E\u6807\u8BB0\u4E3A\u6709\u8BEF" : this.localActionsAvailable ? "\u5FFD\u7565\u8FD9\u6761\u672C\u5730\u6807\u7B7E\uFF0C\u5E76\u505C\u6B62\u7EE7\u7EED\u63D0\u793A\u5F53\u524D\u89C6\u9891" : "\u5F53\u524D\u6CA1\u6709\u53EF\u76F4\u63A5\u53CD\u9988\u7684 SponsorBlock \u6295\u7968\u8BB0\u5F55";
+      this.upvoteButton.title = this.votingAvailable ? this.voteLocked ? "\u8FD9\u6761\u6574\u89C6\u9891\u6807\u7B7E\u7684\u53CD\u9988\u5DF2\u63D0\u4EA4" : "\u628A\u8FD9\u6761\u6574\u89C6\u9891\u6807\u7B7E\u6807\u8BB0\u4E3A\u6B63\u786E" : this.localActionsAvailable ? this.voteLocked ? "\u672C\u5730\u53CD\u9988\u5DF2\u63D0\u4EA4\uFF0C\u5F53\u524D\u89C6\u9891\u4E0D\u53EF\u91CD\u590D\u64CD\u4F5C" : "\u628A\u8FD9\u6761\u672C\u5730\u6807\u7B7E\u8BB0\u4E3A\u53EF\u4FE1\uFF0C\u5E76\u5728\u540E\u7EED\u7EE7\u7EED\u4FDD\u7559" : "\u5F53\u524D\u6CA1\u6709\u53EF\u76F4\u63A5\u53CD\u9988\u7684 SponsorBlock \u6295\u7968\u8BB0\u5F55";
+      this.downvoteButton.title = this.votingAvailable ? this.voteLocked ? "\u8FD9\u6761\u6574\u89C6\u9891\u6807\u7B7E\u7684\u53CD\u9988\u5DF2\u63D0\u4EA4" : "\u628A\u8FD9\u6761\u6574\u89C6\u9891\u6807\u7B7E\u6807\u8BB0\u4E3A\u6709\u8BEF" : this.localActionsAvailable ? this.voteLocked ? "\u672C\u5730\u53CD\u9988\u5DF2\u63D0\u4EA4\uFF0C\u5F53\u524D\u89C6\u9891\u4E0D\u53EF\u91CD\u590D\u64CD\u4F5C" : "\u5FFD\u7565\u8FD9\u6761\u672C\u5730\u6807\u7B7E\uFF0C\u5E76\u505C\u6B62\u7EE7\u7EED\u63D0\u793A\u5F53\u524D\u89C6\u9891" : "\u5F53\u524D\u6CA1\u6709\u53EF\u76F4\u63A5\u53CD\u9988\u7684 SponsorBlock \u6295\u7968\u8BB0\u5F55";
       this.upvoteButton.lastChild && (this.upvoteButton.lastChild.textContent = this.votingAvailable ? "\u6807\u8BB0\u6B63\u786E" : this.localActionsAvailable ? "\u4FDD\u7559\u672C\u5730\u6807\u7B7E" : "\u6807\u8BB0\u6B63\u786E");
       this.downvoteButton.lastChild && (this.downvoteButton.lastChild.textContent = this.votingAvailable ? "\u6807\u8BB0\u6709\u8BEF" : this.localActionsAvailable ? "\u5FFD\u7565\u6B64\u89C6\u9891" : "\u6807\u8BB0\u6709\u8BEF");
       this.feedbackHint.hidden = this.votingAvailable && !this.localActionsAvailable && !this.voteLocked;
-      this.feedbackHint.textContent = this.localActionsAvailable ? "\u8FD9\u6761\u63D0\u793A\u6765\u81EA\u672C\u5730\u8BC4\u8BBA\u6216\u9875\u9762\u7EBF\u7D22\u3002\u4F60\u53EF\u4EE5\u4FDD\u7559\u5B83\uFF0C\u4E5F\u53EF\u4EE5\u5FFD\u7565\u5E76\u963B\u6B62\u5F53\u524D\u89C6\u9891\u7EE7\u7EED\u89E6\u53D1\u672C\u5730\u63D0\u793A\u3002" : this.voteLocked ? LOCKED_COPY : "\u8FD9\u6761\u6807\u7B7E\u76EE\u524D\u53EA\u6709\u6574\u89C6\u9891\u6807\u7B7E\u7ED3\u679C\uFF0C\u6CA1\u6709\u53EF\u76F4\u63A5\u6295\u7968\u7684 SponsorBlock UUID\u3002";
+      this.feedbackHint.textContent = this.localActionsAvailable ? this.voteLocked ? LOCAL_LOCKED_COPY : "\u8FD9\u6761\u63D0\u793A\u6765\u81EA\u672C\u5730\u8BC4\u8BBA\u6216\u9875\u9762\u7EBF\u7D22\u3002\u4F60\u53EF\u4EE5\u4FDD\u7559\u5B83\uFF0C\u4E5F\u53EF\u4EE5\u5FFD\u7565\u5E76\u963B\u6B62\u5F53\u524D\u89C6\u9891\u7EE7\u7EED\u89E6\u53D1\u672C\u5730\u63D0\u793A\u3002\u63D0\u4EA4\u540E\u5F53\u524D\u89C6\u9891\u4E0D\u53EF\u91CD\u590D\u53CD\u9988\u3002" : this.voteLocked ? LOCKED_COPY : "\u8FD9\u6761\u6807\u7B7E\u76EE\u524D\u53EA\u6709\u6574\u89C6\u9891\u6807\u7B7E\u7ED3\u679C\uFF0C\u6CA1\u6709\u53EF\u76F4\u63A5\u6295\u7968\u7684 SponsorBlock UUID\u3002";
       this.actions.classList.toggle("vote-unavailable", !this.votingAvailable);
       this.pillButton.setAttribute(
         "aria-label",
-        this.votingAvailable ? this.voteLocked ? `${CATEGORY_LABELS[segment.category]}\uFF0C\u70B9\u51FB\u67E5\u770B\u8BF4\u660E\uFF0C\u53CD\u9988\u5DF2\u63D0\u4EA4` : `${CATEGORY_LABELS[segment.category]}\uFF0C\u70B9\u51FB\u67E5\u770B\u8BF4\u660E\u548C\u53CD\u9988\u6309\u94AE` : this.localActionsAvailable ? `${CATEGORY_LABELS[segment.category]}\uFF0C\u70B9\u51FB\u67E5\u770B\u672C\u5730\u5B66\u4E60\u6309\u94AE` : `${CATEGORY_LABELS[segment.category]}\uFF0C\u70B9\u51FB\u67E5\u770B\u8BF4\u660E\u548C\u4E0D\u53EF\u7528\u53CD\u9988\u6309\u94AE`
+        this.votingAvailable ? this.voteLocked ? `${CATEGORY_LABELS[segment.category]}\uFF0C\u70B9\u51FB\u67E5\u770B\u8BF4\u660E\uFF0C\u53CD\u9988\u5DF2\u63D0\u4EA4` : `${CATEGORY_LABELS[segment.category]}\uFF0C\u70B9\u51FB\u67E5\u770B\u8BF4\u660E\u548C\u53CD\u9988\u6309\u94AE` : this.localActionsAvailable ? this.voteLocked ? `${CATEGORY_LABELS[segment.category]}\uFF0C\u70B9\u51FB\u67E5\u770B\u672C\u5730\u5B66\u4E60\u8BF4\u660E\uFF0C\u53CD\u9988\u5DF2\u63D0\u4EA4` : `${CATEGORY_LABELS[segment.category]}\uFF0C\u70B9\u51FB\u67E5\u770B\u672C\u5730\u5B66\u4E60\u6309\u94AE` : `${CATEGORY_LABELS[segment.category]}\uFF0C\u70B9\u51FB\u67E5\u770B\u8BF4\u660E\u548C\u4E0D\u53EF\u7528\u53CD\u9988\u6309\u94AE`
       );
     }
     ensureMounted() {
@@ -3803,19 +3841,24 @@
     }
     handleVote(type) {
       return __async(this, null, function* () {
-        if (!this.currentSegment || this.voteLocked && this.votingAvailable) {
+        if (!this.currentSegment || this.voteLocked) {
           return;
         }
+        const segment = this.currentSegment;
         this.setBusy(true);
         try {
           if (this.votingAvailable) {
-            const result = yield this.callbacks.onVote(this.currentSegment, type);
+            const result = yield this.callbacks.onVote(segment, type);
             if (result !== "error") {
               this.voteLocked = true;
-              this.applyAppearance(this.currentSegment);
+              this.applyAppearance(segment);
             }
           } else if (this.localActionsAvailable) {
-            yield this.callbacks.onLocalDecision(this.currentSegment, type === 1 ? "confirm" : "dismiss");
+            yield this.callbacks.onLocalDecision(segment, type === 1 ? "confirm" : "dismiss");
+            if (this.currentSegment === segment) {
+              this.voteLocked = true;
+              this.applyAppearance(segment);
+            }
           } else {
             return;
           }
@@ -3828,7 +3871,7 @@
     setBusy(busy) {
       for (const button of [this.upvoteButton, this.downvoteButton, this.settingsButton]) {
         if (button === this.upvoteButton || button === this.downvoteButton) {
-          button.disabled = busy || (this.localActionsAvailable ? false : !this.votingAvailable || this.voteLocked);
+          button.disabled = busy || this.voteLocked || !this.localActionsAvailable && !this.votingAvailable;
         } else {
           button.disabled = busy;
         }
@@ -4546,6 +4589,7 @@ ${inlineSurfaceFrostedGlass.overlay}
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: none;
   min-height: 30px;
   padding: 8px 13px;
   border-radius: 999px;
@@ -4562,6 +4606,9 @@ ${inlineSurfaceFrostedGlass.overlay}
   line-height: 1.1;
   letter-spacing: 0.01em;
   text-align: center;
+  white-space: nowrap;
+  word-break: keep-all;
+  overflow-wrap: normal;
   cursor: pointer;
   transition:
     box-shadow 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
@@ -4601,6 +4648,90 @@ ${inlineSurfaceFrostedGlass.overlay}
   box-shadow:
     0 0 0 3px rgba(0, 174, 236, 0.18),
     inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.bsb-tm-inline-toggle:disabled {
+  cursor: default;
+  opacity: 0.72;
+  transform: none;
+}
+
+.bsb-tm-inline-toggle:disabled:hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.84),
+    0 8px 18px rgba(15, 23, 42, 0.08);
+  transform: none;
+}
+
+.bsb-tm-inline-feedback-menu {
+  --bsb-inline-feedback-menu-accent: #60a5fa;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-inline-start: 8px;
+  padding: 2px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  vertical-align: middle;
+  white-space: nowrap;
+  isolation: isolate;
+  transition:
+    background 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-color 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.bsb-tm-inline-feedback-menu[data-open="true"] {
+  background:
+    radial-gradient(circle at 16% 10%, color-mix(in srgb, var(--bsb-inline-feedback-menu-accent) 16%, rgba(255, 255, 255, 0.34)), transparent 44%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.68), rgba(244, 248, 255, 0.42));
+  border-color: color-mix(in srgb, var(--bsb-inline-feedback-menu-accent) 16%, rgba(148, 163, 184, 0.22));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 8px 18px rgba(15, 23, 42, 0.08);
+}
+
+.bsb-tm-inline-feedback-menu[data-disabled="true"] {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(245, 248, 252, 0.48)),
+    rgba(148, 163, 184, 0.08);
+  border-color: rgba(148, 163, 184, 0.2);
+}
+
+.bsb-tm-inline-feedback-menu .bsb-tm-inline-toggle {
+  min-height: 24px;
+  padding: 5px 9px;
+  font-size: 11px;
+}
+
+.bsb-tm-inline-feedback-menu .bsb-tm-inline-toggle--inline {
+  margin-inline-start: 0;
+}
+
+.bsb-tm-inline-feedback-menu__choices {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-inline-size: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transform: translateX(-6px) scale(0.96);
+  transform-origin: left center;
+  clip-path: inset(0 100% 0 0 round 999px);
+  transition:
+    max-inline-size 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 180ms ease,
+    transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    clip-path 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.bsb-tm-inline-feedback-menu[data-open="true"] .bsb-tm-inline-feedback-menu__choices {
+  max-inline-size: 96px;
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0) scale(1);
+  clip-path: inset(0 0 0 0 round 999px);
 }
 `;
   function ensureInlineFeedbackStyles(root) {
@@ -4652,8 +4783,11 @@ ${inlineSurfaceFrostedGlass.overlay}
   // src/features/comment-filter.ts
   var THREAD_PROCESSED_ATTR = "data-bsb-comment-processed";
   var REPLY_PROCESSED_ATTR = "data-bsb-comment-reply-processed";
+  var PROBE_PENDING_ATTR = "data-bsb-comment-author-probe-pending";
   var BADGE_ATTR = "data-bsb-comment-badge";
   var TOGGLE_ATTR = "data-bsb-comment-toggle";
+  var FEEDBACK_MENU_ATTR = "data-bsb-comment-feedback-menu";
+  var FEEDBACK_TRIGGER_ATTR = "data-bsb-comment-feedback-trigger";
   var FEEDBACK_KEEP_ATTR = "data-bsb-comment-feedback-keep";
   var FEEDBACK_DISMISS_ATTR = "data-bsb-comment-feedback-dismiss";
   var LOCATION_ATTR = "data-bsb-comment-location";
@@ -4666,6 +4800,10 @@ ${inlineSurfaceFrostedGlass.overlay}
   var VIDEO_SIGNAL_EVENT = "bsb:video-signal";
   var VIDEO_SIGNAL_FEEDBACK_EVENT = "bsb:video-signal-feedback";
   var LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT = "bsb:local-video-feedback-availability";
+  var COMMENT_AUTHOR_PROBE_TIMEOUT_MS = 2e3;
+  var COMMENT_AUTHOR_PROBE_CACHE_MS = 12 * 60 * 60 * 1e3;
+  var COMMENT_AUTHOR_PROBE_MAX_IN_FLIGHT = 2;
+  var COMMENT_FEEDBACK_MAX_RECORDS = 1e3;
   var COMMENT_RELEVANT_SELECTORS = [
     "bili-comments",
     "bili-comment-thread-renderer",
@@ -4682,6 +4820,8 @@ ${inlineSurfaceFrostedGlass.overlay}
   var COMMENT_IGNORED_SELECTORS = [
     `[${BADGE_ATTR}]`,
     `[${TOGGLE_ATTR}]`,
+    `[${FEEDBACK_MENU_ATTR}]`,
+    `[${FEEDBACK_TRIGGER_ATTR}]`,
     `[${FEEDBACK_KEEP_ATTR}]`,
     `[${FEEDBACK_DISMISS_ATTR}]`,
     `[${LOCATION_ATTR}]`
@@ -4692,6 +4832,28 @@ ${inlineSurfaceFrostedGlass.overlay}
   };
   var COMMENT_STRONG_MATCHES = /* @__PURE__ */ new Set(["\u8D5E\u52A9", "\u5546\u52A1\u5408\u4F5C", "\u5546\u54C1\u5361", "\u4F18\u60E0\u5238", "\u8D2D\u4E70\u6307\u5F15"]);
   var COMMENT_INVITATION_PATTERN = /邀请码|体验码|兑换码|注册码/iu;
+  var COMMENT_SHILL_PATTERNS = {
+    purchaseOrUse: /(?:刚|才)?(?:买|入手|拿到|收到|下单|收货|到手)|刚好缺|正好缺|缺(?:个|条|件|款)?|想买|准备买|打算买|买过|有没有买过|试穿|穿上|穿了|穿着|穿一天|用了|用起来|洗了|洗几次|下水洗|轮着穿|回购|复购|淘宝买|试试水/iu,
+    productQuality: /透气|亲肤|弹力|包裹|勒|印子|黏黏|粘粘|闷|性价比|变形|掉色|面料|材质|莫代尔|水洗|下水|洗衣机|丝滑|滑溜|缝线|颜色|尺码|好穿|舒服|舒适|支撑|做工|手感|质感|素材|剪辑|后期|效率|腿粗|卷边|裤腿|往上窜|纯棉|干爽/iu,
+    endorsement: /可以|确实|真(?:的)?|挺|非常|绝了|好用|不错|满意|放心|适合|推荐|希望(?:能|可以)|性价比还行|刚好|不会/iu,
+    videoLead: /up(?:主)?推荐|UP(?:主)?推荐|博主推荐|视频(?:里)?(?:推荐|种草|安利)|刷到|刚好刷到|看(?:了)?评论|评论(?:都|区)?(?:说好|放心)|这(?:个|条|件|款|盒)|同款/iu,
+    question: /有没有买过|买过的(?:大佬|兄弟|姐妹)?|说说|问下|洗几次|会不会|会变形不|变形不|靠谱吗|真的假的/iu,
+    marketingReply: /客服报|专属优惠|优惠码|优惠|返利|包满意|运费险|随时退|放心入手|报[【\[]?[^\s，。,.]{1,8}[】\]]?/iu,
+    problemSolution: /(?:腿粗|卷边|黏|粘|闷|不舒服|勒腿|过敏|春敏|尘螨).{0,40}(?:这个|元力象|这款|商单产品).{0,40}(?:不会|刚好|干爽|舒服|解决|扫清)|(?:以前|之前).{0,18}(?:别家|纯棉|优衣库).{0,32}(?:卷边|黏|粘|闷|不舒服).{0,48}(?:这个|元力象|这款).{0,32}(?:不会|刚好|干爽|舒服)/iu,
+    reviewDiscussion: /横评|测评|评测|对比|版型|讲清楚|参考价值/iu,
+    prospectiveTrial: /(?:看着|看起来|看)?[\s\S]{0,12}(?:质感|做工|性价比|舒服|舒适)[\s\S]{0,12}(?:准备|打算|想)[\s\S]{0,8}(?:入手|买|下单|试试水)|(?:准备|打算|想)[\s\S]{0,8}(?:入手|买|下单)[\s\S]{0,8}试试水/iu,
+    macroPraise: /国产.{0,12}(?:卷|做工|细致|质感)|(?:卷了吗).{0,12}(?:做工|细致|质感)/iu,
+    comfortPraise: /不勒腿|确实爽|真爽|穿着爽|穿起来爽/iu,
+    priceAmazement: /这价格.{0,16}(?:兰精|莫代尔|性价比|高)|(?:性价比).{0,8}(?:有点|挺|真|太)?高/iu,
+    brandComparison: /(?:优衣库|蕉内|ubras|元力象|万力象).{0,24}(?:舒适度|舒服|舒适|比得过|拉踩)|(?:舒适度|舒服|舒适).{0,24}(?:比得过|优衣库|蕉内|ubras|元力象|万力象)/iu,
+    warning: /别(?:买|点|被|信)|不(?:推荐|建议|值|好用|舒服)|踩坑|避雷|退(?:了|货|款)|差评|翻车|广告话术|割韭菜/iu
+  };
+  var commentAuthorProbeCache = /* @__PURE__ */ new Map();
+  var commentAuthorProbeInFlight = /* @__PURE__ */ new Map();
+  var commentFeedbackTokens = /* @__PURE__ */ new Set();
+  var submittedCommentFeedbackKeys = /* @__PURE__ */ new Set();
+  var submittedCommentFeedbackLoaded = false;
+  var submittedCommentFeedbackLoadPromise = null;
   function getActionRendererNode(commentRenderer) {
     var _a, _b, _c, _d, _e, _f;
     return (_f = (_e = (_c = (_a = commentRenderer.shadowRoot) == null ? void 0 : _a.querySelector("bili-comment-action-buttons-renderer")) != null ? _c : (_b = commentRenderer.shadowRoot) == null ? void 0 : _b.querySelector("#main bili-comment-action-buttons-renderer")) != null ? _e : (_d = commentRenderer.shadowRoot) == null ? void 0 : _d.querySelector("#footer bili-comment-action-buttons-renderer")) != null ? _f : null;
@@ -4754,6 +4916,19 @@ ${inlineSurfaceFrostedGlass.overlay}
     }
     return false;
   }
+  function hasCommentMediaAttachment(commentRenderer) {
+    var _a, _b, _c, _d;
+    const richTextRoot = (_b = (_a = commentRenderer.shadowRoot) == null ? void 0 : _a.querySelector("bili-rich-text")) == null ? void 0 : _b.shadowRoot;
+    const selector = [
+      "img",
+      "picture",
+      "bili-comment-picture",
+      "bili-rich-text-img",
+      ".reply-picture",
+      ".comment-image"
+    ].join(",");
+    return Boolean((_d = richTextRoot == null ? void 0 : richTextRoot.querySelector(selector)) != null ? _d : (_c = commentRenderer.shadowRoot) == null ? void 0 : _c.querySelector(selector));
+  }
   function extractCommentText(commentRenderer) {
     var _a, _b, _c, _d, _e, _f;
     const richTextNodes = [
@@ -4768,7 +4943,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       return (_b2 = (_a2 = node.textContent) == null ? void 0 : _a2.trim()) != null ? _b2 : "";
     }).filter(Boolean).join(" ");
   }
-  function classifyCommentRenderer(commentRenderer, config) {
+  function classifyCommentRenderer(commentRenderer, config, authorProfile = null) {
     if (hasSponsoredGoodsLink(commentRenderer)) {
       return {
         reason: "goods",
@@ -4783,10 +4958,18 @@ ${inlineSurfaceFrostedGlass.overlay}
       storedMatches,
       minMatches: config.dynamicRegexKeywordMinMatches
     });
+    const actionability = inspectCommercialActionability(text);
+    const shillAssessment = inspectCommentShillSignals(commentRenderer, text, actionability.hasQuotedOrMockingContext, authorProfile);
+    if (shillAssessment.state === "hit") {
+      return {
+        reason: "shill",
+        category: "sponsor",
+        matches: shillAssessment.matches
+      };
+    }
     if (!assessment.category) {
       return null;
     }
-    const actionability = inspectCommercialActionability(text);
     const hasStrongToken = assessment.matches.some((match) => COMMENT_STRONG_MATCHES.has(match));
     const hasInvitationLead = COMMENT_INVITATION_PATTERN.test(text);
     const hasStrongEvidence = actionability.hasStrongClosure || hasStrongToken || hasInvitationLead;
@@ -4811,17 +4994,223 @@ ${inlineSurfaceFrostedGlass.overlay}
       matches: storedMatches.length > 0 ? storedMatches : assessment.matches
     };
   }
+  function assessCommentRendererShill(commentRenderer, authorProfile = null) {
+    const text = extractCommentText(commentRenderer);
+    const actionability = inspectCommercialActionability(text);
+    return inspectCommentShillSignals(commentRenderer, text, actionability.hasQuotedOrMockingContext, authorProfile);
+  }
+  function inspectCommentShillSignals(commentRenderer, text, hasQuotedOrMockingContext, authorProfile) {
+    const normalized = normalizeRepeatedCommentText(text);
+    if (!normalized || hasQuotedOrMockingContext || COMMENT_SHILL_PATTERNS.warning.test(normalized)) {
+      return { state: "pass", matches: [] };
+    }
+    if (COMMENT_SHILL_PATTERNS.reviewDiscussion.test(normalized) && !COMMENT_SHILL_PATTERNS.marketingReply.test(normalized)) {
+      return { state: "pass", matches: [] };
+    }
+    const hasMedia = hasCommentMediaAttachment(commentRenderer);
+    const hits = [
+      COMMENT_SHILL_PATTERNS.purchaseOrUse.test(normalized) ? "\u8D2D\u4E70/\u4F7F\u7528\u53CD\u9988" : null,
+      COMMENT_SHILL_PATTERNS.productQuality.test(normalized) ? "\u4EA7\u54C1\u4F53\u9A8C\u7EC6\u8282" : null,
+      COMMENT_SHILL_PATTERNS.endorsement.test(normalized) ? "\u6B63\u5411\u80CC\u4E66" : null,
+      COMMENT_SHILL_PATTERNS.videoLead.test(normalized) ? "UP\u63A8\u8350\u8BED\u5883" : null,
+      COMMENT_SHILL_PATTERNS.question.test(normalized) ? "\u8D2D\u4E70\u524D\u63D0\u95EE" : null,
+      COMMENT_SHILL_PATTERNS.marketingReply.test(normalized) ? "\u8425\u9500\u56DE\u590D" : null,
+      COMMENT_SHILL_PATTERNS.problemSolution.test(normalized) ? "\u75DB\u70B9\u89E3\u51B3\u80CC\u4E66" : null,
+      hasMedia ? "\u6652\u5355\u56FE" : null
+    ].filter((hit) => Boolean(hit));
+    const candidateHits = [
+      COMMENT_SHILL_PATTERNS.prospectiveTrial.test(normalized) ? "\u5165\u624B\u8BD5\u6C34\u8BDD\u672F" : null,
+      COMMENT_SHILL_PATTERNS.macroPraise.test(normalized) ? "\u5B8F\u89C2\u8BDD\u672F\u8F6C\u5546\u54C1\u505A\u5DE5" : null,
+      COMMENT_SHILL_PATTERNS.comfortPraise.test(normalized) ? "\u5546\u54C1\u7A7F\u7740\u4F53\u9A8C\u80CC\u4E66" : null,
+      COMMENT_SHILL_PATTERNS.priceAmazement.test(normalized) ? "\u4EF7\u683C/\u6750\u8D28\u60CA\u53F9" : null,
+      COMMENT_SHILL_PATTERNS.brandComparison.test(normalized) ? "\u54C1\u724C\u62C9\u8E29\u63D0\u95EE" : null
+    ].filter((hit) => Boolean(hit));
+    const hasPurchaseOrUse = hits.includes("\u8D2D\u4E70/\u4F7F\u7528\u53CD\u9988");
+    const hasProductQuality = hits.includes("\u4EA7\u54C1\u4F53\u9A8C\u7EC6\u8282");
+    const hasEndorsement = hits.includes("\u6B63\u5411\u80CC\u4E66");
+    const hasVideoLead = hits.includes("UP\u63A8\u8350\u8BED\u5883");
+    const hasQuestion = hits.includes("\u8D2D\u4E70\u524D\u63D0\u95EE");
+    const hasMarketingReply = hits.includes("\u8425\u9500\u56DE\u590D");
+    const hasProblemSolution = hits.includes("\u75DB\u70B9\u89E3\u51B3\u80CC\u4E66");
+    const tightlyCoupledToVideoPromo = hasVideoLead && hasPurchaseOrUse && (hasProductQuality || hasEndorsement || hasMedia);
+    const testimonialWithEnoughDetail = hasPurchaseOrUse && hasProductQuality && hasEndorsement && (hasMedia || normalized.length >= 28);
+    const productQuestionWithContext = hasQuestion && hasPurchaseOrUse && hasProductQuality;
+    const mediaBackedOrderClaim = hasMedia && hasPurchaseOrUse && (hasProductQuality || hasVideoLead);
+    const marketingReplyWithClosure = hasMarketingReply && (hasPurchaseOrUse || hasEndorsement || normalized.length >= 12);
+    const problemSolutionTestimonial = hasProblemSolution && hasProductQuality && (hasPurchaseOrUse || hasEndorsement || normalized.length >= 28);
+    if (tightlyCoupledToVideoPromo || testimonialWithEnoughDetail || productQuestionWithContext || mediaBackedOrderClaim || marketingReplyWithClosure || problemSolutionTestimonial) {
+      return { state: "hit", matches: hits };
+    }
+    if (candidateHits.length > 0) {
+      const matches = uniqueStrings([...hits, ...candidateHits]);
+      if (authorProfile == null ? void 0 : authorProfile.likelyDormant) {
+        return { state: "hit", matches: uniqueStrings([...matches, "\u8D26\u53F7\u72B6\u6001\u8865\u8BC1"]) };
+      }
+      return { state: "candidate", matches };
+    }
+    return { state: "pass", matches: [] };
+  }
+  function uniqueStrings(values) {
+    return [...new Set(values)];
+  }
+  function normalizeRepeatedCommentText(text) {
+    const normalized = text.replace(/\s+/gu, " ").trim();
+    const chunks = normalized.split(" ").filter(Boolean);
+    if (chunks.length === 2 && chunks[0] === chunks[1]) {
+      return chunks[0];
+    }
+    return normalized;
+  }
+  function extractCommentAuthorMid(commentRenderer) {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+    const data = commentRenderer.data;
+    const dataMid = (_d = (_c = (_a = data == null ? void 0 : data.member) == null ? void 0 : _a.mid) != null ? _c : (_b = data == null ? void 0 : data.user) == null ? void 0 : _b.mid) != null ? _d : data == null ? void 0 : data.mid;
+    const normalizedDataMid = normalizeAuthorMid(dataMid);
+    if (normalizedDataMid) {
+      return normalizedDataMid;
+    }
+    const userRoot = (_f = (_e = commentRenderer.shadowRoot) == null ? void 0 : _e.querySelector("bili-comment-user-info")) == null ? void 0 : _f.shadowRoot;
+    const href = (_h = (_g = userRoot == null ? void 0 : userRoot.querySelector("a[href*='space.bilibili.com']")) == null ? void 0 : _g.href) != null ? _h : "";
+    return normalizeAuthorMid((_i = href.match(/space\.bilibili\.com\/(\d+)/iu)) == null ? void 0 : _i[1]);
+  }
+  function normalizeAuthorMid(value) {
+    const text = String(value != null ? value : "").trim();
+    return /^\d{2,}$/u.test(text) ? text : null;
+  }
+  function queueCommentAuthorProbe(mid, onResult) {
+    const now = Date.now();
+    const cached = commentAuthorProbeCache.get(mid);
+    if (cached && cached.expiresAt > now) {
+      queueMicrotask(() => onResult(cached.result));
+      return true;
+    }
+    const callbacks = commentAuthorProbeInFlight.get(mid);
+    if (callbacks) {
+      callbacks.push(onResult);
+      return true;
+    }
+    if (commentAuthorProbeInFlight.size >= COMMENT_AUTHOR_PROBE_MAX_IN_FLIGHT) {
+      return false;
+    }
+    commentAuthorProbeInFlight.set(mid, [onResult]);
+    void probeCommentAuthorState(mid).then((result) => {
+      commentAuthorProbeCache.set(mid, {
+        expiresAt: Date.now() + COMMENT_AUTHOR_PROBE_CACHE_MS,
+        result
+      });
+      debugLog("Comment author probe completed", result);
+      notifyCommentAuthorProbeCallbacks(mid, result);
+    }).catch((error) => {
+      commentAuthorProbeCache.set(mid, {
+        expiresAt: Date.now() + Math.floor(COMMENT_AUTHOR_PROBE_CACHE_MS / 2),
+        result: null
+      });
+      debugLog("Comment author probe failed", error);
+      notifyCommentAuthorProbeCallbacks(mid, null);
+    });
+    return true;
+  }
+  function notifyCommentAuthorProbeCallbacks(mid, result) {
+    var _a;
+    const callbacks = (_a = commentAuthorProbeInFlight.get(mid)) != null ? _a : [];
+    commentAuthorProbeInFlight.delete(mid);
+    for (const callback of callbacks) {
+      callback(result);
+    }
+  }
+  function probeCommentAuthorState(mid) {
+    return __async(this, null, function* () {
+      const response = yield gmXmlHttpRequest({
+        method: "GET",
+        url: `https://api.bilibili.com/x/web-interface/card?mid=${encodeURIComponent(mid)}&photo=false`,
+        headers: {
+          Referer: "https://www.bilibili.com/",
+          Origin: "https://www.bilibili.com/"
+        },
+        timeout: COMMENT_AUTHOR_PROBE_TIMEOUT_MS
+      });
+      if (!response.ok) {
+        throw new Error(`Bilibili author card request failed with HTTP ${response.status}`);
+      }
+      return parseCommentAuthorCardResponse(mid, response.responseText);
+    });
+  }
+  function parseCommentAuthorCardResponse(mid, responseText) {
+    var _a, _b, _c, _d, _e;
+    const payload = JSON.parse(responseText);
+    const code = finiteNumberOrNull(payload.code);
+    if (code !== null && code !== 0) {
+      throw new Error(`Bilibili author card returned code ${code}`);
+    }
+    const card = (_b = (_a = payload.data) == null ? void 0 : _a.card) != null ? _b : null;
+    const vipStatus = finiteNumberOrNull((_c = card == null ? void 0 : card.vip) == null ? void 0 : _c.status);
+    const level = finiteNumberOrNull((_d = card == null ? void 0 : card.level_info) == null ? void 0 : _d.current_level);
+    const follower = finiteNumberOrNull(card == null ? void 0 : card.follower);
+    const likeNum = finiteNumberOrNull(card == null ? void 0 : card.like_num);
+    const archiveCount = finiteNumberOrNull(card == null ? void 0 : card.archive_count);
+    const isSeniorMember = booleanOrNull(card == null ? void 0 : card.is_senior_member);
+    const officialVerifyType = finiteNumberOrNull((_e = card == null ? void 0 : card.official_verify) == null ? void 0 : _e.type);
+    const evidence = [];
+    let dormantScore = 0;
+    if (vipStatus === 0) {
+      dormantScore += 1;
+      evidence.push("\u975E\u4F1A\u5458");
+    }
+    if (level !== null && level <= 2) {
+      dormantScore += 1;
+      evidence.push("\u4F4E\u7B49\u7EA7");
+    }
+    if (follower !== null && follower <= 3) {
+      dormantScore += 1;
+      evidence.push("\u4F4E\u7C89\u4E1D");
+    }
+    if (likeNum !== null && likeNum <= 3) {
+      dormantScore += 1;
+      evidence.push("\u4F4E\u83B7\u8D5E");
+    }
+    if (archiveCount !== null && archiveCount <= 0) {
+      dormantScore += 1;
+      evidence.push("\u65E0\u6295\u7A3F");
+    }
+    if (mid.length >= 10) {
+      dormantScore += 1;
+      evidence.push("\u957FUID");
+    }
+    const protectedProfile = isSeniorMember === true || officialVerifyType !== null && officialVerifyType >= 0 || follower !== null && follower >= 1e3 || likeNum !== null && likeNum >= 1e3 || archiveCount !== null && archiveCount >= 5;
+    return {
+      mid,
+      likelyDormant: dormantScore >= 4 && !protectedProfile,
+      vipStatus,
+      level,
+      follower,
+      likeNum,
+      archiveCount,
+      isSeniorMember,
+      officialVerifyType,
+      evidence
+    };
+  }
+  function finiteNumberOrNull(value) {
+    const numberValue = Number(value);
+    return Number.isFinite(numberValue) ? numberValue : null;
+  }
+  function booleanOrNull(value) {
+    return typeof value === "boolean" ? value : null;
+  }
   function commentMatchToVideoSignal(match) {
     return {
       source: match.reason === "goods" ? "comment-goods" : "comment-suspicion",
       category: match.category,
-      confidence: match.reason === "goods" ? 0.96 : match.category === "sponsor" ? 0.87 : match.category === "exclusive_access" ? 0.8 : 0.79,
-      reason: match.reason === "goods" ? "\u8BC4\u8BBA\u533A\u547D\u4E2D\u5546\u54C1\u5361\u5E7F\u544A" : `\u8BC4\u8BBA\u533A\u547D\u4E2D\u5546\u4E1A\u7EBF\u7D22\uFF1A${match.matches.join(" / ")}`
+      confidence: match.reason === "goods" ? 0.96 : match.reason === "shill" ? 0.84 : match.category === "sponsor" ? 0.87 : match.category === "exclusive_access" ? 0.8 : 0.79,
+      reason: match.reason === "goods" ? "\u8BC4\u8BBA\u533A\u547D\u4E2D\u5546\u54C1\u5361\u5E7F\u544A" : match.reason === "shill" ? `\u8BC4\u8BBA\u533A\u547D\u4E2D\u7591\u4F3C\u6258\u8BC4\u7EBF\u7D22\uFF1A${match.matches.join(" / ")}` : `\u8BC4\u8BBA\u533A\u547D\u4E2D\u5546\u4E1A\u7EBF\u7D22\uFF1A${match.matches.join(" / ")}`
     };
   }
   function getBadgeText(match) {
     if (match.reason === "goods") {
       return "\u8BC4\u8BBA\u533A\u5546\u54C1\u5E7F\u544A";
+    }
+    if (match.reason === "shill") {
+      return "\u7591\u4F3C\u6258\u8BC4\u8BC4\u8BBA";
     }
     if (match.category === "selfpromo") {
       return `\u7591\u4F3C\u5BFC\u6D41\u8BC4\u8BBA: ${match.matches.join(" / ")}`;
@@ -4850,9 +5239,24 @@ ${inlineSurfaceFrostedGlass.overlay}
       })
     );
   }
-  function dispatchVideoSignalFeedback(match, decision) {
+  function createCommentFeedbackToken() {
+    const randomUUID = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    const token = `comment-feedback:${randomUUID}`;
+    commentFeedbackTokens.add(token);
+    return token;
+  }
+  function consumeCommentFeedbackToken(token) {
+    if (typeof token !== "string" || !commentFeedbackTokens.has(token)) {
+      return false;
+    }
+    commentFeedbackTokens.delete(token);
+    return true;
+  }
+  function dispatchVideoSignalFeedback(match, decision, feedbackToken, feedbackKey) {
     const detail = __spreadProps(__spreadValues({
-      decision
+      decision,
+      feedbackToken,
+      feedbackKey
     }, commentMatchToVideoSignal(match)), {
       matches: match.matches
     });
@@ -4861,6 +5265,72 @@ ${inlineSurfaceFrostedGlass.overlay}
         detail
       })
     );
+  }
+  function loadSubmittedCommentFeedbackKeys() {
+    return __async(this, null, function* () {
+      if (submittedCommentFeedbackLoaded) {
+        return;
+      }
+      if (submittedCommentFeedbackLoadPromise) {
+        return submittedCommentFeedbackLoadPromise;
+      }
+      submittedCommentFeedbackLoadPromise = gmGetValue(COMMENT_FEEDBACK_STORAGE_KEY, null).then((payload) => {
+        submittedCommentFeedbackKeys.clear();
+        const entries = Object.entries(payload != null ? payload : {}).filter(([key, value]) => key.startsWith("BV") && Number.isFinite(value)).sort((left, right) => right[1] - left[1]).slice(0, COMMENT_FEEDBACK_MAX_RECORDS);
+        for (const [key] of entries) {
+          submittedCommentFeedbackKeys.add(key);
+        }
+        submittedCommentFeedbackLoaded = true;
+      }).catch((error) => {
+        debugLog("Failed to load comment feedback state", error);
+        submittedCommentFeedbackLoaded = true;
+      }).finally(() => {
+        submittedCommentFeedbackLoadPromise = null;
+      });
+      return submittedCommentFeedbackLoadPromise;
+    });
+  }
+  function rememberSubmittedCommentFeedbackKey(key) {
+    return __async(this, null, function* () {
+      if (!key) {
+        return;
+      }
+      yield loadSubmittedCommentFeedbackKeys();
+      submittedCommentFeedbackKeys.add(key);
+      const existing = yield gmGetValue(COMMENT_FEEDBACK_STORAGE_KEY, null);
+      const now = Date.now();
+      const payload = Object.fromEntries(
+        Object.entries(__spreadProps(__spreadValues({}, existing != null ? existing : {}), { [key]: now })).filter(([entryKey, value]) => entryKey.startsWith("BV") && Number.isFinite(value)).sort((left, right) => right[1] - left[1]).slice(0, COMMENT_FEEDBACK_MAX_RECORDS)
+      );
+      submittedCommentFeedbackKeys.clear();
+      for (const entryKey of Object.keys(payload)) {
+        submittedCommentFeedbackKeys.add(entryKey);
+      }
+      yield gmSetValue(COMMENT_FEEDBACK_STORAGE_KEY, payload);
+    });
+  }
+  function hasSubmittedCommentFeedbackKey(key) {
+    return Boolean(key && submittedCommentFeedbackKeys.has(key));
+  }
+  function createCommentFeedbackKey(bvid, commentRenderer, match) {
+    var _a;
+    if (!bvid) {
+      return null;
+    }
+    const text = normalizeRepeatedCommentText(extractCommentText(commentRenderer)).slice(0, 220);
+    if (!text) {
+      return null;
+    }
+    const authorMid = (_a = extractCommentAuthorMid(commentRenderer)) != null ? _a : "anonymous";
+    return `${bvid}:${hashCommentFeedbackIdentity(`${authorMid}|${match.reason}|${match.category}|${text}`)}`;
+  }
+  function hashCommentFeedbackIdentity(value) {
+    let hash = 2166136261;
+    for (let index = 0; index < value.length; index += 1) {
+      hash ^= value.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(36);
   }
   function getBadgeRoot(commentRenderer) {
     var _a, _b, _c;
@@ -4914,6 +5384,128 @@ ${inlineSurfaceFrostedGlass.overlay}
     button.textContent = text;
     button.title = title;
     return button;
+  }
+  function createFeedbackMenu(match, feedbackKey, alreadySubmitted = false) {
+    const menu = document.createElement("span");
+    const choices = document.createElement("span");
+    const feedbackToken = createCommentFeedbackToken();
+    let submitted = alreadySubmitted;
+    const trigger = createFeedbackButton(
+      FEEDBACK_TRIGGER_ATTR,
+      "\u53CD\u9988",
+      "\u53CD\u9988\u8FD9\u6761\u8BC4\u8BBA\u5BF9\u5F53\u524D\u89C6\u9891\u672C\u5730\u6807\u7B7E\u7684\u5F71\u54CD",
+      () => {
+        setFeedbackMenuOpen(trigger, choices, trigger.getAttribute("aria-expanded") !== "true");
+      }
+    );
+    const keepButton = createFeedbackButton(
+      FEEDBACK_KEEP_ATTR,
+      "\u4FDD\u7559",
+      "\u4FDD\u7559\u8FD9\u6761\u672C\u5730\u63A8\u7406\u7ED3\u679C\u3002\u63D0\u4EA4\u540E\u8FD9\u6761\u8BC4\u8BBA\u4E0D\u53EF\u91CD\u590D\u53CD\u9988\u3002",
+      () => {
+        if (submitted) {
+          return;
+        }
+        submitted = true;
+        void rememberSubmittedCommentFeedbackKey(feedbackKey);
+        dispatchVideoSignalFeedback(match, "confirm", feedbackToken, feedbackKey);
+        setFeedbackMenuSubmitted(menu, trigger, choices, keepButton, dismissButton);
+      }
+    );
+    const dismissButton = createFeedbackButton(
+      FEEDBACK_DISMISS_ATTR,
+      "\u5FFD\u7565",
+      "\u5FFD\u7565\u8FD9\u6761\u672C\u5730\u63A8\u7406\u7ED3\u679C\u3002\u63D0\u4EA4\u540E\u8FD9\u6761\u8BC4\u8BBA\u4E0D\u53EF\u91CD\u590D\u53CD\u9988\u3002",
+      () => {
+        if (submitted) {
+          return;
+        }
+        submitted = true;
+        void rememberSubmittedCommentFeedbackKey(feedbackKey);
+        dispatchVideoSignalFeedback(match, "dismiss", feedbackToken, feedbackKey);
+        setFeedbackMenuSubmitted(menu, trigger, choices, keepButton, dismissButton);
+      }
+    );
+    menu.className = "bsb-tm-inline-feedback-menu";
+    menu.setAttribute(FEEDBACK_MENU_ATTR, "true");
+    menu.dataset.open = "false";
+    menu.dataset.submitted = String(alreadySubmitted);
+    choices.className = "bsb-tm-inline-feedback-menu__choices";
+    choices.setAttribute("role", "menu");
+    choices.setAttribute("aria-hidden", "true");
+    trigger.setAttribute("aria-haspopup", "menu");
+    trigger.setAttribute("aria-expanded", "false");
+    keepButton.setAttribute("role", "menuitem");
+    dismissButton.setAttribute("role", "menuitem");
+    choices.append(keepButton, dismissButton);
+    menu.append(trigger, choices);
+    if (alreadySubmitted) {
+      setFeedbackMenuSubmitted(menu, trigger, choices, keepButton, dismissButton);
+    }
+    return menu;
+  }
+  function createDisabledFeedbackMenu(state) {
+    const menu = document.createElement("span");
+    const trigger = createFeedbackButton(
+      FEEDBACK_TRIGGER_ATTR,
+      resolveDisabledFeedbackLabel(state),
+      resolveDisabledFeedbackTitle(state),
+      () => {
+      }
+    );
+    menu.className = "bsb-tm-inline-feedback-menu";
+    menu.setAttribute(FEEDBACK_MENU_ATTR, "true");
+    menu.dataset.open = "false";
+    menu.dataset.submitted = state.disabledReason === "manual-decision" ? "true" : "false";
+    menu.dataset.disabled = "true";
+    trigger.disabled = true;
+    trigger.dataset.state = state.disabledReason === "manual-decision" ? "shown" : "hidden";
+    trigger.setAttribute("aria-expanded", "false");
+    trigger.setAttribute("aria-disabled", "true");
+    menu.append(trigger);
+    return menu;
+  }
+  function resolveDisabledFeedbackLabel(state) {
+    if (state.disabledReason === "manual-decision") {
+      return "\u5DF2\u63D0\u4EA4";
+    }
+    if (state.disabledReason === "upstream-whole-video") {
+      return "\u4E0A\u6E38\u5DF2\u63A5\u7BA1";
+    }
+    if (state.disabledReason === "pending-upstream") {
+      return "\u540C\u6B65\u4E2D";
+    }
+    return "\u53CD\u9988\u4E0D\u53EF\u7528";
+  }
+  function resolveDisabledFeedbackTitle(state) {
+    if (state.disabledReason === "manual-decision") {
+      return "\u4F60\u5DF2\u5BF9\u5F53\u524D\u89C6\u9891\u63D0\u4EA4\u8FC7\u672C\u5730\u53CD\u9988\uFF0C\u672C\u5730\u5B66\u4E60\u4E0D\u4F1A\u91CD\u590D\u5904\u7406\u3002";
+    }
+    if (state.disabledReason === "upstream-whole-video") {
+      return "\u5F53\u524D\u89C6\u9891\u5DF2\u6709\u4E0A\u6E38\u6574\u89C6\u9891\u8BB0\u5F55\uFF0C\u672C\u5730\u8BC4\u8BBA\u53CD\u9988\u4E0D\u4F1A\u8986\u76D6\u4E0A\u6E38\u5224\u65AD\u3002";
+    }
+    if (state.disabledReason === "pending-upstream") {
+      return "\u6B63\u5728\u7B49\u5F85\u4E0A\u6E38\u6574\u89C6\u9891\u8BB0\u5F55\u7ED3\u679C\uFF0C\u786E\u8BA4\u540E\u518D\u51B3\u5B9A\u662F\u5426\u5141\u8BB8\u672C\u5730\u53CD\u9988\u3002";
+    }
+    return "\u5F53\u524D\u9875\u9762\u6682\u65F6\u4E0D\u80FD\u63D0\u4EA4\u672C\u5730\u89C6\u9891\u53CD\u9988\u3002";
+  }
+  function setFeedbackMenuOpen(trigger, choices, open) {
+    const menu = trigger.closest(`[${FEEDBACK_MENU_ATTR}='true']`);
+    if (menu) {
+      menu.dataset.open = String(open);
+    }
+    trigger.dataset.state = open ? "shown" : "hidden";
+    trigger.setAttribute("aria-expanded", String(open));
+    choices.setAttribute("aria-hidden", String(!open));
+  }
+  function setFeedbackMenuSubmitted(menu, trigger, choices, keepButton, dismissButton) {
+    menu.dataset.submitted = "true";
+    setFeedbackMenuOpen(trigger, choices, false);
+    trigger.textContent = "\u5DF2\u63D0\u4EA4";
+    trigger.title = "\u5DF2\u63D0\u4EA4\uFF0C\u4E0D\u53EF\u91CD\u590D\u64CD\u4F5C\u3002\u672C\u5730\u5B66\u4E60\u4F1A\u6309\u4F60\u7684\u9009\u62E9\u5904\u7406\u8FD9\u6761\u8BC4\u8BBA\u3002";
+    trigger.disabled = true;
+    keepButton.disabled = true;
+    dismissButton.disabled = true;
   }
   function createLocationBadge(text, color) {
     return createInlineBadge(
@@ -5052,11 +5644,18 @@ ${inlineSurfaceFrostedGlass.overlay}
     node.setAttribute(VUE_LOCATION_MARK_ATTR, text);
   }
   function removeInjectedDecorations(commentRenderer) {
-    var _a, _b;
+    var _a;
     (_a = getBadgeRoot(commentRenderer)) == null ? void 0 : _a.querySelectorAll(`[${BADGE_ATTR}='true']`).forEach((node) => node.remove());
-    (_b = getActionRoot(commentRenderer)) == null ? void 0 : _b.querySelectorAll(
-      `[${TOGGLE_ATTR}='true'], [${FEEDBACK_KEEP_ATTR}='true'], [${FEEDBACK_DISMISS_ATTR}='true'], [${LOCATION_ATTR}='true'], #location, .reply-location`
-    ).forEach((node) => node.remove());
+    const actionRoot = getActionRoot(commentRenderer);
+    const roots = /* @__PURE__ */ new Set([commentRenderer.shadowRoot]);
+    if (actionRoot) {
+      roots.add(actionRoot);
+    }
+    for (const root of roots) {
+      root.querySelectorAll(
+        `[${TOGGLE_ATTR}='true'], [${FEEDBACK_MENU_ATTR}='true'], [${FEEDBACK_TRIGGER_ATTR}='true'], [${FEEDBACK_KEEP_ATTR}='true'], [${FEEDBACK_DISMISS_ATTR}='true'], [${LOCATION_ATTR}='true'], #location, .reply-location`
+      ).forEach((node) => node.remove());
+    }
   }
   function insertAfter(anchor, node) {
     const parent = anchor.parentNode;
@@ -5104,7 +5703,12 @@ ${inlineSurfaceFrostedGlass.overlay}
       this.configStore = configStore;
       __publicField(this, "started", false);
       __publicField(this, "currentConfig");
-      __publicField(this, "localVideoFeedbackEnabled", false);
+      __publicField(this, "localVideoFeedbackAvailability", {
+        enabled: false,
+        locked: false,
+        disabledReason: "unavailable",
+        bvid: null
+      });
       __publicField(this, "rootSweepTimerId", null);
       __publicField(this, "rootSweepAttempt", 0);
       __publicField(this, "documentObserver", null);
@@ -5119,15 +5723,14 @@ ${inlineSurfaceFrostedGlass.overlay}
         }
       });
       __publicField(this, "handleFeedbackAvailability", (event) => {
-        var _a;
         if (!(event instanceof CustomEvent)) {
           return;
         }
-        const nextEnabled = Boolean((_a = event.detail) == null ? void 0 : _a.enabled);
-        if (nextEnabled === this.localVideoFeedbackEnabled) {
+        const nextState = normalizeLocalVideoFeedbackAvailability(event.detail);
+        if (isSameFeedbackAvailability(nextState, this.localVideoFeedbackAvailability)) {
           return;
         }
-        this.localVideoFeedbackEnabled = nextEnabled;
+        this.localVideoFeedbackAvailability = nextState;
         this.resetProcessedThreads();
         this.scheduleRefresh();
       });
@@ -5149,6 +5752,13 @@ ${inlineSurfaceFrostedGlass.overlay}
       this.started = true;
       this.scheduleRefresh();
       this.scheduleRootSweep(true);
+      void loadSubmittedCommentFeedbackKeys().then(() => {
+        if (!this.started) {
+          return;
+        }
+        this.resetProcessedThreads();
+        this.scheduleRefresh();
+      });
       this.stopObservingUrl = observeUrlChanges(() => {
         this.resetProcessedThreads();
         this.rootSweepAttempt = 0;
@@ -5348,8 +5958,39 @@ ${inlineSurfaceFrostedGlass.overlay}
       }
       const match = classifyCommentRenderer(target.renderer, this.currentConfig);
       if (!match) {
+        this.queueCandidateAuthorUpgrade(target);
         return;
       }
+      this.applyTargetMatch(target, match);
+    }
+    queueCandidateAuthorUpgrade(target) {
+      if (target.host.getAttribute(PROBE_PENDING_ATTR) === "true") {
+        return;
+      }
+      const assessment = assessCommentRendererShill(target.renderer);
+      if (assessment.state !== "candidate") {
+        return;
+      }
+      const mid = extractCommentAuthorMid(target.renderer);
+      if (!mid) {
+        return;
+      }
+      target.host.setAttribute(PROBE_PENDING_ATTR, "true");
+      const queued = queueCommentAuthorProbe(mid, (profile) => {
+        target.host.removeAttribute(PROBE_PENDING_ATTR);
+        if (!(profile == null ? void 0 : profile.likelyDormant) || !target.host.isConnected || target.host.getAttribute(target.processedAttr) === "true") {
+          return;
+        }
+        const match = classifyCommentRenderer(target.renderer, this.currentConfig, profile);
+        if ((match == null ? void 0 : match.reason) === "shill") {
+          this.applyTargetMatch(target, match);
+        }
+      });
+      if (!queued) {
+        target.host.removeAttribute(PROBE_PENDING_ATTR);
+      }
+    }
+    applyTargetMatch(target, match) {
       if (target.kind === "comment") {
         dispatchVideoSignal(match);
       }
@@ -5369,24 +6010,14 @@ ${inlineSurfaceFrostedGlass.overlay}
       }
       const actionAnchor = getActionAnchor(target.renderer);
       const actionRoot = getActionRoot(target.renderer);
-      if (this.localVideoFeedbackEnabled && actionAnchor) {
-        if (actionRoot) {
-          ensureInlineFeedbackStyles(actionRoot);
+      if (actionAnchor) {
+        const feedbackRoot = actionRoot != null ? actionRoot : target.renderer.shadowRoot;
+        ensureInlineFeedbackStyles(feedbackRoot);
+        const feedbackKey = createCommentFeedbackKey(this.localVideoFeedbackAvailability.bvid, target.renderer, match);
+        const feedbackNode = this.localVideoFeedbackAvailability.enabled ? createFeedbackMenu(match, feedbackKey, hasSubmittedCommentFeedbackKey(feedbackKey)) : this.shouldRenderDisabledFeedback() ? createDisabledFeedbackMenu(this.localVideoFeedbackAvailability) : null;
+        if (feedbackNode) {
+          insertAfter(actionAnchor, feedbackNode);
         }
-        const keepButton = createFeedbackButton(
-          FEEDBACK_KEEP_ATTR,
-          "\u4FDD\u7559\u6B64\u89C6\u9891\u6807\u7B7E",
-          "\u5C06\u8FD9\u6761\u8BC4\u8BBA\u7EBF\u7D22\u4F5C\u4E3A\u5F53\u524D\u89C6\u9891\u7684\u672C\u5730\u4FDD\u7559\u6807\u7B7E",
-          () => dispatchVideoSignalFeedback(match, "confirm")
-        );
-        const dismissButton = createFeedbackButton(
-          FEEDBACK_DISMISS_ATTR,
-          "\u5FFD\u7565\u6B64\u89C6\u9891",
-          "\u5FFD\u7565\u5F53\u524D\u89C6\u9891\u7684\u672C\u5730\u8BC4\u8BBA\u63A8\u7406\u7ED3\u679C\uFF0C\u5E76\u505C\u6B62\u7EE7\u7EED\u63D0\u793A",
-          () => dispatchVideoSignalFeedback(match, "dismiss")
-        );
-        insertAfter(actionAnchor, dismissButton);
-        insertAfter(actionAnchor, keepButton);
       }
       if (this.currentConfig.commentFilterMode !== "hide") {
         return;
@@ -5416,6 +6047,9 @@ ${inlineSurfaceFrostedGlass.overlay}
       if (target.kind === "comment" && this.currentConfig.commentHideReplies) {
         hideReplies(target.thread);
       }
+    }
+    shouldRenderDisabledFeedback() {
+      return this.localVideoFeedbackAvailability.disabledReason === "upstream-whole-video" || this.localVideoFeedbackAvailability.disabledReason === "pending-upstream";
     }
     processVueComments() {
       if (!this.currentConfig.commentLocationEnabled) {
@@ -5451,6 +6085,7 @@ ${inlineSurfaceFrostedGlass.overlay}
               content.removeAttribute(HIDDEN_ATTR);
             }
           }
+          thread.removeAttribute(PROBE_PENDING_ATTR);
           for (const replyTarget of getReplyTargets(thread)) {
             removeInjectedDecorations(replyTarget.renderer);
             replyTarget.renderer.removeAttribute(LOCATION_STATE_ATTR);
@@ -5458,6 +6093,7 @@ ${inlineSurfaceFrostedGlass.overlay}
               continue;
             }
             replyTarget.host.removeAttribute(REPLY_PROCESSED_ATTR);
+            replyTarget.host.removeAttribute(PROBE_PENDING_ATTR);
             const content = getContentBody(replyTarget.renderer);
             if (content) {
               content.style.display = "";
@@ -5471,6 +6107,23 @@ ${inlineSurfaceFrostedGlass.overlay}
       debugLog("Comment sponsor state reset");
     }
   };
+  function normalizeLocalVideoFeedbackAvailability(detail) {
+    const value = detail && typeof detail === "object" ? detail : null;
+    const disabledReason = isLocalVideoFeedbackDisabledReason(value == null ? void 0 : value.disabledReason) ? value.disabledReason : void 0;
+    const enabled = Boolean(value == null ? void 0 : value.enabled) && !disabledReason;
+    return {
+      enabled,
+      locked: Boolean(value == null ? void 0 : value.locked) || Boolean(disabledReason && disabledReason !== "unavailable"),
+      disabledReason: enabled ? void 0 : disabledReason != null ? disabledReason : "unavailable",
+      bvid: typeof (value == null ? void 0 : value.bvid) === "string" ? value.bvid : null
+    };
+  }
+  function isLocalVideoFeedbackDisabledReason(value) {
+    return value === "upstream-whole-video" || value === "pending-upstream" || value === "manual-decision" || value === "unavailable";
+  }
+  function isSameFeedbackAvailability(left, right) {
+    return left.enabled === right.enabled && left.locked === right.locked && left.disabledReason === right.disabledReason && left.bvid === right.bvid;
+  }
 
   // src/utils/local-video-signal.ts
   var DESCRIPTION_SELECTORS = [
@@ -5838,6 +6491,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       __publicField(this, "currentSegments", []);
       __publicField(this, "currentFullVideoLabels", []);
       __publicField(this, "currentTitleLabel", null);
+      __publicField(this, "currentRuntimeLocalSignal", null);
       __publicField(this, "activeMuteOwners", /* @__PURE__ */ new Set());
       __publicField(this, "previousMutedState", false);
       __publicField(this, "refreshing", false);
@@ -5887,7 +6541,11 @@ ${inlineSurfaceFrostedGlass.overlay}
           confidence: (_a = detail.confidence) != null ? _a : 0.76,
           reason: (_b = detail.reason) != null ? _b : "\u9875\u9762\u51FA\u73B0\u672C\u5730\u5546\u4E1A\u7EBF\u7D22"
         };
+        if (!this.shouldApplyRuntimeLocalSignal(signal)) {
+          return;
+        }
         const signalLabel = this.buildLocalSignalSegment(this.currentContext.bvid, signal);
+        this.currentRuntimeLocalSignal = signal;
         this.currentTitleLabel = signalLabel;
         this.updateTitleBadge(signalLabel);
         this.panel.setFullVideoLabels([signalLabel]);
@@ -5903,12 +6561,15 @@ ${inlineSurfaceFrostedGlass.overlay}
         }
       });
       __publicField(this, "handleVideoSignalFeedback", (event) => {
-        var _a;
+        var _a, _b, _c, _d;
         if (!(event instanceof CustomEvent) || !this.started || !this.currentConfig.enabled || !this.currentContext) {
           return;
         }
         const detail = event.detail;
         if (!(detail == null ? void 0 : detail.category) || !detail.decision || this.currentConfig.categoryModes[detail.category] === "off") {
+          return;
+        }
+        if (!consumeCommentFeedbackToken(detail.feedbackToken)) {
           return;
         }
         if (shouldBypassLocalReasoning({
@@ -5928,7 +6589,36 @@ ${inlineSurfaceFrostedGlass.overlay}
           source: detail.source === "comment-goods" || detail.source === "comment-suspicion" ? detail.source : "comment-suspicion",
           reason: (_a = detail.reason) != null ? _a : "\u8BC4\u8BBA\u533A\u7528\u6237\u53CD\u9988"
         });
-        void this.handleLocalBadgeDecision(segment, detail.decision);
+        if (detail.decision === "dismiss") {
+          this.notices.show({
+            id: `comment-feedback-dismiss:${this.currentContext.bvid}:${String((_b = detail.feedbackKey) != null ? _b : Date.now())}`,
+            title: "\u5DF2\u5FFD\u7565\u8FD9\u6761\u8BC4\u8BBA\u53CD\u9988",
+            message: "\u5DF2\u8BB0\u5F55\u4E3A\u5F53\u524D\u8BC4\u8BBA\u7684\u53CD\u9988\u72B6\u6001\uFF0C\u4E0D\u4F1A\u628A\u8FD9\u6B21\u64CD\u4F5C\u6269\u6563\u4E3A\u6574\u652F\u89C6\u9891\u7684\u5168\u5C40\u5FFD\u7565\u3002",
+            durationMs: 2600
+          });
+          return;
+        }
+        const signal = {
+          category: segment.category,
+          source: detail.source === "comment-goods" || detail.source === "comment-suspicion" ? detail.source : "comment-suspicion",
+          confidence: detail.source === "comment-goods" ? 0.96 : 0.84,
+          reason: (_c = detail.reason) != null ? _c : "\u8BC4\u8BBA\u533A\u7528\u6237\u786E\u8BA4\u672C\u5730\u5546\u4E1A\u7EBF\u7D22"
+        };
+        if (!this.hasLocalManualDecision(this.currentContext.bvid) && this.shouldApplyRuntimeLocalSignal(signal)) {
+          this.currentRuntimeLocalSignal = signal;
+          this.currentTitleLabel = segment;
+          this.updateTitleBadge(segment);
+          this.panel.setFullVideoLabels([segment]);
+          if (shouldPersistLocalVideoSignal(signal)) {
+            void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal);
+          }
+        }
+        this.notices.show({
+          id: `comment-feedback-confirm:${this.currentContext.bvid}:${String((_d = detail.feedbackKey) != null ? _d : Date.now())}`,
+          title: "\u5DF2\u4FDD\u7559\u8FD9\u6761\u8BC4\u8BBA\u53CD\u9988",
+          message: this.hasLocalManualDecision(this.currentContext.bvid) ? "\u5DF2\u8BB0\u5F55\u4E3A\u5F53\u524D\u8BC4\u8BBA\u7684\u53CD\u9988\u72B6\u6001\u3002\u5F53\u524D\u89C6\u9891\u5DF2\u6709\u624B\u52A8\u672C\u5730\u5224\u65AD\uFF0C\u56E0\u6B64\u4E0D\u4F1A\u8986\u76D6\u6574\u89C6\u9891\u6807\u7B7E\u3002" : "\u5DF2\u8BB0\u5F55\u4E3A\u5F53\u524D\u8BC4\u8BBA\u7684\u53CD\u9988\u72B6\u6001\uFF0C\u5E76\u4F1A\u4F5C\u4E3A\u5F53\u524D\u89C6\u9891\u672C\u5730\u5224\u65AD\u7684\u8F85\u52A9\u7EBF\u7D22\u3002",
+          durationMs: 2800
+        });
       });
       __publicField(this, "handleMbgaLiveFallback", () => {
         this.notices.show({
@@ -6247,6 +6937,9 @@ ${inlineSurfaceFrostedGlass.overlay}
           this.upstreamLabelResolutionPending = false;
           const localTitleLabel = this.currentFullVideoLabels.length > 0 || this.localVideoLabelStore.isDismissed(context.bvid) ? null : yield this.resolveLocalTitleLabel(context);
           this.currentTitleLabel = (_d = this.currentFullVideoLabels[0]) != null ? _d : localTitleLabel;
+          if (this.currentFullVideoLabels.length > 0) {
+            this.currentRuntimeLocalSignal = null;
+          }
           this.panel.setFullVideoLabels(
             this.currentFullVideoLabels.length > 0 ? this.currentFullVideoLabels : this.currentTitleLabel ? [this.currentTitleLabel] : []
           );
@@ -6675,13 +7368,56 @@ ${inlineSurfaceFrostedGlass.overlay}
     skipGraceNoticeIdForSegment(segment) {
       return `segment-grace:${segment.UUID}`;
     }
+    hasLocalManualDecision(videoId) {
+      const resolved = this.localVideoLabelStore.getResolved(videoId);
+      return (resolved == null ? void 0 : resolved.source) === "manual" || this.localVideoLabelStore.isDismissed(videoId);
+    }
+    shouldApplyRuntimeLocalSignal(incoming) {
+      const existing = this.currentRuntimeLocalSignal;
+      if (!existing) {
+        return true;
+      }
+      if (existing.category !== incoming.category && incoming.source !== "comment-goods") {
+        const requiredConfidence = existing.source === "page-heuristic" && incoming.source === "comment-suspicion" ? 0.86 : 0.9;
+        if (incoming.confidence < requiredConfidence) {
+          return false;
+        }
+      }
+      return shouldReplaceAutomaticLocalLabel(
+        {
+          category: existing.category,
+          source: existing.source,
+          confidence: existing.confidence,
+          updatedAt: 0,
+          reason: existing.reason
+        },
+        incoming
+      );
+    }
+    isLocalManualSegmentLocked(segment) {
+      if (!segment.UUID.startsWith("local-signal:")) {
+        return false;
+      }
+      if (segment.UUID.includes(":manual:") || segment.UUID.includes(":manual-dismiss:")) {
+        return true;
+      }
+      return this.currentContext ? this.hasLocalManualDecision(this.currentContext.bvid) : false;
+    }
+    showDuplicateLocalFeedbackNotice(videoId) {
+      this.notices.show({
+        id: `local-feedback-duplicate:${videoId}`,
+        title: "\u53CD\u9988\u5DF2\u63D0\u4EA4",
+        message: "\u4F60\u5DF2\u7ECF\u5BF9\u5F53\u524D\u89C6\u9891\u7684\u672C\u5730\u5224\u65AD\u63D0\u4EA4\u8FC7\u53CD\u9988\u3002\u672C\u5730\u5B66\u4E60\u5DF2\u8BB0\u5F55\uFF0C\u5F53\u524D\u9875\u9762\u4E0D\u4F1A\u91CD\u590D\u5904\u7406\u3002",
+        durationMs: 3200
+      });
+    }
     updateTitleBadge(segment) {
       if (!segment) {
         this.titleBadge.clear();
         return;
       }
       this.titleBadge.setSegment(segment, {
-        voteLocked: this.voteHistoryStore.has(segment.UUID)
+        voteLocked: this.voteHistoryStore.has(segment.UUID) || this.isLocalManualSegmentLocked(segment)
       });
     }
     clearRuntimeState(detachUi = false) {
@@ -6692,6 +7428,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       this.currentSegments = [];
       this.currentFullVideoLabels = [];
       this.currentTitleLabel = null;
+      this.currentRuntimeLocalSignal = null;
       this.upstreamLabelResolutionPending = false;
       this.currentSignature = "";
       this.currentContext = null;
@@ -6740,16 +7477,31 @@ ${inlineSurfaceFrostedGlass.overlay}
       this.panel.updateRuntimeStatus(status);
     }
     syncLocalFeedbackAvailability() {
+      const detail = this.resolveLocalFeedbackAvailability();
       window.dispatchEvent(
         new CustomEvent(LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT, {
-          detail: {
-            enabled: this.started && this.currentConfig.enabled && Boolean(this.currentContext) && !shouldBypassLocalReasoning({
-              hasUpstreamWholeVideoLabel: this.currentFullVideoLabels.length > 0,
-              isUpstreamLabelPending: this.upstreamLabelResolutionPending
-            })
-          }
+          detail
         })
       );
+    }
+    resolveLocalFeedbackAvailability() {
+      var _a, _b;
+      const bvid = (_b = (_a = this.currentContext) == null ? void 0 : _a.bvid) != null ? _b : null;
+      const baseEnabled = this.started && this.currentConfig.enabled && Boolean(bvid);
+      let disabledReason;
+      if (!baseEnabled) {
+        disabledReason = "unavailable";
+      } else if (this.upstreamLabelResolutionPending) {
+        disabledReason = "pending-upstream";
+      } else if (this.currentFullVideoLabels.length > 0) {
+        disabledReason = "upstream-whole-video";
+      }
+      return {
+        enabled: baseEnabled && !disabledReason,
+        locked: Boolean(disabledReason && disabledReason !== "unavailable"),
+        disabledReason,
+        bvid
+      };
     }
     syncCompactVideoHeader() {
       this.compactHeader.setOptions({
@@ -6782,32 +7534,51 @@ ${inlineSurfaceFrostedGlass.overlay}
     }
     resolveLocalTitleLabel(context) {
       return __async(this, null, function* () {
+        var _a;
         const learned = this.localVideoLabelStore.getResolved(context.bvid);
         if ((learned == null ? void 0 : learned.category) && this.currentConfig.categoryModes[learned.category] !== "off") {
+          const learnedAutomaticSource = this.resolveAutomaticLocalSignalSource(learned.source);
+          this.currentRuntimeLocalSignal = learnedAutomaticSource === null ? null : {
+            category: learned.category,
+            source: learnedAutomaticSource,
+            confidence: learned.confidence,
+            reason: (_a = learned.reason) != null ? _a : "\u5DF2\u7F13\u5B58\u7684\u672C\u5730\u5546\u4E1A\u7EBF\u7D22"
+          };
           return this.buildLocalSignalSegment(context.bvid, learned);
         }
         if (this.localVideoLabelStore.isDismissed(context.bvid)) {
+          this.currentRuntimeLocalSignal = null;
           return null;
         }
         const commentSignal = scanCurrentPageCommentSignal(this.currentConfig);
         const pageSignal = inferLocalVideoSignal(context);
         const localSignal = pickPreferredLocalVideoSignal(commentSignal, pageSignal);
         if (!localSignal || this.currentConfig.categoryModes[localSignal.category] === "off") {
+          this.currentRuntimeLocalSignal = null;
           return null;
         }
         if (shouldPersistLocalVideoSignal(localSignal)) {
           yield this.localVideoLabelStore.rememberSignal(context.bvid, localSignal);
         }
+        this.currentRuntimeLocalSignal = localSignal;
         return this.buildLocalSignalSegment(context.bvid, localSignal);
       });
+    }
+    resolveAutomaticLocalSignalSource(source) {
+      return source === "comment-goods" || source === "comment-suspicion" || source === "page-heuristic" ? source : null;
     }
     handleLocalBadgeDecision(segment, decision) {
       return __async(this, null, function* () {
         if (!this.currentContext || !segment.UUID.startsWith("local-signal:")) {
           return;
         }
+        if (this.hasLocalManualDecision(this.currentContext.bvid)) {
+          this.showDuplicateLocalFeedbackNotice(this.currentContext.bvid);
+          return;
+        }
         if (decision === "confirm") {
           yield this.localVideoLabelStore.rememberManual(this.currentContext.bvid, segment.category, `\u624B\u52A8\u4FDD\u7559 ${CATEGORY_LABELS[segment.category]}`);
+          this.currentRuntimeLocalSignal = null;
           this.currentTitleLabel = this.buildLocalSignalSegment(this.currentContext.bvid, {
             category: segment.category,
             source: "manual",
@@ -6818,12 +7589,14 @@ ${inlineSurfaceFrostedGlass.overlay}
           this.notices.show({
             id: `local-label-confirm:${this.currentContext.bvid}`,
             title: "\u5DF2\u4FDD\u7559\u672C\u5730\u6807\u7B7E",
-            message: `\u540E\u7EED\u4F1A\u7EE7\u7EED\u628A\u8FD9\u4E2A\u89C6\u9891\u89C6\u4F5C\u201C${CATEGORY_LABELS[segment.category]}\u201D\u3002`,
-            durationMs: 2800
+            message: `\u5DF2\u8BB0\u5F55\u4E3A\u4F60\u7684\u672C\u5730\u5224\u65AD\u3002\u540E\u7EED\u8FDB\u5165\u5F53\u524D\u89C6\u9891\u65F6\u4F1A\u7EE7\u7EED\u663E\u793A\u201C${CATEGORY_LABELS[segment.category]}\u201D\uFF0C\u8BE5\u672C\u5730\u53CD\u9988\u4E0D\u53EF\u91CD\u590D\u63D0\u4EA4\u3002`,
+            durationMs: 3600
           });
+          this.syncLocalFeedbackAvailability();
           return;
         }
         yield this.localVideoLabelStore.dismiss(this.currentContext.bvid, `\u624B\u52A8\u5FFD\u7565 ${CATEGORY_LABELS[segment.category]}`);
+        this.currentRuntimeLocalSignal = null;
         this.currentTitleLabel = null;
         this.titleBadge.clear();
         this.panel.setFullVideoLabels([]);
@@ -6836,9 +7609,10 @@ ${inlineSurfaceFrostedGlass.overlay}
         this.notices.show({
           id: `local-label-dismiss:${this.currentContext.bvid}`,
           title: "\u5DF2\u5FFD\u7565\u672C\u5730\u6807\u7B7E",
-          message: "\u5F53\u524D\u89C6\u9891\u540E\u7EED\u4E0D\u4F1A\u7EE7\u7EED\u663E\u793A\u8FD9\u6761\u672C\u5730\u5546\u4E1A\u63D0\u793A\u3002",
-          durationMs: 2800
+          message: "\u5DF2\u8BB0\u5F55\u4E3A\u4F60\u7684\u672C\u5730\u5224\u65AD\u3002\u540E\u7EED\u5F53\u524D\u89C6\u9891\u4E0D\u4F1A\u518D\u663E\u793A\u8FD9\u6761\u672C\u5730\u5546\u4E1A\u63D0\u793A\uFF0C\u8BE5\u672C\u5730\u53CD\u9988\u4E0D\u53EF\u91CD\u590D\u63D0\u4EA4\u3002",
+          durationMs: 3600
         });
+        this.syncLocalFeedbackAvailability();
       });
     }
     submitVote(segment, type) {
@@ -6874,11 +7648,26 @@ ${inlineSurfaceFrostedGlass.overlay}
         this.notices.show({
           id: `segment-vote-error:${segment.UUID}:${type}`,
           title: "\u53CD\u9988\u63D0\u4EA4\u5931\u8D25",
-          message: response.statusCode === 403 ? "\u670D\u52A1\u7AEF\u62D2\u7EDD\u4E86\u8FD9\u6B21\u53CD\u9988\uFF0C\u7A0D\u540E\u53EF\u518D\u8BD5\u4E00\u6B21\u3002" : response.statusCode === -1 ? "\u8BF7\u6C42\u6CA1\u6709\u9001\u8FBE SponsorBlock \u670D\u52A1\uFF0C\u8BF7\u68C0\u67E5\u7F51\u7EDC\u6216 Tampermonkey \u6388\u6743\u3002" : response.responseText || `SponsorBlock API returned ${response.statusCode}`,
+          message: this.formatVoteErrorMessage(response.statusCode, response.responseText),
           durationMs: 3600
         });
         return "error";
       });
+    }
+    formatVoteErrorMessage(statusCode, responseText) {
+      if (statusCode === 403) {
+        return "\u670D\u52A1\u7AEF\u62D2\u7EDD\u4E86\u8FD9\u6B21\u53CD\u9988\uFF0C\u7A0D\u540E\u53EF\u518D\u8BD5\u4E00\u6B21\u3002";
+      }
+      if (statusCode === -1) {
+        return "\u8BF7\u6C42\u6CA1\u6709\u9001\u8FBE SponsorBlock \u670D\u52A1\uFF0C\u8BF7\u68C0\u67E5\u7F51\u7EDC\u6216 Tampermonkey \u6388\u6743\u3002";
+      }
+      if (statusCode >= 500) {
+        return `SponsorBlock \u670D\u52A1\u6682\u65F6\u5F02\u5E38\uFF08HTTP ${statusCode}\uFF09\uFF0C\u53CD\u9988\u672A\u63D0\u4EA4\uFF0C\u8BF7\u7A0D\u540E\u518D\u8BD5\u3002`;
+      }
+      if (/<!doctype\s+html|<html[\s>]|<body[\s>]|<pre[\s>]/iu.test(responseText)) {
+        return `SponsorBlock \u8FD4\u56DE\u4E86\u975E\u9884\u671F\u9875\u9762\uFF08HTTP ${statusCode}\uFF09\uFF0C\u53CD\u9988\u672A\u63D0\u4EA4\uFF0C\u8BF7\u7A0D\u540E\u518D\u8BD5\u3002`;
+      }
+      return responseText.trim() || `SponsorBlock API returned ${statusCode}`;
     }
     shouldResetSegmentState(currentTime, state) {
       return state.lastObservedTime !== null && currentTime < state.lastObservedTime - SEGMENT_REWIND_RESET_SEC;
@@ -8753,6 +9542,10 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
   --bsb-danger-rgb: 255, 77, 79;
   --bsb-success: #52c41a;
   --bsb-success-rgb: 82, 196, 26;
+  --bsb-compact-header-gap: 8px;
+  --bsb-compact-header-padding: 8px;
+  --bsb-compact-header-estimated-height: 60px;
+  --bsb-notice-top: 24px;
 }
 
 .bsb-tm-panel,
@@ -9424,7 +10217,7 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
 
 .bsb-tm-notice-root {
   position: fixed;
-  top: 24px;
+  top: var(--bsb-notice-top);
   right: 24px;
   z-index: 2147483647;
   display: grid;
@@ -9439,8 +10232,9 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
 
 .bsb-tm-notice-root.is-floating {
   position: fixed;
+  top: var(--bsb-notice-top);
   right: 16px;
-  bottom: 16px;
+  bottom: auto;
 }
 
 .bsb-tm-notice {
@@ -9458,6 +10252,11 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
   overflow: hidden;
   backdrop-filter: blur(20px) saturate(160%);
   animation: bsbNoticeIn 220ms ease;
+}
+
+.bsb-tm-notice.is-leaving {
+  pointer-events: none;
+  animation: bsbNoticeOut 220ms var(--bsb-ease-swift) forwards;
 }
 
 .bsb-tm-notice-close {
@@ -10445,6 +11244,18 @@ ${inlineFeedbackStyles}
   }
 }
 
+@keyframes bsbNoticeOut {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.985);
+  }
+}
+
 .bsb-tm-title-pill:focus-visible,
 .bsb-tm-player-button:focus-visible,
 .bsb-tm-pill-action:focus-visible,
@@ -10469,13 +11280,19 @@ ${inlineFeedbackStyles}
   display: none;
 }
 
+.bsb-tm-video-header-compact {
+  --bsb-notice-top: calc(
+    var(--bsb-compact-header-gap) + var(--bsb-compact-header-estimated-height) + var(--bsb-compact-header-padding)
+  );
+}
+
 .bsb-tm-video-header-compact .bsb-tm-video-header-shell {
   display: block;
   position: fixed;
-  top: 0;
+  top: var(--bsb-compact-header-gap);
   left: 50%;
   z-index: 1100;
-  width: min(1160px, calc(100vw - 28px));
+  width: min(1160px, calc(100vw - (var(--bsb-compact-header-gap) * 2)));
   transform: translateX(-50%);
   pointer-events: none;
 }
@@ -10492,12 +11309,13 @@ ${inlineFeedbackStyles}
 
 .bsb-tm-video-header-bar {
   position: relative;
+  box-sizing: border-box;
   display: grid;
   grid-template-columns: minmax(320px, 1fr) auto;
   align-items: center;
   gap: 12px;
   min-height: 54px;
-  padding: 4px 14px;
+  padding: var(--bsb-compact-header-padding);
   border: 1px solid rgba(255, 255, 255, 0.62);
   border-radius: 20px;
   background:
@@ -10625,6 +11443,12 @@ ${inlineFeedbackStyles}
 }
 
 @media (max-width: 900px) {
+  .bsb-tm-video-header-compact {
+    --bsb-compact-header-gap: 8px;
+    --bsb-compact-header-padding: 8px;
+    --bsb-compact-header-estimated-height: 58px;
+  }
+
   .bsb-tm-panel {
     width: min(calc(var(--bsb-tm-panel-vw) - 12px), 920px);
     height: min(var(--bsb-tm-panel-height, calc(var(--bsb-tm-panel-vh) - 12px)), calc(var(--bsb-tm-panel-vh) - 12px));
@@ -10645,17 +11469,23 @@ ${inlineFeedbackStyles}
   }
 
   .bsb-tm-video-header-shell {
-    width: calc(100vw - 20px);
+    width: calc(100vw - (var(--bsb-compact-header-gap) * 2));
   }
 
   .bsb-tm-video-header-bar {
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 10px;
-    padding: 4px 12px;
+    padding: var(--bsb-compact-header-padding);
   }
 }
 
 @media (max-width: 768px) {
+  .bsb-tm-video-header-compact {
+    --bsb-compact-header-gap: 8px;
+    --bsb-compact-header-padding: 8px;
+    --bsb-compact-header-estimated-height: 54px;
+  }
+
   .bsb-tm-panel-header {
     padding: 16px 18px 14px;
   }
@@ -10690,7 +11520,8 @@ ${inlineFeedbackStyles}
   .bsb-tm-notice-root {
     width: min(340px, calc(100vw - 24px));
     right: 12px;
-    bottom: 160px;
+    top: var(--bsb-notice-top);
+    bottom: auto;
   }
 
   .bsb-tm-title-popover {
@@ -10709,13 +11540,13 @@ ${inlineFeedbackStyles}
   }
 
   .bsb-tm-video-header-shell {
-    top: 0;
-    width: calc(100vw - 16px);
+    top: var(--bsb-compact-header-gap);
+    width: calc(100vw - (var(--bsb-compact-header-gap) * 2));
   }
 
   .bsb-tm-video-header-bar {
     min-height: 48px;
-    padding: 4px 10px;
+    padding: var(--bsb-compact-header-padding);
     border-radius: 18px;
   }
 

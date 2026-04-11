@@ -32,7 +32,7 @@ export class NoticeCenter {
 
   show(options: NoticeOptions): void {
     this.ensureAttached();
-    this.dismiss(options.id);
+    this.removeNotice(options.id);
 
     const notice = document.createElement("div");
     notice.className = "bsb-tm-notice";
@@ -97,16 +97,40 @@ export class NoticeCenter {
       return;
     }
 
-    notice.remove();
-    this.notices.delete(id);
-    if (this.notices.size === 0) {
-      this.root.remove();
+    if (notice.classList.contains("is-leaving")) {
+      return;
     }
+
+    notice.classList.add("is-leaving");
+    const remove = () => {
+      this.removeNotice(id, notice);
+    };
+    notice.addEventListener("animationend", remove, { once: true });
+    window.setTimeout(remove, 260);
   }
 
   clear(): void {
     for (const id of [...this.notices.keys()]) {
-      this.dismiss(id);
+      this.removeNotice(id);
+    }
+  }
+
+  private removeNotice(id: string, expected?: HTMLDivElement): void {
+    const timerId = this.timers.get(id);
+    if (timerId) {
+      window.clearTimeout(timerId);
+      this.timers.delete(id);
+    }
+
+    const notice = this.notices.get(id);
+    if (!notice || (expected && notice !== expected)) {
+      return;
+    }
+
+    notice.remove();
+    this.notices.delete(id);
+    if (this.notices.size === 0) {
+      this.root.remove();
     }
   }
 }

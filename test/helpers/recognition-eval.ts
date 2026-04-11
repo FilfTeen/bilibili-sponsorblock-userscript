@@ -56,6 +56,12 @@ function createCommentRenderer(sample: CommentRecognitionSample): HTMLElement & 
     link.setAttribute("data-type", "goods");
     richRoot.appendChild(link);
   }
+  if (sample.input.hasMediaAttachment) {
+    const image = document.createElement("img");
+    image.alt = "评论晒单图";
+    image.src = "https://i0.hdslb.com/bfs/test/order.jpg";
+    richRoot.appendChild(image);
+  }
 
   const userInfo = document.createElement("bili-comment-user-info");
   userInfo.attachShadow({ mode: "open" }).appendChild(document.createElement("span"));
@@ -141,7 +147,7 @@ export function evaluateCommentRecognitionSample(sample: CommentRecognitionSampl
   const match = classifyCommentRenderer(createCommentRenderer(sample), {
     dynamicRegexPattern: sample.input.regexPattern ?? DEFAULT_DYNAMIC_REGEX_PATTERN,
     dynamicRegexKeywordMinMatches: sample.input.regexKeywordMinMatches ?? 1
-  });
+  }, sample.input.authorProfile ?? null);
   return evaluateClassification(sample, match?.category ?? null);
 }
 
