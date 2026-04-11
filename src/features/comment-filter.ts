@@ -17,6 +17,7 @@ import {
 
 const THREAD_PROCESSED_ATTR = "data-bsb-comment-processed";
 const REPLY_PROCESSED_ATTR = "data-bsb-comment-reply-processed";
+const PROBE_PENDING_ATTR = "data-bsb-comment-author-probe-pending";
 const BADGE_ATTR = "data-bsb-comment-badge";
 const TOGGLE_ATTR = "data-bsb-comment-toggle";
 const FEEDBACK_MENU_ATTR = "data-bsb-comment-feedback-menu";
@@ -33,8 +34,8 @@ const ROOT_SWEEP_DELAYS_MS = [120, 240, 420, 760, 1200, 1800] as const;
 export const VIDEO_SIGNAL_EVENT = "bsb:video-signal";
 export const VIDEO_SIGNAL_FEEDBACK_EVENT = "bsb:video-signal-feedback";
 export const LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT = "bsb:local-video-feedback-availability";
-const COMMENT_AUTHOR_PROBE_TIMEOUT_MS = 900;
-const COMMENT_AUTHOR_PROBE_CACHE_MS = 10 * 60 * 1000;
+const COMMENT_AUTHOR_PROBE_TIMEOUT_MS = 2000;
+const COMMENT_AUTHOR_PROBE_CACHE_MS = 12 * 60 * 60 * 1000;
 const COMMENT_AUTHOR_PROBE_MAX_IN_FLIGHT = 2;
 const COMMENT_RELEVANT_SELECTORS = [
   "bili-comments",
@@ -73,12 +74,21 @@ type CommentRenderer = HTMLElement & {
   shadowRoot: ShadowRoot;
   data?: ReplyLocationPayload & Record<string, unknown>;
 };
-type CommentAuthorProbeResult = {
-  mid: string;
+export type CommentAuthorProfile = {
+  mid?: string;
   likelyDormant: boolean;
-  vipStatus: number | null;
-  level: number | null;
-  follower: number | null;
+  vipStatus?: number | null;
+  level?: number | null;
+  follower?: number | null;
+  likeNum?: number | null;
+  archiveCount?: number | null;
+  isSeniorMember?: boolean | null;
+  officialVerifyType?: number | null;
+  evidence?: string[];
+};
+export type CommentShillAssessment = {
+  state: "hit" | "candidate" | "pass";
+  matches: string[];
 };
 type CommentSponsorMatch =
   | { reason: "goods"; category: "sponsor"; matches: [] }
@@ -96,17 +106,23 @@ const COMMENT_STRONG_MATCHES = new Set(["赞助", "商务合作", "商品卡", "
 const COMMENT_INVITATION_PATTERN = /邀请码|体验码|兑换码|注册码/iu;
 const COMMENT_SHILL_PATTERNS = {
   purchaseOrUse:
-    /(?:刚|才)?(?:买|入手|拿到|收到|下单|收货|到手)|刚好缺|正好缺|缺(?:个|条|件|款)?|想买|准备买|打算买|买过|有没有买过|试穿|穿上|穿了|穿着|穿一天|用了|用起来|洗了|洗几次|下水洗|轮着穿|回购|复购|淘宝买/iu,
+    /(?:刚|才)?(?:买|入手|拿到|收到|下单|收货|到手)|刚好缺|正好缺|缺(?:个|条|件|款)?|想买|准备买|打算买|买过|有没有买过|试穿|穿上|穿了|穿着|穿一天|用了|用起来|洗了|洗几次|下水洗|轮着穿|回购|复购|淘宝买|试试水/iu,
   productQuality:
-    /透气|亲肤|弹力|包裹|勒|印子|黏黏|粘粘|闷|性价比|变形|掉色|面料|材质|水洗|下水|洗衣机|丝滑|滑溜|缝线|颜色|尺码|好穿|舒服|舒适|支撑|做工|手感|质感|素材|剪辑|后期|效率/iu,
+    /透气|亲肤|弹力|包裹|勒|印子|黏黏|粘粘|闷|性价比|变形|掉色|面料|材质|莫代尔|水洗|下水|洗衣机|丝滑|滑溜|缝线|颜色|尺码|好穿|舒服|舒适|支撑|做工|手感|质感|素材|剪辑|后期|效率/iu,
   endorsement: /可以|确实|真(?:的)?|挺|非常|绝了|好用|不错|满意|放心|适合|推荐|希望(?:能|可以)|性价比还行/iu,
   videoLead:
     /up(?:主)?推荐|UP(?:主)?推荐|博主推荐|视频(?:里)?(?:推荐|种草|安利)|刷到|刚好刷到|看(?:了)?评论|评论(?:都|区)?(?:说好|放心)|这(?:个|条|件|款|盒)|同款/iu,
   question: /有没有买过|买过的(?:大佬|兄弟|姐妹)?|说说|问下|洗几次|会不会|会变形不|变形不|靠谱吗|真的假的/iu,
+  prospectiveTrial: /(?:看着|看起来|看)?[\s\S]{0,12}(?:质感|做工|性价比|舒服|舒适)[\s\S]{0,12}(?:准备|打算|想)[\s\S]{0,8}(?:入手|买|下单|试试水)|(?:准备|打算|想)[\s\S]{0,8}(?:入手|买|下单)[\s\S]{0,8}试试水/iu,
+  macroPraise: /国产.{0,12}(?:卷|做工|细致|质感)|(?:卷了吗).{0,12}(?:做工|细致|质感)/iu,
+  comfortPraise: /不勒腿|确实爽|真爽|穿着爽|穿起来爽/iu,
+  priceAmazement: /这价格.{0,16}(?:兰精|莫代尔|性价比|高)|(?:性价比).{0,8}(?:有点|挺|真|太)?高/iu,
+  brandComparison: /(?:优衣库|蕉内|ubras|元力象|万力象).{0,24}(?:舒适度|舒服|舒适|比得过|拉踩)|(?:舒适度|舒服|舒适).{0,24}(?:比得过|优衣库|蕉内|ubras|元力象|万力象)/iu,
   warning: /别(?:买|点|被)|不(?:推荐|建议|值|好用|舒服)|踩坑|避雷|退(?:了|货|款)|差评|翻车|广告话术|割韭菜/iu
 } as const;
-const commentAuthorProbeCache = new Map<string, { expiresAt: number; result: CommentAuthorProbeResult | null }>();
-const commentAuthorProbeInFlight = new Set<string>();
+const commentAuthorProbeCache = new Map<string, { expiresAt: number; result: CommentAuthorProfile | null }>();
+const commentAuthorProbeInFlight = new Map<string, Array<(profile: CommentAuthorProfile | null) => void>>();
+const commentFeedbackTokens = new Set<string>();
 
 function getActionRendererNode(commentRenderer: CommentRenderer): HTMLElement | null {
   return (
@@ -219,7 +235,8 @@ export function extractCommentText(commentRenderer: CommentRenderer): string {
 
 export function classifyCommentRenderer(
   commentRenderer: CommentRenderer,
-  config: Pick<StoredConfig, "dynamicRegexPattern" | "dynamicRegexKeywordMinMatches">
+  config: Pick<StoredConfig, "dynamicRegexPattern" | "dynamicRegexKeywordMinMatches">,
+  authorProfile: CommentAuthorProfile | null = null
 ): CommentSponsorMatch | null {
   if (hasSponsoredGoodsLink(commentRenderer)) {
     return {
@@ -237,12 +254,12 @@ export function classifyCommentRenderer(
     minMatches: config.dynamicRegexKeywordMinMatches
   });
   const actionability = inspectCommercialActionability(text);
-  const shillMatches = inspectCommentShillSignals(commentRenderer, text, actionability.hasQuotedOrMockingContext);
-  if (shillMatches) {
+  const shillAssessment = inspectCommentShillSignals(commentRenderer, text, actionability.hasQuotedOrMockingContext, authorProfile);
+  if (shillAssessment.state === "hit") {
     return {
       reason: "shill",
       category: "sponsor",
-      matches: shillMatches
+      matches: shillAssessment.matches
     };
   }
 
@@ -286,14 +303,24 @@ export function classifyCommentRenderer(
   };
 }
 
+export function assessCommentRendererShill(
+  commentRenderer: CommentRenderer,
+  authorProfile: CommentAuthorProfile | null = null
+): CommentShillAssessment {
+  const text = extractCommentText(commentRenderer);
+  const actionability = inspectCommercialActionability(text);
+  return inspectCommentShillSignals(commentRenderer, text, actionability.hasQuotedOrMockingContext, authorProfile);
+}
+
 function inspectCommentShillSignals(
   commentRenderer: CommentRenderer,
   text: string,
-  hasQuotedOrMockingContext: boolean
-): string[] | null {
-  const normalized = text.replace(/\s+/gu, " ").trim();
+  hasQuotedOrMockingContext: boolean,
+  authorProfile: CommentAuthorProfile | null
+): CommentShillAssessment {
+  const normalized = normalizeRepeatedCommentText(text);
   if (!normalized || hasQuotedOrMockingContext || COMMENT_SHILL_PATTERNS.warning.test(normalized)) {
-    return null;
+    return { state: "pass", matches: [] };
   }
 
   const hasMedia = hasCommentMediaAttachment(commentRenderer);
@@ -304,6 +331,13 @@ function inspectCommentShillSignals(
     COMMENT_SHILL_PATTERNS.videoLead.test(normalized) ? "UP推荐语境" : null,
     COMMENT_SHILL_PATTERNS.question.test(normalized) ? "购买前提问" : null,
     hasMedia ? "晒单图" : null
+  ].filter((hit): hit is string => Boolean(hit));
+  const candidateHits = [
+    COMMENT_SHILL_PATTERNS.prospectiveTrial.test(normalized) ? "入手试水话术" : null,
+    COMMENT_SHILL_PATTERNS.macroPraise.test(normalized) ? "宏观话术转商品做工" : null,
+    COMMENT_SHILL_PATTERNS.comfortPraise.test(normalized) ? "商品穿着体验背书" : null,
+    COMMENT_SHILL_PATTERNS.priceAmazement.test(normalized) ? "价格/材质惊叹" : null,
+    COMMENT_SHILL_PATTERNS.brandComparison.test(normalized) ? "品牌拉踩提问" : null
   ].filter((hit): hit is string => Boolean(hit));
 
   const hasPurchaseOrUse = hits.includes("购买/使用反馈");
@@ -319,11 +353,32 @@ function inspectCommentShillSignals(
   const productQuestionWithContext = hasQuestion && hasPurchaseOrUse && hasProductQuality;
   const mediaBackedOrderClaim = hasMedia && hasPurchaseOrUse && (hasProductQuality || hasVideoLead);
 
-  if (!tightlyCoupledToVideoPromo && !testimonialWithEnoughDetail && !productQuestionWithContext && !mediaBackedOrderClaim) {
-    return null;
+  if (tightlyCoupledToVideoPromo || testimonialWithEnoughDetail || productQuestionWithContext || mediaBackedOrderClaim) {
+    return { state: "hit", matches: hits };
   }
 
-  return hits;
+  if (candidateHits.length > 0) {
+    const matches = uniqueStrings([...hits, ...candidateHits]);
+    if (authorProfile?.likelyDormant) {
+      return { state: "hit", matches: uniqueStrings([...matches, "账号状态补证"]) };
+    }
+    return { state: "candidate", matches };
+  }
+
+  return { state: "pass", matches: [] };
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
+function normalizeRepeatedCommentText(text: string): string {
+  const normalized = text.replace(/\s+/gu, " ").trim();
+  const chunks = normalized.split(" ").filter(Boolean);
+  if (chunks.length === 2 && chunks[0] === chunks[1]) {
+    return chunks[0];
+  }
+  return normalized;
 }
 
 export function extractCommentAuthorMid(commentRenderer: CommentRenderer): string | null {
@@ -350,27 +405,25 @@ function normalizeAuthorMid(value: unknown): string | null {
   return /^\d{2,}$/u.test(text) ? text : null;
 }
 
-function queueCommentAuthorProbe(match: CommentSponsorMatch, commentRenderer: CommentRenderer): void {
-  if (match.reason !== "shill") {
-    return;
-  }
-
-  const mid = extractCommentAuthorMid(commentRenderer);
-  if (!mid || commentAuthorProbeInFlight.has(mid)) {
-    return;
-  }
-
+function queueCommentAuthorProbe(mid: string, onResult: (profile: CommentAuthorProfile | null) => void): boolean {
   const now = Date.now();
   const cached = commentAuthorProbeCache.get(mid);
   if (cached && cached.expiresAt > now) {
-    return;
+    queueMicrotask(() => onResult(cached.result));
+    return true;
+  }
+
+  const callbacks = commentAuthorProbeInFlight.get(mid);
+  if (callbacks) {
+    callbacks.push(onResult);
+    return true;
   }
 
   if (commentAuthorProbeInFlight.size >= COMMENT_AUTHOR_PROBE_MAX_IN_FLIGHT) {
-    return;
+    return false;
   }
 
-  commentAuthorProbeInFlight.add(mid);
+  commentAuthorProbeInFlight.set(mid, [onResult]);
   void probeCommentAuthorState(mid)
     .then((result) => {
       commentAuthorProbeCache.set(mid, {
@@ -378,6 +431,7 @@ function queueCommentAuthorProbe(match: CommentSponsorMatch, commentRenderer: Co
         result
       });
       debugLog("Comment author probe completed", result);
+      notifyCommentAuthorProbeCallbacks(mid, result);
     })
     .catch((error) => {
       commentAuthorProbeCache.set(mid, {
@@ -385,47 +439,116 @@ function queueCommentAuthorProbe(match: CommentSponsorMatch, commentRenderer: Co
         result: null
       });
       debugLog("Comment author probe failed", error);
-    })
-    .finally(() => {
-      commentAuthorProbeInFlight.delete(mid);
+      notifyCommentAuthorProbeCallbacks(mid, null);
     });
+  return true;
 }
 
-async function probeCommentAuthorState(mid: string): Promise<CommentAuthorProbeResult> {
+function notifyCommentAuthorProbeCallbacks(mid: string, result: CommentAuthorProfile | null): void {
+  const callbacks = commentAuthorProbeInFlight.get(mid) ?? [];
+  commentAuthorProbeInFlight.delete(mid);
+  for (const callback of callbacks) {
+    callback(result);
+  }
+}
+
+async function probeCommentAuthorState(mid: string): Promise<CommentAuthorProfile> {
   const response = await gmXmlHttpRequest({
     method: "GET",
-    url: `https://api.bilibili.com/x/web-interface/card?mid=${encodeURIComponent(mid)}`,
+    url: `https://api.bilibili.com/x/web-interface/card?mid=${encodeURIComponent(mid)}&photo=false`,
+    headers: {
+      Referer: "https://www.bilibili.com/",
+      Origin: "https://www.bilibili.com/"
+    },
     timeout: COMMENT_AUTHOR_PROBE_TIMEOUT_MS
   });
   if (!response.ok) {
     throw new Error(`Bilibili author card request failed with HTTP ${response.status}`);
   }
 
-  const payload = JSON.parse(response.responseText) as {
+  return parseCommentAuthorCardResponse(mid, response.responseText);
+}
+
+export function parseCommentAuthorCardResponse(mid: string, responseText: string): CommentAuthorProfile {
+  const payload = JSON.parse(responseText) as {
+    code?: unknown;
     data?: {
       card?: {
         vip?: { status?: unknown } | null;
         level_info?: { current_level?: unknown } | null;
         follower?: unknown;
+        like_num?: unknown;
+        archive_count?: unknown;
+        is_senior_member?: unknown;
+        official_verify?: { type?: unknown } | null;
       } | null;
     } | null;
   };
+  const code = finiteNumberOrNull(payload.code);
+  if (code !== null && code !== 0) {
+    throw new Error(`Bilibili author card returned code ${code}`);
+  }
   const card = payload.data?.card ?? null;
   const vipStatus = finiteNumberOrNull(card?.vip?.status);
   const level = finiteNumberOrNull(card?.level_info?.current_level);
   const follower = finiteNumberOrNull(card?.follower);
+  const likeNum = finiteNumberOrNull(card?.like_num);
+  const archiveCount = finiteNumberOrNull(card?.archive_count);
+  const isSeniorMember = booleanOrNull(card?.is_senior_member);
+  const officialVerifyType = finiteNumberOrNull(card?.official_verify?.type);
+  const evidence: string[] = [];
+  let dormantScore = 0;
+  if (vipStatus === 0) {
+    dormantScore += 1;
+    evidence.push("非会员");
+  }
+  if (level !== null && level <= 2) {
+    dormantScore += 1;
+    evidence.push("低等级");
+  }
+  if (follower !== null && follower <= 3) {
+    dormantScore += 1;
+    evidence.push("低粉丝");
+  }
+  if (likeNum !== null && likeNum <= 3) {
+    dormantScore += 1;
+    evidence.push("低获赞");
+  }
+  if (archiveCount !== null && archiveCount <= 0) {
+    dormantScore += 1;
+    evidence.push("无投稿");
+  }
+  if (mid.length >= 10) {
+    dormantScore += 1;
+    evidence.push("长UID");
+  }
+  const protectedProfile =
+    isSeniorMember === true ||
+    (officialVerifyType !== null && officialVerifyType >= 0) ||
+    (follower !== null && follower >= 1000) ||
+    (likeNum !== null && likeNum >= 1000) ||
+    (archiveCount !== null && archiveCount >= 5);
   return {
     mid,
-    likelyDormant: vipStatus === 0 && (level === null || level <= 2) && (follower === null || follower <= 3),
+    likelyDormant: dormantScore >= 4 && !protectedProfile,
     vipStatus,
     level,
-    follower
+    follower,
+    likeNum,
+    archiveCount,
+    isSeniorMember,
+    officialVerifyType,
+    evidence
   };
 }
 
 function finiteNumberOrNull(value: unknown): number | null {
   const numberValue = Number(value);
   return Number.isFinite(numberValue) ? numberValue : null;
+}
+
+function booleanOrNull(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
 }
 
 export function commentMatchToVideoSignal(match: CommentSponsorMatch): LocalVideoSignal {
@@ -490,9 +613,28 @@ function dispatchVideoSignal(match: CommentSponsorMatch): void {
   );
 }
 
-function dispatchVideoSignalFeedback(match: CommentSponsorMatch, decision: "confirm" | "dismiss"): void {
+export function createCommentFeedbackToken(): string {
+  const randomUUID =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  const token = `comment-feedback:${randomUUID}`;
+  commentFeedbackTokens.add(token);
+  return token;
+}
+
+export function consumeCommentFeedbackToken(token: unknown): boolean {
+  if (typeof token !== "string" || !commentFeedbackTokens.has(token)) {
+    return false;
+  }
+  commentFeedbackTokens.delete(token);
+  return true;
+}
+
+function dispatchVideoSignalFeedback(match: CommentSponsorMatch, decision: "confirm" | "dismiss", feedbackToken: string): void {
   const detail = {
     decision,
+    feedbackToken,
     ...commentMatchToVideoSignal(match),
     matches: match.matches
   };
@@ -574,6 +716,8 @@ function createFeedbackButton(
 function createFeedbackMenu(match: CommentSponsorMatch): HTMLElement {
   const menu = document.createElement("span");
   const choices = document.createElement("span");
+  const feedbackToken = createCommentFeedbackToken();
+  let submitted = false;
   const trigger = createFeedbackButton(
     FEEDBACK_TRIGGER_ATTR,
     "反馈",
@@ -585,25 +729,34 @@ function createFeedbackMenu(match: CommentSponsorMatch): HTMLElement {
   const keepButton = createFeedbackButton(
     FEEDBACK_KEEP_ATTR,
     "保留",
-    "将这条评论线索作为当前视频的本地保留标签",
+    "保留这条本地推理结果。提交后当前视频不可重复反馈。",
     () => {
-      dispatchVideoSignalFeedback(match, "confirm");
-      setFeedbackMenuOpen(trigger, choices, false);
+      if (submitted) {
+        return;
+      }
+      submitted = true;
+      dispatchVideoSignalFeedback(match, "confirm", feedbackToken);
+      setFeedbackMenuSubmitted(menu, trigger, choices, keepButton, dismissButton);
     }
   );
   const dismissButton = createFeedbackButton(
     FEEDBACK_DISMISS_ATTR,
     "忽略",
-    "忽略当前视频的本地评论推理结果，并停止继续提示",
+    "忽略这条本地推理结果。提交后当前视频不可重复反馈。",
     () => {
-      dispatchVideoSignalFeedback(match, "dismiss");
-      setFeedbackMenuOpen(trigger, choices, false);
+      if (submitted) {
+        return;
+      }
+      submitted = true;
+      dispatchVideoSignalFeedback(match, "dismiss", feedbackToken);
+      setFeedbackMenuSubmitted(menu, trigger, choices, keepButton, dismissButton);
     }
   );
 
   menu.className = "bsb-tm-inline-feedback-menu";
   menu.setAttribute(FEEDBACK_MENU_ATTR, "true");
   menu.dataset.open = "false";
+  menu.dataset.submitted = "false";
   choices.className = "bsb-tm-inline-feedback-menu__choices";
   choices.setAttribute("role", "menu");
   choices.setAttribute("aria-hidden", "true");
@@ -625,6 +778,22 @@ function setFeedbackMenuOpen(trigger: HTMLButtonElement, choices: HTMLElement, o
   trigger.dataset.state = open ? "shown" : "hidden";
   trigger.setAttribute("aria-expanded", String(open));
   choices.setAttribute("aria-hidden", String(!open));
+}
+
+function setFeedbackMenuSubmitted(
+  menu: HTMLElement,
+  trigger: HTMLButtonElement,
+  choices: HTMLElement,
+  keepButton: HTMLButtonElement,
+  dismissButton: HTMLButtonElement
+): void {
+  menu.dataset.submitted = "true";
+  setFeedbackMenuOpen(trigger, choices, false);
+  trigger.textContent = "已提交";
+  trigger.title = "已提交，不可重复操作。本地学习会按你的选择处理当前视频。";
+  trigger.disabled = true;
+  keepButton.disabled = true;
+  dismissButton.disabled = true;
 }
 
 function createLocationBadge(text: string, color?: string): HTMLDivElement {
@@ -1137,13 +1306,49 @@ export class CommentSponsorController {
 
     const match = classifyCommentRenderer(target.renderer, this.currentConfig);
     if (!match) {
+      this.queueCandidateAuthorUpgrade(target);
       return;
     }
 
+    this.applyTargetMatch(target, match);
+  }
+
+  private queueCandidateAuthorUpgrade(target: CommentTarget): void {
+    if (target.host.getAttribute(PROBE_PENDING_ATTR) === "true") {
+      return;
+    }
+
+    const assessment = assessCommentRendererShill(target.renderer);
+    if (assessment.state !== "candidate") {
+      return;
+    }
+
+    const mid = extractCommentAuthorMid(target.renderer);
+    if (!mid) {
+      return;
+    }
+
+    target.host.setAttribute(PROBE_PENDING_ATTR, "true");
+    const queued = queueCommentAuthorProbe(mid, (profile) => {
+      target.host.removeAttribute(PROBE_PENDING_ATTR);
+      if (!profile?.likelyDormant || !target.host.isConnected || target.host.getAttribute(target.processedAttr) === "true") {
+        return;
+      }
+
+      const match = classifyCommentRenderer(target.renderer, this.currentConfig, profile);
+      if (match?.reason === "shill") {
+        this.applyTargetMatch(target, match);
+      }
+    });
+    if (!queued) {
+      target.host.removeAttribute(PROBE_PENDING_ATTR);
+    }
+  }
+
+  private applyTargetMatch(target: CommentTarget, match: CommentSponsorMatch): void {
     if (target.kind === "comment") {
       dispatchVideoSignal(match);
     }
-    queueCommentAuthorProbe(match, target.renderer);
 
     const badgeAnchor = getBadgeAnchor(target.renderer);
     if (!badgeAnchor) {
@@ -1243,6 +1448,7 @@ export class CommentSponsorController {
             content.removeAttribute(HIDDEN_ATTR);
           }
         }
+        thread.removeAttribute(PROBE_PENDING_ATTR);
 
         for (const replyTarget of getReplyTargets(thread)) {
           removeInjectedDecorations(replyTarget.renderer);
@@ -1252,6 +1458,7 @@ export class CommentSponsorController {
           }
 
           replyTarget.host.removeAttribute(REPLY_PROCESSED_ATTR);
+          replyTarget.host.removeAttribute(PROBE_PENDING_ATTR);
           const content = getContentBody(replyTarget.renderer);
           if (content) {
             content.style.display = "";

@@ -147,7 +147,7 @@ export function evaluateCommentRecognitionSample(sample: CommentRecognitionSampl
   const match = classifyCommentRenderer(createCommentRenderer(sample), {
     dynamicRegexPattern: sample.input.regexPattern ?? DEFAULT_DYNAMIC_REGEX_PATTERN,
     dynamicRegexKeywordMinMatches: sample.input.regexKeywordMinMatches ?? 1
-  });
+  }, sample.input.authorProfile ?? null);
   return evaluateClassification(sample, match?.category ?? null);
 }
 

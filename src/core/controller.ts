@@ -19,6 +19,7 @@ import { PreviewBar } from "../ui/preview-bar";
 import { TitleBadge, type TitleBadgeVoteResult } from "../ui/title-badge";
 import { CompactVideoHeader } from "../ui/compact-header";
 import {
+  consumeCommentFeedbackToken,
   LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT,
   scanCurrentPageCommentSignal,
   VIDEO_SIGNAL_EVENT,
@@ -185,9 +186,14 @@ export class ScriptController {
           decision?: "confirm" | "dismiss";
           source?: string;
           reason?: string;
+          feedbackToken?: unknown;
         }
       | null;
     if (!detail?.category || !detail.decision || this.currentConfig.categoryModes[detail.category] === "off") {
+      return;
+    }
+
+    if (!consumeCommentFeedbackToken(detail.feedbackToken)) {
       return;
     }
 
@@ -206,6 +212,10 @@ export class ScriptController {
       return;
     }
 
+    if (this.hasLocalManualDecision(this.currentContext.bvid)) {
+      this.showDuplicateLocalFeedbackNotice(this.currentContext.bvid);
+      return;
+    }
     const segment = this.buildLocalSignalSegment(this.currentContext.bvid, {
       category: detail.category,
       source: detail.source === "comment-goods" || detail.source === "comment-suspicion" ? detail.source : "comment-suspicion",
@@ -1070,6 +1080,30 @@ export class ScriptController {
     return `segment-grace:${segment.UUID}`;
   }
 
+  private hasLocalManualDecision(videoId: string): boolean {
+    const resolved = this.localVideoLabelStore.getResolved(videoId);
+    return resolved?.source === "manual" || this.localVideoLabelStore.isDismissed(videoId);
+  }
+
+  private isLocalManualSegmentLocked(segment: SegmentRecord): boolean {
+    if (!segment.UUID.startsWith("local-signal:")) {
+      return false;
+    }
+    if (segment.UUID.includes(":manual:") || segment.UUID.includes(":manual-dismiss:")) {
+      return true;
+    }
+    return this.currentContext ? this.hasLocalManualDecision(this.currentContext.bvid) : false;
+  }
+
+  private showDuplicateLocalFeedbackNotice(videoId: string): void {
+    this.notices.show({
+      id: `local-feedback-duplicate:${videoId}`,
+      title: "反馈已提交",
+      message: "你已经对当前视频的本地判断提交过反馈。本地学习已记录，当前页面不会重复处理。",
+      durationMs: 3200
+    });
+  }
+
   private updateTitleBadge(segment: SegmentRecord | null): void {
     if (!segment) {
       this.titleBadge.clear();
@@ -1077,7 +1111,7 @@ export class ScriptController {
     }
 
     this.titleBadge.setSegment(segment, {
-      voteLocked: this.voteHistoryStore.has(segment.UUID)
+      voteLocked: this.voteHistoryStore.has(segment.UUID) || this.isLocalManualSegmentLocked(segment)
     });
   }
 
@@ -1224,6 +1258,11 @@ export class ScriptController {
       return;
     }
 
+    if (this.hasLocalManualDecision(this.currentContext.bvid)) {
+      this.showDuplicateLocalFeedbackNotice(this.currentContext.bvid);
+      return;
+    }
+
     if (decision === "confirm") {
       await this.localVideoLabelStore.rememberManual(this.currentContext.bvid, segment.category, `手动保留 ${CATEGORY_LABELS[segment.category]}`);
       this.currentTitleLabel = this.buildLocalSignalSegment(this.currentContext.bvid, {
@@ -1236,8 +1275,8 @@ export class ScriptController {
       this.notices.show({
         id: `local-label-confirm:${this.currentContext.bvid}`,
         title: "已保留本地标签",
-        message: `后续会继续把这个视频视作“${CATEGORY_LABELS[segment.category]}”。`,
-        durationMs: 2800
+        message: `已记录为你的本地判断。后续进入当前视频时会继续显示“${CATEGORY_LABELS[segment.category]}”，该本地反馈不可重复提交。`,
+        durationMs: 3600
       });
       return;
     }
@@ -1255,8 +1294,8 @@ export class ScriptController {
     this.notices.show({
       id: `local-label-dismiss:${this.currentContext.bvid}`,
       title: "已忽略本地标签",
-      message: "当前视频后续不会继续显示这条本地商业提示。",
-      durationMs: 2800
+      message: "已记录为你的本地判断。后续当前视频不会再显示这条本地商业提示，该本地反馈不可重复提交。",
+      durationMs: 3600
     });
   }
 

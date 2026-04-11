@@ -51,6 +51,17 @@ export type CommentRecognitionSample = BaseSample & {
     text: string;
     hasGoodsLink?: boolean;
     hasMediaAttachment?: boolean;
+    authorProfile?: {
+      likelyDormant: boolean;
+      vipStatus?: number | null;
+      level?: number | null;
+      follower?: number | null;
+      likeNum?: number | null;
+      archiveCount?: number | null;
+      isSeniorMember?: boolean | null;
+      officialVerifyType?: number | null;
+      evidence?: string[];
+    };
     storedMatches?: string[];
     regexPattern?: string;
     regexKeywordMinMatches?: number;
@@ -193,6 +204,18 @@ export const VIDEO_RECOGNITION_SAMPLES: readonly VideoRecognitionSample[] = [
   }
 ];
 
+const ZOMBIE_LIKE_AUTHOR_PROFILE: NonNullable<CommentRecognitionSample["input"]["authorProfile"]> = {
+  likelyDormant: true,
+  vipStatus: 0,
+  level: 1,
+  follower: 0,
+  likeNum: 0,
+  archiveCount: 0,
+  isSeniorMember: false,
+  officialVerifyType: -1,
+  evidence: ["非会员", "低等级", "低粉丝", "低获赞", "无投稿", "长UID"]
+};
+
 export const COMMENT_RECOGNITION_SAMPLES: readonly CommentRecognitionSample[] = [
   {
     id: "comment-hit-goods-link",
@@ -309,6 +332,81 @@ export const COMMENT_RECOGNITION_SAMPLES: readonly CommentRecognitionSample[] = 
     humanVerdict: "confirmed"
   },
   {
+    id: "comment-hit-zombie-trial-buy",
+    domain: "comment",
+    caseType: "must-hit",
+    input: {
+      text: "看着质感不错，准备入手两条试试水。",
+      regexPattern: DEFAULT_DYNAMIC_REGEX_PATTERN,
+      authorProfile: ZOMBIE_LIKE_AUTHOR_PROFILE
+    },
+    expectedCategory: "sponsor",
+    expectedBehavior: "classify",
+    riskTag: "false-negative-risk",
+    source: "manual-real-world",
+    humanVerdict: "confirmed"
+  },
+  {
+    id: "comment-hit-zombie-macro-product-praise",
+    domain: "comment",
+    caseType: "must-hit",
+    input: {
+      text: "现在国产内裤都这么卷了吗[妙啊]这做工看着挺细致",
+      regexPattern: DEFAULT_DYNAMIC_REGEX_PATTERN,
+      authorProfile: ZOMBIE_LIKE_AUTHOR_PROFILE
+    },
+    expectedCategory: "sponsor",
+    expectedBehavior: "classify",
+    riskTag: "false-negative-risk",
+    source: "manual-real-world",
+    humanVerdict: "confirmed"
+  },
+  {
+    id: "comment-hit-zombie-comfort-praise",
+    domain: "comment",
+    caseType: "must-hit",
+    input: {
+      text: "不勒腿的确实爽[doge]",
+      regexPattern: DEFAULT_DYNAMIC_REGEX_PATTERN,
+      authorProfile: ZOMBIE_LIKE_AUTHOR_PROFILE
+    },
+    expectedCategory: "sponsor",
+    expectedBehavior: "classify",
+    riskTag: "false-negative-risk",
+    source: "manual-real-world",
+    humanVerdict: "confirmed"
+  },
+  {
+    id: "comment-hit-zombie-price-amazement",
+    domain: "comment",
+    caseType: "must-hit",
+    input: {
+      text: "这价格能买到兰精莫代尔？性价比有点高噢",
+      regexPattern: DEFAULT_DYNAMIC_REGEX_PATTERN,
+      authorProfile: ZOMBIE_LIKE_AUTHOR_PROFILE
+    },
+    expectedCategory: "sponsor",
+    expectedBehavior: "classify",
+    riskTag: "false-negative-risk",
+    source: "manual-real-world",
+    humanVerdict: "confirmed"
+  },
+  {
+    id: "comment-hit-zombie-brand-comparison",
+    domain: "comment",
+    caseType: "must-hit",
+    input: {
+      text: "之前一直穿优衣库，这个元力象的舒适度能比得过吗",
+      regexPattern: DEFAULT_DYNAMIC_REGEX_PATTERN,
+      authorProfile: ZOMBIE_LIKE_AUTHOR_PROFILE
+    },
+    expectedCategory: "sponsor",
+    expectedBehavior: "classify",
+    riskTag: "false-negative-risk",
+    source: "manual-real-world",
+    humanVerdict: "confirmed"
+  },
+  {
     id: "comment-pass-negative-product-warning",
     domain: "comment",
     caseType: "must-pass",
@@ -329,6 +427,35 @@ export const COMMENT_RECOGNITION_SAMPLES: readonly CommentRecognitionSample[] = 
     input: {
       text: "别买，洗几次就变形，评论都在演，别被广告话术骗了。",
       regexPattern: "/广告|购买|评论|变形/gi"
+    },
+    expectedCategory: null,
+    expectedBehavior: "suppress",
+    riskTag: "false-positive-protection",
+    source: "manual-real-world",
+    humanVerdict: "confirmed"
+  },
+  {
+    id: "comment-pass-review-trial-buy-without-zombie",
+    domain: "comment",
+    caseType: "must-pass",
+    input: {
+      text: "看着质感不错，准备入手两条试试水。",
+      regexPattern: DEFAULT_DYNAMIC_REGEX_PATTERN
+    },
+    expectedCategory: null,
+    expectedBehavior: "suppress",
+    riskTag: "false-positive-protection",
+    source: "manual-real-world",
+    humanVerdict: "confirmed",
+    notes: "轻量入手话术只有账号状态补证后才进入 blocking 命中。"
+  },
+  {
+    id: "comment-pass-normal-review-comparison",
+    domain: "comment",
+    caseType: "must-pass",
+    input: {
+      text: "这期横评里优衣库那条和国产款对比挺有参考价值。",
+      regexPattern: DEFAULT_DYNAMIC_REGEX_PATTERN
     },
     expectedCategory: null,
     expectedBehavior: "suppress",
@@ -420,6 +547,21 @@ export const COMMENT_RECOGNITION_SAMPLES: readonly CommentRecognitionSample[] = 
     source: "ai-trap-candidate",
     humanVerdict: "pending",
     notes: "同一句购买提问在非带货上下文中可能是普通讨论，需 Safari 真实评论区补采后再决定是否进入 blocking。"
+  },
+  {
+    id: "comment-trap-light-praise-unknown-author",
+    domain: "comment",
+    caseType: "trap",
+    input: {
+      text: "这价格能买到兰精莫代尔？性价比有点高噢",
+      regexPattern: DEFAULT_DYNAMIC_REGEX_PATTERN
+    },
+    expectedCategory: null,
+    expectedBehavior: "review",
+    riskTag: "false-positive-protection",
+    source: "ai-trap-candidate",
+    humanVerdict: "pending",
+    notes: "轻量赞美但账号状态未知，只能进入候选观察集，不能直接 blocking。"
   }
 ];
 

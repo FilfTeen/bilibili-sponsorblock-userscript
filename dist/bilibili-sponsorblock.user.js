@@ -3530,6 +3530,7 @@
   var LABEL_ONLY_COPY = "\u8FD9\u4E2A\u6807\u7B7E\u6765\u81EA\u6574\u89C6\u9891\u6807\u7B7E\u7ED3\u679C\uFF0C\u4F46\u5F53\u524D\u6CA1\u6709\u53EF\u76F4\u63A5\u53CD\u9988\u7684\u6295\u7968\u8BB0\u5F55\u3002";
   var LOCAL_SIGNAL_COPY = "\u8FD9\u4E2A\u6807\u7B7E\u6765\u81EA\u672C\u5730\u9875\u9762\u7EBF\u7D22\uFF0C\u800C\u4E0D\u662F SponsorBlock \u793E\u533A\u5DF2\u6536\u5F55\u7684\u6574\u89C6\u9891\u8BB0\u5F55\u3002";
   var LOCKED_COPY = "\u8FD9\u6761\u6574\u89C6\u9891\u6807\u7B7E\u7684\u53CD\u9988\u5DF2\u5728\u672C\u673A\u63D0\u4EA4\u3002\u4E3A\u907F\u514D\u91CD\u590D\u6295\u7968\uFF0C\u5F53\u524D\u6309\u94AE\u5DF2\u9501\u5B9A\u3002";
+  var LOCAL_LOCKED_COPY = "\u5DF2\u63D0\u4EA4\u3002\u672C\u5730\u5B66\u4E60\u4F1A\u5728\u540E\u7EED\u7EE7\u7EED\u4FDD\u7559\u6216\u5FFD\u7565\u6B64\u5224\u65AD\uFF1B\u8BE5\u64CD\u4F5C\u5BF9\u5F53\u524D\u89C6\u9891\u4E0D\u53EF\u91CD\u590D\u63D0\u4EA4\u3002";
   function resolveCopy(segment, votingAvailable) {
     var _a;
     const base = (_a = CATEGORY_DESCRIPTIONS[segment.category]) != null ? _a : DEFAULT_COPY;
@@ -3699,20 +3700,20 @@
       this.root.style.setProperty("--bsb-category-glass-border", style.glassBorder);
       this.titleText.textContent = CATEGORY_LABELS[segment.category];
       this.description.textContent = resolveCopy(segment, this.votingAvailable);
-      this.upvoteButton.disabled = !this.localActionsAvailable && (!this.votingAvailable || this.voteLocked);
-      this.downvoteButton.disabled = !this.localActionsAvailable && (!this.votingAvailable || this.voteLocked);
+      this.upvoteButton.disabled = this.voteLocked || !this.localActionsAvailable && !this.votingAvailable;
+      this.downvoteButton.disabled = this.voteLocked || !this.localActionsAvailable && !this.votingAvailable;
       this.upvoteButton.hidden = false;
       this.downvoteButton.hidden = false;
-      this.upvoteButton.title = this.votingAvailable ? this.voteLocked ? "\u8FD9\u6761\u6574\u89C6\u9891\u6807\u7B7E\u7684\u53CD\u9988\u5DF2\u63D0\u4EA4" : "\u628A\u8FD9\u6761\u6574\u89C6\u9891\u6807\u7B7E\u6807\u8BB0\u4E3A\u6B63\u786E" : this.localActionsAvailable ? "\u628A\u8FD9\u6761\u672C\u5730\u6807\u7B7E\u8BB0\u4E3A\u53EF\u4FE1\uFF0C\u5E76\u5728\u540E\u7EED\u7EE7\u7EED\u4FDD\u7559" : "\u5F53\u524D\u6CA1\u6709\u53EF\u76F4\u63A5\u53CD\u9988\u7684 SponsorBlock \u6295\u7968\u8BB0\u5F55";
-      this.downvoteButton.title = this.votingAvailable ? this.voteLocked ? "\u8FD9\u6761\u6574\u89C6\u9891\u6807\u7B7E\u7684\u53CD\u9988\u5DF2\u63D0\u4EA4" : "\u628A\u8FD9\u6761\u6574\u89C6\u9891\u6807\u7B7E\u6807\u8BB0\u4E3A\u6709\u8BEF" : this.localActionsAvailable ? "\u5FFD\u7565\u8FD9\u6761\u672C\u5730\u6807\u7B7E\uFF0C\u5E76\u505C\u6B62\u7EE7\u7EED\u63D0\u793A\u5F53\u524D\u89C6\u9891" : "\u5F53\u524D\u6CA1\u6709\u53EF\u76F4\u63A5\u53CD\u9988\u7684 SponsorBlock \u6295\u7968\u8BB0\u5F55";
+      this.upvoteButton.title = this.votingAvailable ? this.voteLocked ? "\u8FD9\u6761\u6574\u89C6\u9891\u6807\u7B7E\u7684\u53CD\u9988\u5DF2\u63D0\u4EA4" : "\u628A\u8FD9\u6761\u6574\u89C6\u9891\u6807\u7B7E\u6807\u8BB0\u4E3A\u6B63\u786E" : this.localActionsAvailable ? this.voteLocked ? "\u672C\u5730\u53CD\u9988\u5DF2\u63D0\u4EA4\uFF0C\u5F53\u524D\u89C6\u9891\u4E0D\u53EF\u91CD\u590D\u64CD\u4F5C" : "\u628A\u8FD9\u6761\u672C\u5730\u6807\u7B7E\u8BB0\u4E3A\u53EF\u4FE1\uFF0C\u5E76\u5728\u540E\u7EED\u7EE7\u7EED\u4FDD\u7559" : "\u5F53\u524D\u6CA1\u6709\u53EF\u76F4\u63A5\u53CD\u9988\u7684 SponsorBlock \u6295\u7968\u8BB0\u5F55";
+      this.downvoteButton.title = this.votingAvailable ? this.voteLocked ? "\u8FD9\u6761\u6574\u89C6\u9891\u6807\u7B7E\u7684\u53CD\u9988\u5DF2\u63D0\u4EA4" : "\u628A\u8FD9\u6761\u6574\u89C6\u9891\u6807\u7B7E\u6807\u8BB0\u4E3A\u6709\u8BEF" : this.localActionsAvailable ? this.voteLocked ? "\u672C\u5730\u53CD\u9988\u5DF2\u63D0\u4EA4\uFF0C\u5F53\u524D\u89C6\u9891\u4E0D\u53EF\u91CD\u590D\u64CD\u4F5C" : "\u5FFD\u7565\u8FD9\u6761\u672C\u5730\u6807\u7B7E\uFF0C\u5E76\u505C\u6B62\u7EE7\u7EED\u63D0\u793A\u5F53\u524D\u89C6\u9891" : "\u5F53\u524D\u6CA1\u6709\u53EF\u76F4\u63A5\u53CD\u9988\u7684 SponsorBlock \u6295\u7968\u8BB0\u5F55";
       this.upvoteButton.lastChild && (this.upvoteButton.lastChild.textContent = this.votingAvailable ? "\u6807\u8BB0\u6B63\u786E" : this.localActionsAvailable ? "\u4FDD\u7559\u672C\u5730\u6807\u7B7E" : "\u6807\u8BB0\u6B63\u786E");
       this.downvoteButton.lastChild && (this.downvoteButton.lastChild.textContent = this.votingAvailable ? "\u6807\u8BB0\u6709\u8BEF" : this.localActionsAvailable ? "\u5FFD\u7565\u6B64\u89C6\u9891" : "\u6807\u8BB0\u6709\u8BEF");
       this.feedbackHint.hidden = this.votingAvailable && !this.localActionsAvailable && !this.voteLocked;
-      this.feedbackHint.textContent = this.localActionsAvailable ? "\u8FD9\u6761\u63D0\u793A\u6765\u81EA\u672C\u5730\u8BC4\u8BBA\u6216\u9875\u9762\u7EBF\u7D22\u3002\u4F60\u53EF\u4EE5\u4FDD\u7559\u5B83\uFF0C\u4E5F\u53EF\u4EE5\u5FFD\u7565\u5E76\u963B\u6B62\u5F53\u524D\u89C6\u9891\u7EE7\u7EED\u89E6\u53D1\u672C\u5730\u63D0\u793A\u3002" : this.voteLocked ? LOCKED_COPY : "\u8FD9\u6761\u6807\u7B7E\u76EE\u524D\u53EA\u6709\u6574\u89C6\u9891\u6807\u7B7E\u7ED3\u679C\uFF0C\u6CA1\u6709\u53EF\u76F4\u63A5\u6295\u7968\u7684 SponsorBlock UUID\u3002";
+      this.feedbackHint.textContent = this.localActionsAvailable ? this.voteLocked ? LOCAL_LOCKED_COPY : "\u8FD9\u6761\u63D0\u793A\u6765\u81EA\u672C\u5730\u8BC4\u8BBA\u6216\u9875\u9762\u7EBF\u7D22\u3002\u4F60\u53EF\u4EE5\u4FDD\u7559\u5B83\uFF0C\u4E5F\u53EF\u4EE5\u5FFD\u7565\u5E76\u963B\u6B62\u5F53\u524D\u89C6\u9891\u7EE7\u7EED\u89E6\u53D1\u672C\u5730\u63D0\u793A\u3002\u63D0\u4EA4\u540E\u5F53\u524D\u89C6\u9891\u4E0D\u53EF\u91CD\u590D\u53CD\u9988\u3002" : this.voteLocked ? LOCKED_COPY : "\u8FD9\u6761\u6807\u7B7E\u76EE\u524D\u53EA\u6709\u6574\u89C6\u9891\u6807\u7B7E\u7ED3\u679C\uFF0C\u6CA1\u6709\u53EF\u76F4\u63A5\u6295\u7968\u7684 SponsorBlock UUID\u3002";
       this.actions.classList.toggle("vote-unavailable", !this.votingAvailable);
       this.pillButton.setAttribute(
         "aria-label",
-        this.votingAvailable ? this.voteLocked ? `${CATEGORY_LABELS[segment.category]}\uFF0C\u70B9\u51FB\u67E5\u770B\u8BF4\u660E\uFF0C\u53CD\u9988\u5DF2\u63D0\u4EA4` : `${CATEGORY_LABELS[segment.category]}\uFF0C\u70B9\u51FB\u67E5\u770B\u8BF4\u660E\u548C\u53CD\u9988\u6309\u94AE` : this.localActionsAvailable ? `${CATEGORY_LABELS[segment.category]}\uFF0C\u70B9\u51FB\u67E5\u770B\u672C\u5730\u5B66\u4E60\u6309\u94AE` : `${CATEGORY_LABELS[segment.category]}\uFF0C\u70B9\u51FB\u67E5\u770B\u8BF4\u660E\u548C\u4E0D\u53EF\u7528\u53CD\u9988\u6309\u94AE`
+        this.votingAvailable ? this.voteLocked ? `${CATEGORY_LABELS[segment.category]}\uFF0C\u70B9\u51FB\u67E5\u770B\u8BF4\u660E\uFF0C\u53CD\u9988\u5DF2\u63D0\u4EA4` : `${CATEGORY_LABELS[segment.category]}\uFF0C\u70B9\u51FB\u67E5\u770B\u8BF4\u660E\u548C\u53CD\u9988\u6309\u94AE` : this.localActionsAvailable ? this.voteLocked ? `${CATEGORY_LABELS[segment.category]}\uFF0C\u70B9\u51FB\u67E5\u770B\u672C\u5730\u5B66\u4E60\u8BF4\u660E\uFF0C\u53CD\u9988\u5DF2\u63D0\u4EA4` : `${CATEGORY_LABELS[segment.category]}\uFF0C\u70B9\u51FB\u67E5\u770B\u672C\u5730\u5B66\u4E60\u6309\u94AE` : `${CATEGORY_LABELS[segment.category]}\uFF0C\u70B9\u51FB\u67E5\u770B\u8BF4\u660E\u548C\u4E0D\u53EF\u7528\u53CD\u9988\u6309\u94AE`
       );
     }
     ensureMounted() {
@@ -3822,19 +3823,24 @@
     }
     handleVote(type) {
       return __async(this, null, function* () {
-        if (!this.currentSegment || this.voteLocked && this.votingAvailable) {
+        if (!this.currentSegment || this.voteLocked) {
           return;
         }
+        const segment = this.currentSegment;
         this.setBusy(true);
         try {
           if (this.votingAvailable) {
-            const result = yield this.callbacks.onVote(this.currentSegment, type);
+            const result = yield this.callbacks.onVote(segment, type);
             if (result !== "error") {
               this.voteLocked = true;
-              this.applyAppearance(this.currentSegment);
+              this.applyAppearance(segment);
             }
           } else if (this.localActionsAvailable) {
-            yield this.callbacks.onLocalDecision(this.currentSegment, type === 1 ? "confirm" : "dismiss");
+            yield this.callbacks.onLocalDecision(segment, type === 1 ? "confirm" : "dismiss");
+            if (this.currentSegment === segment) {
+              this.voteLocked = true;
+              this.applyAppearance(segment);
+            }
           } else {
             return;
           }
@@ -3847,7 +3853,7 @@
     setBusy(busy) {
       for (const button of [this.upvoteButton, this.downvoteButton, this.settingsButton]) {
         if (button === this.upvoteButton || button === this.downvoteButton) {
-          button.disabled = busy || (this.localActionsAvailable ? false : !this.votingAvailable || this.voteLocked);
+          button.disabled = busy || this.voteLocked || !this.localActionsAvailable && !this.votingAvailable;
         } else {
           button.disabled = busy;
         }
@@ -4739,6 +4745,7 @@ ${inlineSurfaceFrostedGlass.overlay}
   // src/features/comment-filter.ts
   var THREAD_PROCESSED_ATTR = "data-bsb-comment-processed";
   var REPLY_PROCESSED_ATTR = "data-bsb-comment-reply-processed";
+  var PROBE_PENDING_ATTR = "data-bsb-comment-author-probe-pending";
   var BADGE_ATTR = "data-bsb-comment-badge";
   var TOGGLE_ATTR = "data-bsb-comment-toggle";
   var FEEDBACK_MENU_ATTR = "data-bsb-comment-feedback-menu";
@@ -4755,8 +4762,8 @@ ${inlineSurfaceFrostedGlass.overlay}
   var VIDEO_SIGNAL_EVENT = "bsb:video-signal";
   var VIDEO_SIGNAL_FEEDBACK_EVENT = "bsb:video-signal-feedback";
   var LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT = "bsb:local-video-feedback-availability";
-  var COMMENT_AUTHOR_PROBE_TIMEOUT_MS = 900;
-  var COMMENT_AUTHOR_PROBE_CACHE_MS = 10 * 60 * 1e3;
+  var COMMENT_AUTHOR_PROBE_TIMEOUT_MS = 2e3;
+  var COMMENT_AUTHOR_PROBE_CACHE_MS = 12 * 60 * 60 * 1e3;
   var COMMENT_AUTHOR_PROBE_MAX_IN_FLIGHT = 2;
   var COMMENT_RELEVANT_SELECTORS = [
     "bili-comments",
@@ -4787,15 +4794,21 @@ ${inlineSurfaceFrostedGlass.overlay}
   var COMMENT_STRONG_MATCHES = /* @__PURE__ */ new Set(["\u8D5E\u52A9", "\u5546\u52A1\u5408\u4F5C", "\u5546\u54C1\u5361", "\u4F18\u60E0\u5238", "\u8D2D\u4E70\u6307\u5F15"]);
   var COMMENT_INVITATION_PATTERN = /邀请码|体验码|兑换码|注册码/iu;
   var COMMENT_SHILL_PATTERNS = {
-    purchaseOrUse: /(?:刚|才)?(?:买|入手|拿到|收到|下单|收货|到手)|刚好缺|正好缺|缺(?:个|条|件|款)?|想买|准备买|打算买|买过|有没有买过|试穿|穿上|穿了|穿着|穿一天|用了|用起来|洗了|洗几次|下水洗|轮着穿|回购|复购|淘宝买/iu,
-    productQuality: /透气|亲肤|弹力|包裹|勒|印子|黏黏|粘粘|闷|性价比|变形|掉色|面料|材质|水洗|下水|洗衣机|丝滑|滑溜|缝线|颜色|尺码|好穿|舒服|舒适|支撑|做工|手感|质感|素材|剪辑|后期|效率/iu,
+    purchaseOrUse: /(?:刚|才)?(?:买|入手|拿到|收到|下单|收货|到手)|刚好缺|正好缺|缺(?:个|条|件|款)?|想买|准备买|打算买|买过|有没有买过|试穿|穿上|穿了|穿着|穿一天|用了|用起来|洗了|洗几次|下水洗|轮着穿|回购|复购|淘宝买|试试水/iu,
+    productQuality: /透气|亲肤|弹力|包裹|勒|印子|黏黏|粘粘|闷|性价比|变形|掉色|面料|材质|莫代尔|水洗|下水|洗衣机|丝滑|滑溜|缝线|颜色|尺码|好穿|舒服|舒适|支撑|做工|手感|质感|素材|剪辑|后期|效率/iu,
     endorsement: /可以|确实|真(?:的)?|挺|非常|绝了|好用|不错|满意|放心|适合|推荐|希望(?:能|可以)|性价比还行/iu,
     videoLead: /up(?:主)?推荐|UP(?:主)?推荐|博主推荐|视频(?:里)?(?:推荐|种草|安利)|刷到|刚好刷到|看(?:了)?评论|评论(?:都|区)?(?:说好|放心)|这(?:个|条|件|款|盒)|同款/iu,
     question: /有没有买过|买过的(?:大佬|兄弟|姐妹)?|说说|问下|洗几次|会不会|会变形不|变形不|靠谱吗|真的假的/iu,
+    prospectiveTrial: /(?:看着|看起来|看)?[\s\S]{0,12}(?:质感|做工|性价比|舒服|舒适)[\s\S]{0,12}(?:准备|打算|想)[\s\S]{0,8}(?:入手|买|下单|试试水)|(?:准备|打算|想)[\s\S]{0,8}(?:入手|买|下单)[\s\S]{0,8}试试水/iu,
+    macroPraise: /国产.{0,12}(?:卷|做工|细致|质感)|(?:卷了吗).{0,12}(?:做工|细致|质感)/iu,
+    comfortPraise: /不勒腿|确实爽|真爽|穿着爽|穿起来爽/iu,
+    priceAmazement: /这价格.{0,16}(?:兰精|莫代尔|性价比|高)|(?:性价比).{0,8}(?:有点|挺|真|太)?高/iu,
+    brandComparison: /(?:优衣库|蕉内|ubras|元力象|万力象).{0,24}(?:舒适度|舒服|舒适|比得过|拉踩)|(?:舒适度|舒服|舒适).{0,24}(?:比得过|优衣库|蕉内|ubras|元力象|万力象)/iu,
     warning: /别(?:买|点|被)|不(?:推荐|建议|值|好用|舒服)|踩坑|避雷|退(?:了|货|款)|差评|翻车|广告话术|割韭菜/iu
   };
   var commentAuthorProbeCache = /* @__PURE__ */ new Map();
-  var commentAuthorProbeInFlight = /* @__PURE__ */ new Set();
+  var commentAuthorProbeInFlight = /* @__PURE__ */ new Map();
+  var commentFeedbackTokens = /* @__PURE__ */ new Set();
   function getActionRendererNode(commentRenderer) {
     var _a, _b, _c, _d, _e, _f;
     return (_f = (_e = (_c = (_a = commentRenderer.shadowRoot) == null ? void 0 : _a.querySelector("bili-comment-action-buttons-renderer")) != null ? _c : (_b = commentRenderer.shadowRoot) == null ? void 0 : _b.querySelector("#main bili-comment-action-buttons-renderer")) != null ? _e : (_d = commentRenderer.shadowRoot) == null ? void 0 : _d.querySelector("#footer bili-comment-action-buttons-renderer")) != null ? _f : null;
@@ -4885,7 +4898,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       return (_b2 = (_a2 = node.textContent) == null ? void 0 : _a2.trim()) != null ? _b2 : "";
     }).filter(Boolean).join(" ");
   }
-  function classifyCommentRenderer(commentRenderer, config) {
+  function classifyCommentRenderer(commentRenderer, config, authorProfile = null) {
     if (hasSponsoredGoodsLink(commentRenderer)) {
       return {
         reason: "goods",
@@ -4901,12 +4914,12 @@ ${inlineSurfaceFrostedGlass.overlay}
       minMatches: config.dynamicRegexKeywordMinMatches
     });
     const actionability = inspectCommercialActionability(text);
-    const shillMatches = inspectCommentShillSignals(commentRenderer, text, actionability.hasQuotedOrMockingContext);
-    if (shillMatches) {
+    const shillAssessment = inspectCommentShillSignals(commentRenderer, text, actionability.hasQuotedOrMockingContext, authorProfile);
+    if (shillAssessment.state === "hit") {
       return {
         reason: "shill",
         category: "sponsor",
-        matches: shillMatches
+        matches: shillAssessment.matches
       };
     }
     if (!assessment.category) {
@@ -4936,10 +4949,15 @@ ${inlineSurfaceFrostedGlass.overlay}
       matches: storedMatches.length > 0 ? storedMatches : assessment.matches
     };
   }
-  function inspectCommentShillSignals(commentRenderer, text, hasQuotedOrMockingContext) {
-    const normalized = text.replace(/\s+/gu, " ").trim();
+  function assessCommentRendererShill(commentRenderer, authorProfile = null) {
+    const text = extractCommentText(commentRenderer);
+    const actionability = inspectCommercialActionability(text);
+    return inspectCommentShillSignals(commentRenderer, text, actionability.hasQuotedOrMockingContext, authorProfile);
+  }
+  function inspectCommentShillSignals(commentRenderer, text, hasQuotedOrMockingContext, authorProfile) {
+    const normalized = normalizeRepeatedCommentText(text);
     if (!normalized || hasQuotedOrMockingContext || COMMENT_SHILL_PATTERNS.warning.test(normalized)) {
-      return null;
+      return { state: "pass", matches: [] };
     }
     const hasMedia = hasCommentMediaAttachment(commentRenderer);
     const hits = [
@@ -4950,6 +4968,13 @@ ${inlineSurfaceFrostedGlass.overlay}
       COMMENT_SHILL_PATTERNS.question.test(normalized) ? "\u8D2D\u4E70\u524D\u63D0\u95EE" : null,
       hasMedia ? "\u6652\u5355\u56FE" : null
     ].filter((hit) => Boolean(hit));
+    const candidateHits = [
+      COMMENT_SHILL_PATTERNS.prospectiveTrial.test(normalized) ? "\u5165\u624B\u8BD5\u6C34\u8BDD\u672F" : null,
+      COMMENT_SHILL_PATTERNS.macroPraise.test(normalized) ? "\u5B8F\u89C2\u8BDD\u672F\u8F6C\u5546\u54C1\u505A\u5DE5" : null,
+      COMMENT_SHILL_PATTERNS.comfortPraise.test(normalized) ? "\u5546\u54C1\u7A7F\u7740\u4F53\u9A8C\u80CC\u4E66" : null,
+      COMMENT_SHILL_PATTERNS.priceAmazement.test(normalized) ? "\u4EF7\u683C/\u6750\u8D28\u60CA\u53F9" : null,
+      COMMENT_SHILL_PATTERNS.brandComparison.test(normalized) ? "\u54C1\u724C\u62C9\u8E29\u63D0\u95EE" : null
+    ].filter((hit) => Boolean(hit));
     const hasPurchaseOrUse = hits.includes("\u8D2D\u4E70/\u4F7F\u7528\u53CD\u9988");
     const hasProductQuality = hits.includes("\u4EA7\u54C1\u4F53\u9A8C\u7EC6\u8282");
     const hasEndorsement = hits.includes("\u6B63\u5411\u80CC\u4E66");
@@ -4959,10 +4984,28 @@ ${inlineSurfaceFrostedGlass.overlay}
     const testimonialWithEnoughDetail = hasPurchaseOrUse && hasProductQuality && hasEndorsement && (hasMedia || normalized.length >= 28);
     const productQuestionWithContext = hasQuestion && hasPurchaseOrUse && hasProductQuality;
     const mediaBackedOrderClaim = hasMedia && hasPurchaseOrUse && (hasProductQuality || hasVideoLead);
-    if (!tightlyCoupledToVideoPromo && !testimonialWithEnoughDetail && !productQuestionWithContext && !mediaBackedOrderClaim) {
-      return null;
+    if (tightlyCoupledToVideoPromo || testimonialWithEnoughDetail || productQuestionWithContext || mediaBackedOrderClaim) {
+      return { state: "hit", matches: hits };
     }
-    return hits;
+    if (candidateHits.length > 0) {
+      const matches = uniqueStrings([...hits, ...candidateHits]);
+      if (authorProfile == null ? void 0 : authorProfile.likelyDormant) {
+        return { state: "hit", matches: uniqueStrings([...matches, "\u8D26\u53F7\u72B6\u6001\u8865\u8BC1"]) };
+      }
+      return { state: "candidate", matches };
+    }
+    return { state: "pass", matches: [] };
+  }
+  function uniqueStrings(values) {
+    return [...new Set(values)];
+  }
+  function normalizeRepeatedCommentText(text) {
+    const normalized = text.replace(/\s+/gu, " ").trim();
+    const chunks = normalized.split(" ").filter(Boolean);
+    if (chunks.length === 2 && chunks[0] === chunks[1]) {
+      return chunks[0];
+    }
+    return normalized;
   }
   function extractCommentAuthorMid(commentRenderer) {
     var _a, _b, _c, _d, _e, _f, _g, _h, _i;
@@ -4980,67 +5023,125 @@ ${inlineSurfaceFrostedGlass.overlay}
     const text = String(value != null ? value : "").trim();
     return /^\d{2,}$/u.test(text) ? text : null;
   }
-  function queueCommentAuthorProbe(match, commentRenderer) {
-    if (match.reason !== "shill") {
-      return;
-    }
-    const mid = extractCommentAuthorMid(commentRenderer);
-    if (!mid || commentAuthorProbeInFlight.has(mid)) {
-      return;
-    }
+  function queueCommentAuthorProbe(mid, onResult) {
     const now = Date.now();
     const cached = commentAuthorProbeCache.get(mid);
     if (cached && cached.expiresAt > now) {
-      return;
+      queueMicrotask(() => onResult(cached.result));
+      return true;
+    }
+    const callbacks = commentAuthorProbeInFlight.get(mid);
+    if (callbacks) {
+      callbacks.push(onResult);
+      return true;
     }
     if (commentAuthorProbeInFlight.size >= COMMENT_AUTHOR_PROBE_MAX_IN_FLIGHT) {
-      return;
+      return false;
     }
-    commentAuthorProbeInFlight.add(mid);
+    commentAuthorProbeInFlight.set(mid, [onResult]);
     void probeCommentAuthorState(mid).then((result) => {
       commentAuthorProbeCache.set(mid, {
         expiresAt: Date.now() + COMMENT_AUTHOR_PROBE_CACHE_MS,
         result
       });
       debugLog("Comment author probe completed", result);
+      notifyCommentAuthorProbeCallbacks(mid, result);
     }).catch((error) => {
       commentAuthorProbeCache.set(mid, {
         expiresAt: Date.now() + Math.floor(COMMENT_AUTHOR_PROBE_CACHE_MS / 2),
         result: null
       });
       debugLog("Comment author probe failed", error);
-    }).finally(() => {
-      commentAuthorProbeInFlight.delete(mid);
+      notifyCommentAuthorProbeCallbacks(mid, null);
     });
+    return true;
+  }
+  function notifyCommentAuthorProbeCallbacks(mid, result) {
+    var _a;
+    const callbacks = (_a = commentAuthorProbeInFlight.get(mid)) != null ? _a : [];
+    commentAuthorProbeInFlight.delete(mid);
+    for (const callback of callbacks) {
+      callback(result);
+    }
   }
   function probeCommentAuthorState(mid) {
     return __async(this, null, function* () {
-      var _a, _b, _c, _d;
       const response = yield gmXmlHttpRequest({
         method: "GET",
-        url: `https://api.bilibili.com/x/web-interface/card?mid=${encodeURIComponent(mid)}`,
+        url: `https://api.bilibili.com/x/web-interface/card?mid=${encodeURIComponent(mid)}&photo=false`,
+        headers: {
+          Referer: "https://www.bilibili.com/",
+          Origin: "https://www.bilibili.com/"
+        },
         timeout: COMMENT_AUTHOR_PROBE_TIMEOUT_MS
       });
       if (!response.ok) {
         throw new Error(`Bilibili author card request failed with HTTP ${response.status}`);
       }
-      const payload = JSON.parse(response.responseText);
-      const card = (_b = (_a = payload.data) == null ? void 0 : _a.card) != null ? _b : null;
-      const vipStatus = finiteNumberOrNull((_c = card == null ? void 0 : card.vip) == null ? void 0 : _c.status);
-      const level = finiteNumberOrNull((_d = card == null ? void 0 : card.level_info) == null ? void 0 : _d.current_level);
-      const follower = finiteNumberOrNull(card == null ? void 0 : card.follower);
-      return {
-        mid,
-        likelyDormant: vipStatus === 0 && (level === null || level <= 2) && (follower === null || follower <= 3),
-        vipStatus,
-        level,
-        follower
-      };
+      return parseCommentAuthorCardResponse(mid, response.responseText);
     });
+  }
+  function parseCommentAuthorCardResponse(mid, responseText) {
+    var _a, _b, _c, _d, _e;
+    const payload = JSON.parse(responseText);
+    const code = finiteNumberOrNull(payload.code);
+    if (code !== null && code !== 0) {
+      throw new Error(`Bilibili author card returned code ${code}`);
+    }
+    const card = (_b = (_a = payload.data) == null ? void 0 : _a.card) != null ? _b : null;
+    const vipStatus = finiteNumberOrNull((_c = card == null ? void 0 : card.vip) == null ? void 0 : _c.status);
+    const level = finiteNumberOrNull((_d = card == null ? void 0 : card.level_info) == null ? void 0 : _d.current_level);
+    const follower = finiteNumberOrNull(card == null ? void 0 : card.follower);
+    const likeNum = finiteNumberOrNull(card == null ? void 0 : card.like_num);
+    const archiveCount = finiteNumberOrNull(card == null ? void 0 : card.archive_count);
+    const isSeniorMember = booleanOrNull(card == null ? void 0 : card.is_senior_member);
+    const officialVerifyType = finiteNumberOrNull((_e = card == null ? void 0 : card.official_verify) == null ? void 0 : _e.type);
+    const evidence = [];
+    let dormantScore = 0;
+    if (vipStatus === 0) {
+      dormantScore += 1;
+      evidence.push("\u975E\u4F1A\u5458");
+    }
+    if (level !== null && level <= 2) {
+      dormantScore += 1;
+      evidence.push("\u4F4E\u7B49\u7EA7");
+    }
+    if (follower !== null && follower <= 3) {
+      dormantScore += 1;
+      evidence.push("\u4F4E\u7C89\u4E1D");
+    }
+    if (likeNum !== null && likeNum <= 3) {
+      dormantScore += 1;
+      evidence.push("\u4F4E\u83B7\u8D5E");
+    }
+    if (archiveCount !== null && archiveCount <= 0) {
+      dormantScore += 1;
+      evidence.push("\u65E0\u6295\u7A3F");
+    }
+    if (mid.length >= 10) {
+      dormantScore += 1;
+      evidence.push("\u957FUID");
+    }
+    const protectedProfile = isSeniorMember === true || officialVerifyType !== null && officialVerifyType >= 0 || follower !== null && follower >= 1e3 || likeNum !== null && likeNum >= 1e3 || archiveCount !== null && archiveCount >= 5;
+    return {
+      mid,
+      likelyDormant: dormantScore >= 4 && !protectedProfile,
+      vipStatus,
+      level,
+      follower,
+      likeNum,
+      archiveCount,
+      isSeniorMember,
+      officialVerifyType,
+      evidence
+    };
   }
   function finiteNumberOrNull(value) {
     const numberValue = Number(value);
     return Number.isFinite(numberValue) ? numberValue : null;
+  }
+  function booleanOrNull(value) {
+    return typeof value === "boolean" ? value : null;
   }
   function commentMatchToVideoSignal(match) {
     return {
@@ -5084,9 +5185,23 @@ ${inlineSurfaceFrostedGlass.overlay}
       })
     );
   }
-  function dispatchVideoSignalFeedback(match, decision) {
+  function createCommentFeedbackToken() {
+    const randomUUID = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    const token = `comment-feedback:${randomUUID}`;
+    commentFeedbackTokens.add(token);
+    return token;
+  }
+  function consumeCommentFeedbackToken(token) {
+    if (typeof token !== "string" || !commentFeedbackTokens.has(token)) {
+      return false;
+    }
+    commentFeedbackTokens.delete(token);
+    return true;
+  }
+  function dispatchVideoSignalFeedback(match, decision, feedbackToken) {
     const detail = __spreadProps(__spreadValues({
-      decision
+      decision,
+      feedbackToken
     }, commentMatchToVideoSignal(match)), {
       matches: match.matches
     });
@@ -5152,6 +5267,8 @@ ${inlineSurfaceFrostedGlass.overlay}
   function createFeedbackMenu(match) {
     const menu = document.createElement("span");
     const choices = document.createElement("span");
+    const feedbackToken = createCommentFeedbackToken();
+    let submitted = false;
     const trigger = createFeedbackButton(
       FEEDBACK_TRIGGER_ATTR,
       "\u53CD\u9988",
@@ -5163,24 +5280,33 @@ ${inlineSurfaceFrostedGlass.overlay}
     const keepButton = createFeedbackButton(
       FEEDBACK_KEEP_ATTR,
       "\u4FDD\u7559",
-      "\u5C06\u8FD9\u6761\u8BC4\u8BBA\u7EBF\u7D22\u4F5C\u4E3A\u5F53\u524D\u89C6\u9891\u7684\u672C\u5730\u4FDD\u7559\u6807\u7B7E",
+      "\u4FDD\u7559\u8FD9\u6761\u672C\u5730\u63A8\u7406\u7ED3\u679C\u3002\u63D0\u4EA4\u540E\u5F53\u524D\u89C6\u9891\u4E0D\u53EF\u91CD\u590D\u53CD\u9988\u3002",
       () => {
-        dispatchVideoSignalFeedback(match, "confirm");
-        setFeedbackMenuOpen(trigger, choices, false);
+        if (submitted) {
+          return;
+        }
+        submitted = true;
+        dispatchVideoSignalFeedback(match, "confirm", feedbackToken);
+        setFeedbackMenuSubmitted(menu, trigger, choices, keepButton, dismissButton);
       }
     );
     const dismissButton = createFeedbackButton(
       FEEDBACK_DISMISS_ATTR,
       "\u5FFD\u7565",
-      "\u5FFD\u7565\u5F53\u524D\u89C6\u9891\u7684\u672C\u5730\u8BC4\u8BBA\u63A8\u7406\u7ED3\u679C\uFF0C\u5E76\u505C\u6B62\u7EE7\u7EED\u63D0\u793A",
+      "\u5FFD\u7565\u8FD9\u6761\u672C\u5730\u63A8\u7406\u7ED3\u679C\u3002\u63D0\u4EA4\u540E\u5F53\u524D\u89C6\u9891\u4E0D\u53EF\u91CD\u590D\u53CD\u9988\u3002",
       () => {
-        dispatchVideoSignalFeedback(match, "dismiss");
-        setFeedbackMenuOpen(trigger, choices, false);
+        if (submitted) {
+          return;
+        }
+        submitted = true;
+        dispatchVideoSignalFeedback(match, "dismiss", feedbackToken);
+        setFeedbackMenuSubmitted(menu, trigger, choices, keepButton, dismissButton);
       }
     );
     menu.className = "bsb-tm-inline-feedback-menu";
     menu.setAttribute(FEEDBACK_MENU_ATTR, "true");
     menu.dataset.open = "false";
+    menu.dataset.submitted = "false";
     choices.className = "bsb-tm-inline-feedback-menu__choices";
     choices.setAttribute("role", "menu");
     choices.setAttribute("aria-hidden", "true");
@@ -5200,6 +5326,15 @@ ${inlineSurfaceFrostedGlass.overlay}
     trigger.dataset.state = open ? "shown" : "hidden";
     trigger.setAttribute("aria-expanded", String(open));
     choices.setAttribute("aria-hidden", String(!open));
+  }
+  function setFeedbackMenuSubmitted(menu, trigger, choices, keepButton, dismissButton) {
+    menu.dataset.submitted = "true";
+    setFeedbackMenuOpen(trigger, choices, false);
+    trigger.textContent = "\u5DF2\u63D0\u4EA4";
+    trigger.title = "\u5DF2\u63D0\u4EA4\uFF0C\u4E0D\u53EF\u91CD\u590D\u64CD\u4F5C\u3002\u672C\u5730\u5B66\u4E60\u4F1A\u6309\u4F60\u7684\u9009\u62E9\u5904\u7406\u5F53\u524D\u89C6\u9891\u3002";
+    trigger.disabled = true;
+    keepButton.disabled = true;
+    dismissButton.disabled = true;
   }
   function createLocationBadge(text, color) {
     return createInlineBadge(
@@ -5634,12 +5769,42 @@ ${inlineSurfaceFrostedGlass.overlay}
       }
       const match = classifyCommentRenderer(target.renderer, this.currentConfig);
       if (!match) {
+        this.queueCandidateAuthorUpgrade(target);
         return;
       }
+      this.applyTargetMatch(target, match);
+    }
+    queueCandidateAuthorUpgrade(target) {
+      if (target.host.getAttribute(PROBE_PENDING_ATTR) === "true") {
+        return;
+      }
+      const assessment = assessCommentRendererShill(target.renderer);
+      if (assessment.state !== "candidate") {
+        return;
+      }
+      const mid = extractCommentAuthorMid(target.renderer);
+      if (!mid) {
+        return;
+      }
+      target.host.setAttribute(PROBE_PENDING_ATTR, "true");
+      const queued = queueCommentAuthorProbe(mid, (profile) => {
+        target.host.removeAttribute(PROBE_PENDING_ATTR);
+        if (!(profile == null ? void 0 : profile.likelyDormant) || !target.host.isConnected || target.host.getAttribute(target.processedAttr) === "true") {
+          return;
+        }
+        const match = classifyCommentRenderer(target.renderer, this.currentConfig, profile);
+        if ((match == null ? void 0 : match.reason) === "shill") {
+          this.applyTargetMatch(target, match);
+        }
+      });
+      if (!queued) {
+        target.host.removeAttribute(PROBE_PENDING_ATTR);
+      }
+    }
+    applyTargetMatch(target, match) {
       if (target.kind === "comment") {
         dispatchVideoSignal(match);
       }
-      queueCommentAuthorProbe(match, target.renderer);
       const badgeAnchor = getBadgeAnchor(target.renderer);
       if (!badgeAnchor) {
         return;
@@ -5725,6 +5890,7 @@ ${inlineSurfaceFrostedGlass.overlay}
               content.removeAttribute(HIDDEN_ATTR);
             }
           }
+          thread.removeAttribute(PROBE_PENDING_ATTR);
           for (const replyTarget of getReplyTargets(thread)) {
             removeInjectedDecorations(replyTarget.renderer);
             replyTarget.renderer.removeAttribute(LOCATION_STATE_ATTR);
@@ -5732,6 +5898,7 @@ ${inlineSurfaceFrostedGlass.overlay}
               continue;
             }
             replyTarget.host.removeAttribute(REPLY_PROCESSED_ATTR);
+            replyTarget.host.removeAttribute(PROBE_PENDING_ATTR);
             const content = getContentBody(replyTarget.renderer);
             if (content) {
               content.style.display = "";
@@ -6185,6 +6352,9 @@ ${inlineSurfaceFrostedGlass.overlay}
         if (!(detail == null ? void 0 : detail.category) || !detail.decision || this.currentConfig.categoryModes[detail.category] === "off") {
           return;
         }
+        if (!consumeCommentFeedbackToken(detail.feedbackToken)) {
+          return;
+        }
         if (shouldBypassLocalReasoning({
           hasUpstreamWholeVideoLabel: this.currentFullVideoLabels.length > 0,
           isUpstreamLabelPending: this.upstreamLabelResolutionPending
@@ -6195,6 +6365,10 @@ ${inlineSurfaceFrostedGlass.overlay}
             message: "\u5F53\u524D\u89C6\u9891\u5DF2\u6709\u4E0A\u6E38\u6574\u89C6\u9891\u8BB0\u5F55\uFF0C\u672C\u5730\u53CD\u9988\u5165\u53E3\u4E0D\u4F1A\u8986\u76D6\u4E0A\u6E38\u7ED3\u679C\u3002",
             durationMs: 2600
           });
+          return;
+        }
+        if (this.hasLocalManualDecision(this.currentContext.bvid)) {
+          this.showDuplicateLocalFeedbackNotice(this.currentContext.bvid);
           return;
         }
         const segment = this.buildLocalSignalSegment(this.currentContext.bvid, {
@@ -6949,13 +7123,34 @@ ${inlineSurfaceFrostedGlass.overlay}
     skipGraceNoticeIdForSegment(segment) {
       return `segment-grace:${segment.UUID}`;
     }
+    hasLocalManualDecision(videoId) {
+      const resolved = this.localVideoLabelStore.getResolved(videoId);
+      return (resolved == null ? void 0 : resolved.source) === "manual" || this.localVideoLabelStore.isDismissed(videoId);
+    }
+    isLocalManualSegmentLocked(segment) {
+      if (!segment.UUID.startsWith("local-signal:")) {
+        return false;
+      }
+      if (segment.UUID.includes(":manual:") || segment.UUID.includes(":manual-dismiss:")) {
+        return true;
+      }
+      return this.currentContext ? this.hasLocalManualDecision(this.currentContext.bvid) : false;
+    }
+    showDuplicateLocalFeedbackNotice(videoId) {
+      this.notices.show({
+        id: `local-feedback-duplicate:${videoId}`,
+        title: "\u53CD\u9988\u5DF2\u63D0\u4EA4",
+        message: "\u4F60\u5DF2\u7ECF\u5BF9\u5F53\u524D\u89C6\u9891\u7684\u672C\u5730\u5224\u65AD\u63D0\u4EA4\u8FC7\u53CD\u9988\u3002\u672C\u5730\u5B66\u4E60\u5DF2\u8BB0\u5F55\uFF0C\u5F53\u524D\u9875\u9762\u4E0D\u4F1A\u91CD\u590D\u5904\u7406\u3002",
+        durationMs: 3200
+      });
+    }
     updateTitleBadge(segment) {
       if (!segment) {
         this.titleBadge.clear();
         return;
       }
       this.titleBadge.setSegment(segment, {
-        voteLocked: this.voteHistoryStore.has(segment.UUID)
+        voteLocked: this.voteHistoryStore.has(segment.UUID) || this.isLocalManualSegmentLocked(segment)
       });
     }
     clearRuntimeState(detachUi = false) {
@@ -7080,6 +7275,10 @@ ${inlineSurfaceFrostedGlass.overlay}
         if (!this.currentContext || !segment.UUID.startsWith("local-signal:")) {
           return;
         }
+        if (this.hasLocalManualDecision(this.currentContext.bvid)) {
+          this.showDuplicateLocalFeedbackNotice(this.currentContext.bvid);
+          return;
+        }
         if (decision === "confirm") {
           yield this.localVideoLabelStore.rememberManual(this.currentContext.bvid, segment.category, `\u624B\u52A8\u4FDD\u7559 ${CATEGORY_LABELS[segment.category]}`);
           this.currentTitleLabel = this.buildLocalSignalSegment(this.currentContext.bvid, {
@@ -7092,8 +7291,8 @@ ${inlineSurfaceFrostedGlass.overlay}
           this.notices.show({
             id: `local-label-confirm:${this.currentContext.bvid}`,
             title: "\u5DF2\u4FDD\u7559\u672C\u5730\u6807\u7B7E",
-            message: `\u540E\u7EED\u4F1A\u7EE7\u7EED\u628A\u8FD9\u4E2A\u89C6\u9891\u89C6\u4F5C\u201C${CATEGORY_LABELS[segment.category]}\u201D\u3002`,
-            durationMs: 2800
+            message: `\u5DF2\u8BB0\u5F55\u4E3A\u4F60\u7684\u672C\u5730\u5224\u65AD\u3002\u540E\u7EED\u8FDB\u5165\u5F53\u524D\u89C6\u9891\u65F6\u4F1A\u7EE7\u7EED\u663E\u793A\u201C${CATEGORY_LABELS[segment.category]}\u201D\uFF0C\u8BE5\u672C\u5730\u53CD\u9988\u4E0D\u53EF\u91CD\u590D\u63D0\u4EA4\u3002`,
+            durationMs: 3600
           });
           return;
         }
@@ -7110,8 +7309,8 @@ ${inlineSurfaceFrostedGlass.overlay}
         this.notices.show({
           id: `local-label-dismiss:${this.currentContext.bvid}`,
           title: "\u5DF2\u5FFD\u7565\u672C\u5730\u6807\u7B7E",
-          message: "\u5F53\u524D\u89C6\u9891\u540E\u7EED\u4E0D\u4F1A\u7EE7\u7EED\u663E\u793A\u8FD9\u6761\u672C\u5730\u5546\u4E1A\u63D0\u793A\u3002",
-          durationMs: 2800
+          message: "\u5DF2\u8BB0\u5F55\u4E3A\u4F60\u7684\u672C\u5730\u5224\u65AD\u3002\u540E\u7EED\u5F53\u524D\u89C6\u9891\u4E0D\u4F1A\u518D\u663E\u793A\u8FD9\u6761\u672C\u5730\u5546\u4E1A\u63D0\u793A\uFF0C\u8BE5\u672C\u5730\u53CD\u9988\u4E0D\u53EF\u91CD\u590D\u63D0\u4EA4\u3002",
+          durationMs: 3600
         });
       });
     }

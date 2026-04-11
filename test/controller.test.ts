@@ -4,7 +4,7 @@ import { PersistentCache } from "../src/core/cache";
 import { LocalVideoLabelStore } from "../src/core/local-label-store";
 import { VoteHistoryStore } from "../src/core/vote-history-store";
 import { ScriptController } from "../src/core/controller";
-import { VIDEO_SIGNAL_EVENT, VIDEO_SIGNAL_FEEDBACK_EVENT } from "../src/features/comment-filter";
+import { VIDEO_SIGNAL_EVENT, VIDEO_SIGNAL_FEEDBACK_EVENT, createCommentFeedbackToken } from "../src/features/comment-filter";
 import * as pageBridge from "../src/platform/page-bridge";
 import * as domUtils from "../src/utils/dom";
 import * as videoContextUtils from "../src/utils/video-context";
@@ -355,7 +355,8 @@ describe("script controller", () => {
           category: "sponsor",
           decision: "confirm",
           source: "comment-suspicion",
-          reason: "评论区用户反馈"
+          reason: "评论区用户反馈",
+          feedbackToken: createCommentFeedbackToken()
         }
       })
     );
@@ -363,6 +364,76 @@ describe("script controller", () => {
 
     expect(rememberManualSpy).toHaveBeenCalledWith("BV1xx411c7mM", "sponsor", "手动保留 商单广告");
     expect((Reflect.get(controller, "currentTitleLabel") as SegmentRecord | null)?.UUID).toContain(":manual:sponsor");
+  });
+
+  it("rejects forged comment feedback without a one-time token", async () => {
+    const controller = createController();
+    const rememberManualSpy = vi.spyOn(Reflect.get(controller, "localVideoLabelStore"), "rememberManual");
+
+    Reflect.set(controller, "started", true);
+    Reflect.set(controller, "currentConfig", cloneDefaultConfig());
+    Reflect.set(controller, "currentContext", {
+      bvid: "BV1xx411c7mT",
+      cid: "12345",
+      page: 1,
+      title: "测试视频",
+      href: "https://www.bilibili.com/video/BV1xx411c7mT"
+    } satisfies VideoContext);
+
+    Reflect.get(controller, "handleVideoSignalFeedback").call(
+      controller,
+      new CustomEvent(VIDEO_SIGNAL_FEEDBACK_EVENT, {
+        detail: {
+          category: "sponsor",
+          decision: "confirm",
+          source: "comment-suspicion",
+          reason: "伪造反馈"
+        }
+      })
+    );
+    await Promise.resolve();
+
+    expect(rememberManualSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects repeated local feedback after a manual decision exists", async () => {
+    const controller = createController();
+    const store = Reflect.get(controller, "localVideoLabelStore") as LocalVideoLabelStore;
+    const rememberManualSpy = vi.spyOn(store, "rememberManual");
+    const notices = Reflect.get(controller, "notices") as { show: (options: unknown) => void };
+    const showSpy = vi.spyOn(notices, "show");
+
+    Reflect.set(controller, "started", true);
+    Reflect.set(controller, "currentConfig", cloneDefaultConfig());
+    Reflect.set(controller, "currentContext", {
+      bvid: "BV1xx411c7mU",
+      cid: "12345",
+      page: 1,
+      title: "测试视频",
+      href: "https://www.bilibili.com/video/BV1xx411c7mU"
+    } satisfies VideoContext);
+
+    await store.rememberManual("BV1xx411c7mU", "sponsor", "既有手动保留");
+    Reflect.get(controller, "handleVideoSignalFeedback").call(
+      controller,
+      new CustomEvent(VIDEO_SIGNAL_FEEDBACK_EVENT, {
+        detail: {
+          category: "sponsor",
+          decision: "dismiss",
+          source: "comment-suspicion",
+          reason: "重复反馈",
+          feedbackToken: createCommentFeedbackToken()
+        }
+      })
+    );
+    await Promise.resolve();
+
+    expect(rememberManualSpy).toHaveBeenCalledTimes(1);
+    expect(showSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "local-feedback-duplicate:BV1xx411c7mU"
+      })
+    );
   });
 
   it("blocks comment feedback when an upstream whole-video label is already present", async () => {
@@ -400,7 +471,8 @@ describe("script controller", () => {
           category: "sponsor",
           decision: "confirm",
           source: "comment-suspicion",
-          reason: "评论区用户反馈"
+          reason: "评论区用户反馈",
+          feedbackToken: createCommentFeedbackToken()
         }
       })
     );

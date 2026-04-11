@@ -4,12 +4,15 @@ import {
   CommentSponsorController,
   LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT,
   VIDEO_SIGNAL_FEEDBACK_EVENT,
+  assessCommentRendererShill,
   classifyCommentRenderer,
+  consumeCommentFeedbackToken,
   extractCommentAuthorMid,
   extractCommentLocation,
   commentMatchToVideoSignal,
   extractCommentText,
   hasSponsoredGoodsLink,
+  parseCommentAuthorCardResponse,
   resolveCommentRendererLocation,
   resolveVueCommentLocation,
   scanCurrentPageCommentSignal
@@ -93,6 +96,18 @@ function createThread(renderer: HTMLElement): HTMLElement {
   threadRoot.appendChild(renderer);
   return thread;
 }
+
+const zombieLikeProfile = {
+  likelyDormant: true,
+  vipStatus: 0,
+  level: 1,
+  follower: 0,
+  likeNum: 0,
+  archiveCount: 0,
+  isSeniorMember: false,
+  officialVerifyType: -1,
+  evidence: ["非会员", "低等级", "低粉丝", "低获赞", "无投稿", "长UID"]
+};
 
 function createFlatReplyRenderer(
   withGoods = true,
@@ -362,17 +377,100 @@ describe("comment filter", () => {
     expect(match).toBeNull();
   });
 
-  it("extracts author mids and probes account state only after a suspected shill hit", async () => {
+  it("keeps lightweight shill patterns as account-gated candidates", () => {
+    const samples = [
+      "看着质感不错，准备入手两条试试水。",
+      "现在国产内裤都这么卷了吗[妙啊]这做工看着挺细致",
+      "不勒腿的确实爽[doge]",
+      "这价格能买到兰精莫代尔？性价比有点高噢",
+      "之前一直穿优衣库，这个元力象的舒适度能比得过吗"
+    ];
+
+    for (const text of samples) {
+      const renderer = createCommentRenderer(false, text) as HTMLElement & { shadowRoot: ShadowRoot };
+      expect(assessCommentRendererShill(renderer)).toMatchObject({
+        state: "candidate"
+      });
+      expect(
+        classifyCommentRenderer(renderer, {
+          dynamicRegexPattern: "/广告|推广|购买|推荐/gi",
+          dynamicRegexKeywordMinMatches: 1
+        })
+      ).toBeNull();
+      expect(
+        classifyCommentRenderer(
+          renderer,
+          {
+            dynamicRegexPattern: "/广告|推广|购买|推荐/gi",
+            dynamicRegexKeywordMinMatches: 1
+          },
+          zombieLikeProfile
+        )
+      ).toMatchObject({
+        reason: "shill",
+        category: "sponsor",
+        matches: expect.arrayContaining(["账号状态补证"])
+      });
+    }
+  });
+
+  it("parses card responses into conservative dormant-account features", () => {
+    const dormant = parseCommentAuthorCardResponse(
+      "12345678901",
+      JSON.stringify({
+        code: 0,
+        data: {
+          card: {
+            vip: { status: 0 },
+            level_info: { current_level: 1 },
+            follower: 0,
+            like_num: 0,
+            archive_count: 0,
+            is_senior_member: false,
+            official_verify: { type: -1 }
+          }
+        }
+      })
+    );
+    const protectedProfile = parseCommentAuthorCardResponse(
+      "12345678902",
+      JSON.stringify({
+        code: 0,
+        data: {
+          card: {
+            vip: { status: 0 },
+            level_info: { current_level: 1 },
+            follower: 2000,
+            like_num: 20,
+            archive_count: 6,
+            is_senior_member: false,
+            official_verify: { type: -1 }
+          }
+        }
+      })
+    );
+
+    expect(dormant.likelyDormant).toBe(true);
+    expect(dormant.evidence).toEqual(expect.arrayContaining(["非会员", "低等级", "无投稿", "长UID"]));
+    expect(protectedProfile.likelyDormant).toBe(false);
+  });
+
+  it("probes account state only after an account-gated candidate and upgrades dormant authors", async () => {
     history.replaceState({}, "", "https://www.bilibili.com/video/BV1xx411c7mZ");
-    const gmRequest = vi.fn((options: { url: string; onload?: (response: { status: number; responseText: string }) => void }) => {
+    const gmRequest = vi.fn((options: { url: string; headers?: Record<string, string>; onload?: (response: { status: number; responseText: string }) => void }) => {
       options.onload?.({
         status: 200,
         responseText: JSON.stringify({
+          code: 0,
           data: {
             card: {
               vip: { status: 0 },
               level_info: { current_level: 1 },
-              follower: 0
+              follower: 0,
+              like_num: 0,
+              archive_count: 0,
+              is_senior_member: false,
+              official_verify: { type: -1 }
             }
           }
         })
@@ -383,7 +481,7 @@ describe("comment filter", () => {
     const root = document.createElement("bili-comments");
     const rootShadow = root.attachShadow({ mode: "open" });
     document.body.appendChild(root);
-    const shillRenderer = createCommentRenderer(false, "有没有买过的大佬说说，洗几次会变形不", {
+    const shillRenderer = createCommentRenderer(false, "看着质感不错，准备入手两条试试水。", {
       authorMid: "100200300"
     }) as HTMLElement & { shadowRoot: ShadowRoot };
     rootShadow.appendChild(createThread(shillRenderer));
@@ -396,10 +494,23 @@ describe("comment filter", () => {
       commentFilterMode: "label"
     });
     Reflect.get(controller, "refresh").call(controller);
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(gmRequest).toHaveBeenCalledTimes(1);
     expect(gmRequest.mock.calls[0]?.[0].url).toContain("mid=100200300");
+    expect(gmRequest.mock.calls[0]?.[0].url).toContain("photo=false");
+    expect(gmRequest.mock.calls[0]?.[0].headers).toMatchObject({
+      Referer: "https://www.bilibili.com/",
+      Origin: "https://www.bilibili.com/"
+    });
+    expect(
+      rootShadow
+        .querySelector("bili-comment-thread-renderer")
+        ?.shadowRoot?.querySelector("bili-comment-renderer")
+        ?.shadowRoot?.querySelector("bili-comment-user-info")
+        ?.shadowRoot?.querySelector("[data-bsb-comment-badge='true']")
+        ?.textContent
+    ).toContain("疑似托评评论");
 
     const ordinaryRoot = document.createElement("bili-comments");
     const ordinaryRootShadow = ordinaryRoot.attachShadow({ mode: "open" });
@@ -413,7 +524,7 @@ describe("comment filter", () => {
     expect(gmRequest).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps the shill result stable when the account probe fails", async () => {
+  it("keeps account-gated candidates unprocessed when the account probe fails", async () => {
     history.replaceState({}, "", "https://www.bilibili.com/video/BV1xx411c7mY");
     const gmRequest = vi.fn((options: { onload?: (response: { status: number; responseText: string }) => void }) => {
       options.onload?.({ status: 500, responseText: "{}" });
@@ -425,7 +536,7 @@ describe("comment filter", () => {
     document.body.appendChild(root);
     rootShadow.appendChild(
       createThread(
-        createCommentRenderer(false, "元力象手感真不错，亲肤，穿一天也没啥，以前老是黏黏的烦死了，现在好点", {
+        createCommentRenderer(false, "看着质感不错，准备入手两条试试水。", {
           authorMid: "100200302"
         }) as HTMLElement
       )
@@ -437,7 +548,7 @@ describe("comment filter", () => {
       commentFilterMode: "label"
     });
     Reflect.get(controller, "refresh").call(controller);
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(gmRequest).toHaveBeenCalledTimes(1);
     expect(
@@ -446,8 +557,7 @@ describe("comment filter", () => {
         ?.shadowRoot?.querySelector("bili-comment-renderer")
         ?.shadowRoot?.querySelector("bili-comment-user-info")
         ?.shadowRoot?.querySelector("[data-bsb-comment-badge='true']")
-        ?.textContent
-    ).toContain("疑似托评评论");
+    ).toBeNull();
   });
 
   it("scans the current page comments for a reusable video-level local signal", () => {
@@ -473,10 +583,14 @@ describe("comment filter", () => {
       const renderer = createCommentRenderer(Boolean(sample.input.hasGoodsLink), sample.input.text, {
         hasMediaAttachment: sample.input.hasMediaAttachment
       }) as HTMLElement & { shadowRoot: ShadowRoot };
-      return classifyCommentRenderer(renderer, {
-        dynamicRegexPattern: sample.input.regexPattern ?? "/评论区|优惠券|广告|推广|好物推荐|邀请码|主页|店铺|橱窗/gi",
-        dynamicRegexKeywordMinMatches: sample.input.regexKeywordMinMatches ?? 1
-      })?.category ?? null;
+      return classifyCommentRenderer(
+        renderer,
+        {
+          dynamicRegexPattern: sample.input.regexPattern ?? "/评论区|优惠券|广告|推广|好物推荐|邀请码|主页|店铺|橱窗/gi",
+          dynamicRegexKeywordMinMatches: sample.input.regexKeywordMinMatches ?? 1
+        },
+        sample.input.authorProfile ?? null
+      )?.category ?? null;
     });
 
     expect(results).toEqual(approvedSamples.map((sample) => sample.expectedCategory));
@@ -770,9 +884,19 @@ describe("comment filter", () => {
       category: "sponsor",
       source: "comment-suspicion"
     });
+    const feedbackToken = (eventSpy.mock.calls[0]?.[0] as CustomEvent).detail.feedbackToken;
+    expect(typeof feedbackToken).toBe("string");
+    expect(consumeCommentFeedbackToken(feedbackToken)).toBe(true);
+    expect(consumeCommentFeedbackToken(feedbackToken)).toBe(false);
     expect(trigger?.getAttribute("aria-expanded")).toBe("false");
     expect(actionRoot?.querySelector<HTMLElement>("[data-bsb-comment-feedback-menu='true']")?.dataset.open).toBe("false");
+    expect(actionRoot?.querySelector<HTMLElement>("[data-bsb-comment-feedback-menu='true']")?.dataset.submitted).toBe("true");
     expect(choices?.getAttribute("aria-hidden")).toBe("true");
+    expect(trigger?.textContent).toBe("已提交");
+    expect(trigger?.disabled).toBe(true);
+    expect(keepButton?.disabled).toBe(true);
+    keepButton?.click();
+    expect(eventSpy).toHaveBeenCalledTimes(1);
 
     window.removeEventListener(VIDEO_SIGNAL_FEEDBACK_EVENT, eventSpy as EventListener);
   });
