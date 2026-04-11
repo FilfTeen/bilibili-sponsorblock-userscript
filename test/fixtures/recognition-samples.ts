@@ -267,12 +267,68 @@ export const COMMENT_RECOGNITION_SAMPLES: readonly CommentRecognitionSample[] = 
     humanVerdict: "confirmed"
   },
   {
+    id: "comment-hit-shill-need-and-comment-endorsement",
+    domain: "comment",
+    caseType: "must-hit",
+    input: {
+      text: "刚好缺内裤，刷到这个算是缘分，看评论都说好就放心了。",
+      regexPattern: DEFAULT_DYNAMIC_REGEX_PATTERN
+    },
+    expectedCategory: "sponsor",
+    expectedBehavior: "classify",
+    riskTag: "false-negative-risk",
+    source: "manual-real-world",
+    humanVerdict: "confirmed"
+  },
+  {
+    id: "comment-hit-shill-long-product-praise",
+    domain: "comment",
+    caseType: "must-hit",
+    input: {
+      text: "元力象手感真不错，亲肤，穿一天也没啥，以前老是黏黏的烦死了，现在好点",
+      regexPattern: DEFAULT_DYNAMIC_REGEX_PATTERN
+    },
+    expectedCategory: "sponsor",
+    expectedBehavior: "classify",
+    riskTag: "false-negative-risk",
+    source: "manual-real-world",
+    humanVerdict: "confirmed"
+  },
+  {
+    id: "comment-hit-shill-buyer-question",
+    domain: "comment",
+    caseType: "must-hit",
+    input: {
+      text: "有没有买过的大佬说说，洗几次会变形不",
+      regexPattern: DEFAULT_DYNAMIC_REGEX_PATTERN
+    },
+    expectedCategory: "sponsor",
+    expectedBehavior: "classify",
+    riskTag: "false-negative-risk",
+    source: "manual-real-world",
+    humanVerdict: "confirmed"
+  },
+  {
     id: "comment-pass-negative-product-warning",
     domain: "comment",
     caseType: "must-pass",
     input: {
       text: "刚买这条内裤就退了，不推荐，别被广告话术带了。",
       regexPattern: "/广告|购买|推荐/gi"
+    },
+    expectedCategory: null,
+    expectedBehavior: "suppress",
+    riskTag: "false-positive-protection",
+    source: "manual-real-world",
+    humanVerdict: "confirmed"
+  },
+  {
+    id: "comment-pass-negative-shill-warning",
+    domain: "comment",
+    caseType: "must-pass",
+    input: {
+      text: "别买，洗几次就变形，评论都在演，别被广告话术骗了。",
+      regexPattern: "/广告|购买|评论|变形/gi"
     },
     expectedCategory: null,
     expectedBehavior: "suppress",
@@ -349,6 +405,21 @@ export const COMMENT_RECOGNITION_SAMPLES: readonly CommentRecognitionSample[] = 
     riskTag: "quote-mocking",
     source: "ai-trap-candidate",
     humanVerdict: "pending"
+  },
+  {
+    id: "comment-trap-buyer-question-review-context",
+    domain: "comment",
+    caseType: "trap",
+    input: {
+      text: "普通测评区里有没有买过的大佬说说，洗几次会变形不。",
+      regexPattern: DEFAULT_DYNAMIC_REGEX_PATTERN
+    },
+    expectedCategory: null,
+    expectedBehavior: "review",
+    riskTag: "false-positive-protection",
+    source: "ai-trap-candidate",
+    humanVerdict: "pending",
+    notes: "同一句购买提问在非带货上下文中可能是普通讨论，需 Safari 真实评论区补采后再决定是否进入 blocking。"
   }
 ];
 

@@ -6,6 +6,7 @@ import { debugLog } from "../utils/dom";
 import { mutationsTouchSelectors } from "../utils/mutation";
 import { observeUrlChanges } from "../utils/navigation";
 import { supportsCommentFilters } from "../utils/page";
+import { gmXmlHttpRequest } from "../platform/gm";
 import {
   createInlineBadge,
   createInlineToggle,
@@ -32,6 +33,9 @@ const ROOT_SWEEP_DELAYS_MS = [120, 240, 420, 760, 1200, 1800] as const;
 export const VIDEO_SIGNAL_EVENT = "bsb:video-signal";
 export const VIDEO_SIGNAL_FEEDBACK_EVENT = "bsb:video-signal-feedback";
 export const LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT = "bsb:local-video-feedback-availability";
+const COMMENT_AUTHOR_PROBE_TIMEOUT_MS = 900;
+const COMMENT_AUTHOR_PROBE_CACHE_MS = 10 * 60 * 1000;
+const COMMENT_AUTHOR_PROBE_MAX_IN_FLIGHT = 2;
 const COMMENT_RELEVANT_SELECTORS = [
   "bili-comments",
   "bili-comment-thread-renderer",
@@ -69,6 +73,13 @@ type CommentRenderer = HTMLElement & {
   shadowRoot: ShadowRoot;
   data?: ReplyLocationPayload & Record<string, unknown>;
 };
+type CommentAuthorProbeResult = {
+  mid: string;
+  likelyDormant: boolean;
+  vipStatus: number | null;
+  level: number | null;
+  follower: number | null;
+};
 type CommentSponsorMatch =
   | { reason: "goods"; category: "sponsor"; matches: [] }
   | { reason: "shill"; category: "sponsor"; matches: string[] }
@@ -84,13 +95,18 @@ type CommentTarget = {
 const COMMENT_STRONG_MATCHES = new Set(["赞助", "商务合作", "商品卡", "优惠券", "购买指引"]);
 const COMMENT_INVITATION_PATTERN = /邀请码|体验码|兑换码|注册码/iu;
 const COMMENT_SHILL_PATTERNS = {
-  purchaseOrUse: /(?:刚|才)?(?:买|入手|拿到|收到|下单|收货|到手)|试穿|穿上|穿了|穿着|用了|用起来|洗了|下水洗|轮着穿|回购|复购|淘宝买/iu,
+  purchaseOrUse:
+    /(?:刚|才)?(?:买|入手|拿到|收到|下单|收货|到手)|刚好缺|正好缺|缺(?:个|条|件|款)?|想买|准备买|打算买|买过|有没有买过|试穿|穿上|穿了|穿着|穿一天|用了|用起来|洗了|洗几次|下水洗|轮着穿|回购|复购|淘宝买/iu,
   productQuality:
-    /透气|弹力|包裹|勒|印子|性价比|变形|掉色|面料|材质|水洗|下水|洗衣机|丝滑|滑溜|缝线|颜色|尺码|好穿|舒服|舒适|支撑|做工|手感|质感|素材|剪辑|后期|效率/iu,
+    /透气|亲肤|弹力|包裹|勒|印子|黏黏|粘粘|闷|性价比|变形|掉色|面料|材质|水洗|下水|洗衣机|丝滑|滑溜|缝线|颜色|尺码|好穿|舒服|舒适|支撑|做工|手感|质感|素材|剪辑|后期|效率/iu,
   endorsement: /可以|确实|真(?:的)?|挺|非常|绝了|好用|不错|满意|放心|适合|推荐|希望(?:能|可以)|性价比还行/iu,
-  videoLead: /up(?:主)?推荐|UP(?:主)?推荐|博主推荐|视频(?:里)?(?:推荐|种草|安利)|看(?:了)?评论|评论(?:都|区)?(?:说好|放心)|这(?:个|条|件|款|盒)|同款/iu,
+  videoLead:
+    /up(?:主)?推荐|UP(?:主)?推荐|博主推荐|视频(?:里)?(?:推荐|种草|安利)|刷到|刚好刷到|看(?:了)?评论|评论(?:都|区)?(?:说好|放心)|这(?:个|条|件|款|盒)|同款/iu,
+  question: /有没有买过|买过的(?:大佬|兄弟|姐妹)?|说说|问下|洗几次|会不会|会变形不|变形不|靠谱吗|真的假的/iu,
   warning: /别(?:买|点|被)|不(?:推荐|建议|值|好用|舒服)|踩坑|避雷|退(?:了|货|款)|差评|翻车|广告话术|割韭菜/iu
 } as const;
+const commentAuthorProbeCache = new Map<string, { expiresAt: number; result: CommentAuthorProbeResult | null }>();
+const commentAuthorProbeInFlight = new Set<string>();
 
 function getActionRendererNode(commentRenderer: CommentRenderer): HTMLElement | null {
   return (
@@ -286,6 +302,7 @@ function inspectCommentShillSignals(
     COMMENT_SHILL_PATTERNS.productQuality.test(normalized) ? "产品体验细节" : null,
     COMMENT_SHILL_PATTERNS.endorsement.test(normalized) ? "正向背书" : null,
     COMMENT_SHILL_PATTERNS.videoLead.test(normalized) ? "UP推荐语境" : null,
+    COMMENT_SHILL_PATTERNS.question.test(normalized) ? "购买前提问" : null,
     hasMedia ? "晒单图" : null
   ].filter((hit): hit is string => Boolean(hit));
 
@@ -293,18 +310,122 @@ function inspectCommentShillSignals(
   const hasProductQuality = hits.includes("产品体验细节");
   const hasEndorsement = hits.includes("正向背书");
   const hasVideoLead = hits.includes("UP推荐语境");
+  const hasQuestion = hits.includes("购买前提问");
 
   const tightlyCoupledToVideoPromo =
     hasVideoLead && hasPurchaseOrUse && (hasProductQuality || hasEndorsement || hasMedia);
   const testimonialWithEnoughDetail =
     hasPurchaseOrUse && hasProductQuality && hasEndorsement && (hasMedia || normalized.length >= 28);
+  const productQuestionWithContext = hasQuestion && hasPurchaseOrUse && hasProductQuality;
   const mediaBackedOrderClaim = hasMedia && hasPurchaseOrUse && (hasProductQuality || hasVideoLead);
 
-  if (!tightlyCoupledToVideoPromo && !testimonialWithEnoughDetail && !mediaBackedOrderClaim) {
+  if (!tightlyCoupledToVideoPromo && !testimonialWithEnoughDetail && !productQuestionWithContext && !mediaBackedOrderClaim) {
     return null;
   }
 
   return hits;
+}
+
+export function extractCommentAuthorMid(commentRenderer: CommentRenderer): string | null {
+  const data = commentRenderer.data as
+    | {
+        member?: { mid?: unknown } | null;
+        user?: { mid?: unknown } | null;
+        mid?: unknown;
+      }
+    | undefined;
+  const dataMid = data?.member?.mid ?? data?.user?.mid ?? data?.mid;
+  const normalizedDataMid = normalizeAuthorMid(dataMid);
+  if (normalizedDataMid) {
+    return normalizedDataMid;
+  }
+
+  const userRoot = commentRenderer.shadowRoot?.querySelector("bili-comment-user-info")?.shadowRoot;
+  const href = userRoot?.querySelector<HTMLAnchorElement>("a[href*='space.bilibili.com']")?.href ?? "";
+  return normalizeAuthorMid(href.match(/space\.bilibili\.com\/(\d+)/iu)?.[1]);
+}
+
+function normalizeAuthorMid(value: unknown): string | null {
+  const text = String(value ?? "").trim();
+  return /^\d{2,}$/u.test(text) ? text : null;
+}
+
+function queueCommentAuthorProbe(match: CommentSponsorMatch, commentRenderer: CommentRenderer): void {
+  if (match.reason !== "shill") {
+    return;
+  }
+
+  const mid = extractCommentAuthorMid(commentRenderer);
+  if (!mid || commentAuthorProbeInFlight.has(mid)) {
+    return;
+  }
+
+  const now = Date.now();
+  const cached = commentAuthorProbeCache.get(mid);
+  if (cached && cached.expiresAt > now) {
+    return;
+  }
+
+  if (commentAuthorProbeInFlight.size >= COMMENT_AUTHOR_PROBE_MAX_IN_FLIGHT) {
+    return;
+  }
+
+  commentAuthorProbeInFlight.add(mid);
+  void probeCommentAuthorState(mid)
+    .then((result) => {
+      commentAuthorProbeCache.set(mid, {
+        expiresAt: Date.now() + COMMENT_AUTHOR_PROBE_CACHE_MS,
+        result
+      });
+      debugLog("Comment author probe completed", result);
+    })
+    .catch((error) => {
+      commentAuthorProbeCache.set(mid, {
+        expiresAt: Date.now() + Math.floor(COMMENT_AUTHOR_PROBE_CACHE_MS / 2),
+        result: null
+      });
+      debugLog("Comment author probe failed", error);
+    })
+    .finally(() => {
+      commentAuthorProbeInFlight.delete(mid);
+    });
+}
+
+async function probeCommentAuthorState(mid: string): Promise<CommentAuthorProbeResult> {
+  const response = await gmXmlHttpRequest({
+    method: "GET",
+    url: `https://api.bilibili.com/x/web-interface/card?mid=${encodeURIComponent(mid)}`,
+    timeout: COMMENT_AUTHOR_PROBE_TIMEOUT_MS
+  });
+  if (!response.ok) {
+    throw new Error(`Bilibili author card request failed with HTTP ${response.status}`);
+  }
+
+  const payload = JSON.parse(response.responseText) as {
+    data?: {
+      card?: {
+        vip?: { status?: unknown } | null;
+        level_info?: { current_level?: unknown } | null;
+        follower?: unknown;
+      } | null;
+    } | null;
+  };
+  const card = payload.data?.card ?? null;
+  const vipStatus = finiteNumberOrNull(card?.vip?.status);
+  const level = finiteNumberOrNull(card?.level_info?.current_level);
+  const follower = finiteNumberOrNull(card?.follower);
+  return {
+    mid,
+    likelyDormant: vipStatus === 0 && (level === null || level <= 2) && (follower === null || follower <= 3),
+    vipStatus,
+    level,
+    follower
+  };
+}
+
+function finiteNumberOrNull(value: unknown): number | null {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : null;
 }
 
 export function commentMatchToVideoSignal(match: CommentSponsorMatch): LocalVideoSignal {
@@ -458,7 +579,7 @@ function createFeedbackMenu(match: CommentSponsorMatch): HTMLElement {
     "反馈",
     "反馈这条评论对当前视频本地标签的影响",
     () => {
-      setFeedbackMenuOpen(trigger, choices, choices.hidden);
+      setFeedbackMenuOpen(trigger, choices, trigger.getAttribute("aria-expanded") !== "true");
     }
   );
   const keepButton = createFeedbackButton(
@@ -482,9 +603,10 @@ function createFeedbackMenu(match: CommentSponsorMatch): HTMLElement {
 
   menu.className = "bsb-tm-inline-feedback-menu";
   menu.setAttribute(FEEDBACK_MENU_ATTR, "true");
+  menu.dataset.open = "false";
   choices.className = "bsb-tm-inline-feedback-menu__choices";
-  choices.hidden = true;
   choices.setAttribute("role", "menu");
+  choices.setAttribute("aria-hidden", "true");
   trigger.setAttribute("aria-haspopup", "menu");
   trigger.setAttribute("aria-expanded", "false");
   keepButton.setAttribute("role", "menuitem");
@@ -496,9 +618,13 @@ function createFeedbackMenu(match: CommentSponsorMatch): HTMLElement {
 }
 
 function setFeedbackMenuOpen(trigger: HTMLButtonElement, choices: HTMLElement, open: boolean): void {
-  choices.hidden = !open;
+  const menu = trigger.closest<HTMLElement>(`[${FEEDBACK_MENU_ATTR}='true']`);
+  if (menu) {
+    menu.dataset.open = String(open);
+  }
   trigger.dataset.state = open ? "shown" : "hidden";
   trigger.setAttribute("aria-expanded", String(open));
+  choices.setAttribute("aria-hidden", String(!open));
 }
 
 function createLocationBadge(text: string, color?: string): HTMLDivElement {
@@ -1017,6 +1143,7 @@ export class CommentSponsorController {
     if (target.kind === "comment") {
       dispatchVideoSignal(match);
     }
+    queueCommentAuthorProbe(match, target.renderer);
 
     const badgeAnchor = getBadgeAnchor(target.renderer);
     if (!badgeAnchor) {

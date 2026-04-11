@@ -4627,12 +4627,31 @@ ${inlineSurfaceFrostedGlass.overlay}
 }
 
 .bsb-tm-inline-feedback-menu {
+  --bsb-inline-feedback-menu-accent: #60a5fa;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   margin-inline-start: 8px;
+  padding: 2px;
+  border: 1px solid transparent;
+  border-radius: 999px;
   vertical-align: middle;
   white-space: nowrap;
+  isolation: isolate;
+  transition:
+    background 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-color 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.bsb-tm-inline-feedback-menu[data-open="true"] {
+  background:
+    radial-gradient(circle at 16% 10%, color-mix(in srgb, var(--bsb-inline-feedback-menu-accent) 16%, rgba(255, 255, 255, 0.34)), transparent 44%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.68), rgba(244, 248, 255, 0.42));
+  border-color: color-mix(in srgb, var(--bsb-inline-feedback-menu-accent) 16%, rgba(148, 163, 184, 0.22));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 8px 18px rgba(15, 23, 42, 0.08);
 }
 
 .bsb-tm-inline-feedback-menu .bsb-tm-inline-toggle {
@@ -4649,10 +4668,26 @@ ${inlineSurfaceFrostedGlass.overlay}
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  max-inline-size: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transform: translateX(-6px) scale(0.96);
+  transform-origin: left center;
+  clip-path: inset(0 100% 0 0 round 999px);
+  transition:
+    max-inline-size 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 180ms ease,
+    transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    clip-path 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-.bsb-tm-inline-feedback-menu__choices[hidden] {
-  display: none !important;
+.bsb-tm-inline-feedback-menu[data-open="true"] .bsb-tm-inline-feedback-menu__choices {
+  max-inline-size: 96px;
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0) scale(1);
+  clip-path: inset(0 0 0 0 round 999px);
 }
 `;
   function ensureInlineFeedbackStyles(root) {
@@ -4720,6 +4755,9 @@ ${inlineSurfaceFrostedGlass.overlay}
   var VIDEO_SIGNAL_EVENT = "bsb:video-signal";
   var VIDEO_SIGNAL_FEEDBACK_EVENT = "bsb:video-signal-feedback";
   var LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT = "bsb:local-video-feedback-availability";
+  var COMMENT_AUTHOR_PROBE_TIMEOUT_MS = 900;
+  var COMMENT_AUTHOR_PROBE_CACHE_MS = 10 * 60 * 1e3;
+  var COMMENT_AUTHOR_PROBE_MAX_IN_FLIGHT = 2;
   var COMMENT_RELEVANT_SELECTORS = [
     "bili-comments",
     "bili-comment-thread-renderer",
@@ -4749,12 +4787,15 @@ ${inlineSurfaceFrostedGlass.overlay}
   var COMMENT_STRONG_MATCHES = /* @__PURE__ */ new Set(["\u8D5E\u52A9", "\u5546\u52A1\u5408\u4F5C", "\u5546\u54C1\u5361", "\u4F18\u60E0\u5238", "\u8D2D\u4E70\u6307\u5F15"]);
   var COMMENT_INVITATION_PATTERN = /邀请码|体验码|兑换码|注册码/iu;
   var COMMENT_SHILL_PATTERNS = {
-    purchaseOrUse: /(?:刚|才)?(?:买|入手|拿到|收到|下单|收货|到手)|试穿|穿上|穿了|穿着|用了|用起来|洗了|下水洗|轮着穿|回购|复购|淘宝买/iu,
-    productQuality: /透气|弹力|包裹|勒|印子|性价比|变形|掉色|面料|材质|水洗|下水|洗衣机|丝滑|滑溜|缝线|颜色|尺码|好穿|舒服|舒适|支撑|做工|手感|质感|素材|剪辑|后期|效率/iu,
+    purchaseOrUse: /(?:刚|才)?(?:买|入手|拿到|收到|下单|收货|到手)|刚好缺|正好缺|缺(?:个|条|件|款)?|想买|准备买|打算买|买过|有没有买过|试穿|穿上|穿了|穿着|穿一天|用了|用起来|洗了|洗几次|下水洗|轮着穿|回购|复购|淘宝买/iu,
+    productQuality: /透气|亲肤|弹力|包裹|勒|印子|黏黏|粘粘|闷|性价比|变形|掉色|面料|材质|水洗|下水|洗衣机|丝滑|滑溜|缝线|颜色|尺码|好穿|舒服|舒适|支撑|做工|手感|质感|素材|剪辑|后期|效率/iu,
     endorsement: /可以|确实|真(?:的)?|挺|非常|绝了|好用|不错|满意|放心|适合|推荐|希望(?:能|可以)|性价比还行/iu,
-    videoLead: /up(?:主)?推荐|UP(?:主)?推荐|博主推荐|视频(?:里)?(?:推荐|种草|安利)|看(?:了)?评论|评论(?:都|区)?(?:说好|放心)|这(?:个|条|件|款|盒)|同款/iu,
+    videoLead: /up(?:主)?推荐|UP(?:主)?推荐|博主推荐|视频(?:里)?(?:推荐|种草|安利)|刷到|刚好刷到|看(?:了)?评论|评论(?:都|区)?(?:说好|放心)|这(?:个|条|件|款|盒)|同款/iu,
+    question: /有没有买过|买过的(?:大佬|兄弟|姐妹)?|说说|问下|洗几次|会不会|会变形不|变形不|靠谱吗|真的假的/iu,
     warning: /别(?:买|点|被)|不(?:推荐|建议|值|好用|舒服)|踩坑|避雷|退(?:了|货|款)|差评|翻车|广告话术|割韭菜/iu
   };
+  var commentAuthorProbeCache = /* @__PURE__ */ new Map();
+  var commentAuthorProbeInFlight = /* @__PURE__ */ new Set();
   function getActionRendererNode(commentRenderer) {
     var _a, _b, _c, _d, _e, _f;
     return (_f = (_e = (_c = (_a = commentRenderer.shadowRoot) == null ? void 0 : _a.querySelector("bili-comment-action-buttons-renderer")) != null ? _c : (_b = commentRenderer.shadowRoot) == null ? void 0 : _b.querySelector("#main bili-comment-action-buttons-renderer")) != null ? _e : (_d = commentRenderer.shadowRoot) == null ? void 0 : _d.querySelector("#footer bili-comment-action-buttons-renderer")) != null ? _f : null;
@@ -4906,19 +4947,100 @@ ${inlineSurfaceFrostedGlass.overlay}
       COMMENT_SHILL_PATTERNS.productQuality.test(normalized) ? "\u4EA7\u54C1\u4F53\u9A8C\u7EC6\u8282" : null,
       COMMENT_SHILL_PATTERNS.endorsement.test(normalized) ? "\u6B63\u5411\u80CC\u4E66" : null,
       COMMENT_SHILL_PATTERNS.videoLead.test(normalized) ? "UP\u63A8\u8350\u8BED\u5883" : null,
+      COMMENT_SHILL_PATTERNS.question.test(normalized) ? "\u8D2D\u4E70\u524D\u63D0\u95EE" : null,
       hasMedia ? "\u6652\u5355\u56FE" : null
     ].filter((hit) => Boolean(hit));
     const hasPurchaseOrUse = hits.includes("\u8D2D\u4E70/\u4F7F\u7528\u53CD\u9988");
     const hasProductQuality = hits.includes("\u4EA7\u54C1\u4F53\u9A8C\u7EC6\u8282");
     const hasEndorsement = hits.includes("\u6B63\u5411\u80CC\u4E66");
     const hasVideoLead = hits.includes("UP\u63A8\u8350\u8BED\u5883");
+    const hasQuestion = hits.includes("\u8D2D\u4E70\u524D\u63D0\u95EE");
     const tightlyCoupledToVideoPromo = hasVideoLead && hasPurchaseOrUse && (hasProductQuality || hasEndorsement || hasMedia);
     const testimonialWithEnoughDetail = hasPurchaseOrUse && hasProductQuality && hasEndorsement && (hasMedia || normalized.length >= 28);
+    const productQuestionWithContext = hasQuestion && hasPurchaseOrUse && hasProductQuality;
     const mediaBackedOrderClaim = hasMedia && hasPurchaseOrUse && (hasProductQuality || hasVideoLead);
-    if (!tightlyCoupledToVideoPromo && !testimonialWithEnoughDetail && !mediaBackedOrderClaim) {
+    if (!tightlyCoupledToVideoPromo && !testimonialWithEnoughDetail && !productQuestionWithContext && !mediaBackedOrderClaim) {
       return null;
     }
     return hits;
+  }
+  function extractCommentAuthorMid(commentRenderer) {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+    const data = commentRenderer.data;
+    const dataMid = (_d = (_c = (_a = data == null ? void 0 : data.member) == null ? void 0 : _a.mid) != null ? _c : (_b = data == null ? void 0 : data.user) == null ? void 0 : _b.mid) != null ? _d : data == null ? void 0 : data.mid;
+    const normalizedDataMid = normalizeAuthorMid(dataMid);
+    if (normalizedDataMid) {
+      return normalizedDataMid;
+    }
+    const userRoot = (_f = (_e = commentRenderer.shadowRoot) == null ? void 0 : _e.querySelector("bili-comment-user-info")) == null ? void 0 : _f.shadowRoot;
+    const href = (_h = (_g = userRoot == null ? void 0 : userRoot.querySelector("a[href*='space.bilibili.com']")) == null ? void 0 : _g.href) != null ? _h : "";
+    return normalizeAuthorMid((_i = href.match(/space\.bilibili\.com\/(\d+)/iu)) == null ? void 0 : _i[1]);
+  }
+  function normalizeAuthorMid(value) {
+    const text = String(value != null ? value : "").trim();
+    return /^\d{2,}$/u.test(text) ? text : null;
+  }
+  function queueCommentAuthorProbe(match, commentRenderer) {
+    if (match.reason !== "shill") {
+      return;
+    }
+    const mid = extractCommentAuthorMid(commentRenderer);
+    if (!mid || commentAuthorProbeInFlight.has(mid)) {
+      return;
+    }
+    const now = Date.now();
+    const cached = commentAuthorProbeCache.get(mid);
+    if (cached && cached.expiresAt > now) {
+      return;
+    }
+    if (commentAuthorProbeInFlight.size >= COMMENT_AUTHOR_PROBE_MAX_IN_FLIGHT) {
+      return;
+    }
+    commentAuthorProbeInFlight.add(mid);
+    void probeCommentAuthorState(mid).then((result) => {
+      commentAuthorProbeCache.set(mid, {
+        expiresAt: Date.now() + COMMENT_AUTHOR_PROBE_CACHE_MS,
+        result
+      });
+      debugLog("Comment author probe completed", result);
+    }).catch((error) => {
+      commentAuthorProbeCache.set(mid, {
+        expiresAt: Date.now() + Math.floor(COMMENT_AUTHOR_PROBE_CACHE_MS / 2),
+        result: null
+      });
+      debugLog("Comment author probe failed", error);
+    }).finally(() => {
+      commentAuthorProbeInFlight.delete(mid);
+    });
+  }
+  function probeCommentAuthorState(mid) {
+    return __async(this, null, function* () {
+      var _a, _b, _c, _d;
+      const response = yield gmXmlHttpRequest({
+        method: "GET",
+        url: `https://api.bilibili.com/x/web-interface/card?mid=${encodeURIComponent(mid)}`,
+        timeout: COMMENT_AUTHOR_PROBE_TIMEOUT_MS
+      });
+      if (!response.ok) {
+        throw new Error(`Bilibili author card request failed with HTTP ${response.status}`);
+      }
+      const payload = JSON.parse(response.responseText);
+      const card = (_b = (_a = payload.data) == null ? void 0 : _a.card) != null ? _b : null;
+      const vipStatus = finiteNumberOrNull((_c = card == null ? void 0 : card.vip) == null ? void 0 : _c.status);
+      const level = finiteNumberOrNull((_d = card == null ? void 0 : card.level_info) == null ? void 0 : _d.current_level);
+      const follower = finiteNumberOrNull(card == null ? void 0 : card.follower);
+      return {
+        mid,
+        likelyDormant: vipStatus === 0 && (level === null || level <= 2) && (follower === null || follower <= 3),
+        vipStatus,
+        level,
+        follower
+      };
+    });
+  }
+  function finiteNumberOrNull(value) {
+    const numberValue = Number(value);
+    return Number.isFinite(numberValue) ? numberValue : null;
   }
   function commentMatchToVideoSignal(match) {
     return {
@@ -5035,7 +5157,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       "\u53CD\u9988",
       "\u53CD\u9988\u8FD9\u6761\u8BC4\u8BBA\u5BF9\u5F53\u524D\u89C6\u9891\u672C\u5730\u6807\u7B7E\u7684\u5F71\u54CD",
       () => {
-        setFeedbackMenuOpen(trigger, choices, choices.hidden);
+        setFeedbackMenuOpen(trigger, choices, trigger.getAttribute("aria-expanded") !== "true");
       }
     );
     const keepButton = createFeedbackButton(
@@ -5058,9 +5180,10 @@ ${inlineSurfaceFrostedGlass.overlay}
     );
     menu.className = "bsb-tm-inline-feedback-menu";
     menu.setAttribute(FEEDBACK_MENU_ATTR, "true");
+    menu.dataset.open = "false";
     choices.className = "bsb-tm-inline-feedback-menu__choices";
-    choices.hidden = true;
     choices.setAttribute("role", "menu");
+    choices.setAttribute("aria-hidden", "true");
     trigger.setAttribute("aria-haspopup", "menu");
     trigger.setAttribute("aria-expanded", "false");
     keepButton.setAttribute("role", "menuitem");
@@ -5070,9 +5193,13 @@ ${inlineSurfaceFrostedGlass.overlay}
     return menu;
   }
   function setFeedbackMenuOpen(trigger, choices, open) {
-    choices.hidden = !open;
+    const menu = trigger.closest(`[${FEEDBACK_MENU_ATTR}='true']`);
+    if (menu) {
+      menu.dataset.open = String(open);
+    }
     trigger.dataset.state = open ? "shown" : "hidden";
     trigger.setAttribute("aria-expanded", String(open));
+    choices.setAttribute("aria-hidden", String(!open));
   }
   function createLocationBadge(text, color) {
     return createInlineBadge(
@@ -5512,6 +5639,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       if (target.kind === "comment") {
         dispatchVideoSignal(match);
       }
+      queueCommentAuthorProbe(match, target.renderer);
       const badgeAnchor = getBadgeAnchor(target.renderer);
       if (!badgeAnchor) {
         return;
