@@ -68,6 +68,10 @@ export function supportsVideoFeatures(url: string): boolean {
   );
 }
 
+export function supportsCompactVideoHeader(url: string): boolean {
+  return detectPageType(url) === "video";
+}
+
 export function supportsDynamicFilters(url: string): boolean {
   const pageType = detectPageType(url);
   return pageType === "main" || pageType === "dynamic" || pageType === "channel";

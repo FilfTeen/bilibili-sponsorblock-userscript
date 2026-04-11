@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { detectPageType, supportsCommentFilters, supportsDynamicFilters, supportsVideoFeatures } from "../src/utils/page";
+import {
+  detectPageType,
+  supportsCommentFilters,
+  supportsCompactVideoHeader,
+  supportsDynamicFilters,
+  supportsVideoFeatures
+} from "../src/utils/page";
 
 describe("page detection", () => {
   it("detects main, dynamic and video style pages", () => {
@@ -18,5 +24,12 @@ describe("page detection", () => {
     expect(supportsVideoFeatures("https://www.bilibili.com/")).toBe(false);
     expect(supportsDynamicFilters("https://www.bilibili.com/")).toBe(true);
     expect(supportsCommentFilters("https://www.bilibili.com/opus/123")).toBe(true);
+  });
+
+  it("limits the compact video header to ordinary video pages", () => {
+    expect(supportsCompactVideoHeader("https://www.bilibili.com/video/BV1xx411c7mD")).toBe(true);
+    expect(supportsCompactVideoHeader("https://www.bilibili.com/bangumi/play/ep123456")).toBe(false);
+    expect(supportsCompactVideoHeader("https://www.bilibili.com/bangumi/play/ss12345")).toBe(false);
+    expect(supportsCompactVideoHeader("https://www.bilibili.com/opus/123")).toBe(false);
   });
 });

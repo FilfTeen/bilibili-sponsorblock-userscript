@@ -3445,6 +3445,9 @@
     const pageType = detectPageType(url);
     return pageType === "video" || pageType === "list" || pageType === "festival" || pageType === "anime" || pageType === "opus";
   }
+  function supportsCompactVideoHeader(url) {
+    return detectPageType(url) === "video";
+  }
   function supportsDynamicFilters(url) {
     const pageType = detectPageType(url);
     return pageType === "main" || pageType === "dynamic" || pageType === "channel";
@@ -7508,7 +7511,7 @@ ${inlineSurfaceFrostedGlass.overlay}
         placeholderVisible: this.currentConfig.compactHeaderPlaceholderVisible,
         searchPlaceholderEnabled: this.currentConfig.compactHeaderSearchPlaceholderEnabled
       });
-      const shouldCompact = this.started && this.currentConfig.enabled && this.currentConfig.compactVideoHeader && supportsVideoFeatures(window.location.href);
+      const shouldCompact = this.started && this.currentConfig.enabled && this.currentConfig.compactVideoHeader && supportsCompactVideoHeader(window.location.href);
       if (shouldCompact) {
         this.compactHeader.mount();
         return;
