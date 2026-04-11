@@ -4748,6 +4748,13 @@ ${inlineSurfaceFrostedGlass.overlay}
   };
   var COMMENT_STRONG_MATCHES = /* @__PURE__ */ new Set(["\u8D5E\u52A9", "\u5546\u52A1\u5408\u4F5C", "\u5546\u54C1\u5361", "\u4F18\u60E0\u5238", "\u8D2D\u4E70\u6307\u5F15"]);
   var COMMENT_INVITATION_PATTERN = /邀请码|体验码|兑换码|注册码/iu;
+  var COMMENT_SHILL_PATTERNS = {
+    purchaseOrUse: /(?:刚|才)?(?:买|入手|拿到|收到|下单|收货|到手)|试穿|穿上|穿了|穿着|用了|用起来|洗了|下水洗|轮着穿|回购|复购|淘宝买/iu,
+    productQuality: /透气|弹力|包裹|勒|印子|性价比|变形|掉色|面料|材质|水洗|下水|洗衣机|丝滑|滑溜|缝线|颜色|尺码|好穿|舒服|舒适|支撑|做工|手感|质感|素材|剪辑|后期|效率/iu,
+    endorsement: /可以|确实|真(?:的)?|挺|非常|绝了|好用|不错|满意|放心|适合|推荐|希望(?:能|可以)|性价比还行/iu,
+    videoLead: /up(?:主)?推荐|UP(?:主)?推荐|博主推荐|视频(?:里)?(?:推荐|种草|安利)|看(?:了)?评论|评论(?:都|区)?(?:说好|放心)|这(?:个|条|件|款|盒)|同款/iu,
+    warning: /别(?:买|点|被)|不(?:推荐|建议|值|好用|舒服)|踩坑|避雷|退(?:了|货|款)|差评|翻车|广告话术|割韭菜/iu
+  };
   function getActionRendererNode(commentRenderer) {
     var _a, _b, _c, _d, _e, _f;
     return (_f = (_e = (_c = (_a = commentRenderer.shadowRoot) == null ? void 0 : _a.querySelector("bili-comment-action-buttons-renderer")) != null ? _c : (_b = commentRenderer.shadowRoot) == null ? void 0 : _b.querySelector("#main bili-comment-action-buttons-renderer")) != null ? _e : (_d = commentRenderer.shadowRoot) == null ? void 0 : _d.querySelector("#footer bili-comment-action-buttons-renderer")) != null ? _f : null;
@@ -4810,6 +4817,19 @@ ${inlineSurfaceFrostedGlass.overlay}
     }
     return false;
   }
+  function hasCommentMediaAttachment(commentRenderer) {
+    var _a, _b, _c, _d;
+    const richTextRoot = (_b = (_a = commentRenderer.shadowRoot) == null ? void 0 : _a.querySelector("bili-rich-text")) == null ? void 0 : _b.shadowRoot;
+    const selector = [
+      "img",
+      "picture",
+      "bili-comment-picture",
+      "bili-rich-text-img",
+      ".reply-picture",
+      ".comment-image"
+    ].join(",");
+    return Boolean((_d = richTextRoot == null ? void 0 : richTextRoot.querySelector(selector)) != null ? _d : (_c = commentRenderer.shadowRoot) == null ? void 0 : _c.querySelector(selector));
+  }
   function extractCommentText(commentRenderer) {
     var _a, _b, _c, _d, _e, _f;
     const richTextNodes = [
@@ -4839,10 +4859,18 @@ ${inlineSurfaceFrostedGlass.overlay}
       storedMatches,
       minMatches: config.dynamicRegexKeywordMinMatches
     });
+    const actionability = inspectCommercialActionability(text);
+    const shillMatches = inspectCommentShillSignals(commentRenderer, text, actionability.hasQuotedOrMockingContext);
+    if (shillMatches) {
+      return {
+        reason: "shill",
+        category: "sponsor",
+        matches: shillMatches
+      };
+    }
     if (!assessment.category) {
       return null;
     }
-    const actionability = inspectCommercialActionability(text);
     const hasStrongToken = assessment.matches.some((match) => COMMENT_STRONG_MATCHES.has(match));
     const hasInvitationLead = COMMENT_INVITATION_PATTERN.test(text);
     const hasStrongEvidence = actionability.hasStrongClosure || hasStrongToken || hasInvitationLead;
@@ -4867,17 +4895,45 @@ ${inlineSurfaceFrostedGlass.overlay}
       matches: storedMatches.length > 0 ? storedMatches : assessment.matches
     };
   }
+  function inspectCommentShillSignals(commentRenderer, text, hasQuotedOrMockingContext) {
+    const normalized = text.replace(/\s+/gu, " ").trim();
+    if (!normalized || hasQuotedOrMockingContext || COMMENT_SHILL_PATTERNS.warning.test(normalized)) {
+      return null;
+    }
+    const hasMedia = hasCommentMediaAttachment(commentRenderer);
+    const hits = [
+      COMMENT_SHILL_PATTERNS.purchaseOrUse.test(normalized) ? "\u8D2D\u4E70/\u4F7F\u7528\u53CD\u9988" : null,
+      COMMENT_SHILL_PATTERNS.productQuality.test(normalized) ? "\u4EA7\u54C1\u4F53\u9A8C\u7EC6\u8282" : null,
+      COMMENT_SHILL_PATTERNS.endorsement.test(normalized) ? "\u6B63\u5411\u80CC\u4E66" : null,
+      COMMENT_SHILL_PATTERNS.videoLead.test(normalized) ? "UP\u63A8\u8350\u8BED\u5883" : null,
+      hasMedia ? "\u6652\u5355\u56FE" : null
+    ].filter((hit) => Boolean(hit));
+    const hasPurchaseOrUse = hits.includes("\u8D2D\u4E70/\u4F7F\u7528\u53CD\u9988");
+    const hasProductQuality = hits.includes("\u4EA7\u54C1\u4F53\u9A8C\u7EC6\u8282");
+    const hasEndorsement = hits.includes("\u6B63\u5411\u80CC\u4E66");
+    const hasVideoLead = hits.includes("UP\u63A8\u8350\u8BED\u5883");
+    const tightlyCoupledToVideoPromo = hasVideoLead && hasPurchaseOrUse && (hasProductQuality || hasEndorsement || hasMedia);
+    const testimonialWithEnoughDetail = hasPurchaseOrUse && hasProductQuality && hasEndorsement && (hasMedia || normalized.length >= 28);
+    const mediaBackedOrderClaim = hasMedia && hasPurchaseOrUse && (hasProductQuality || hasVideoLead);
+    if (!tightlyCoupledToVideoPromo && !testimonialWithEnoughDetail && !mediaBackedOrderClaim) {
+      return null;
+    }
+    return hits;
+  }
   function commentMatchToVideoSignal(match) {
     return {
       source: match.reason === "goods" ? "comment-goods" : "comment-suspicion",
       category: match.category,
-      confidence: match.reason === "goods" ? 0.96 : match.category === "sponsor" ? 0.87 : match.category === "exclusive_access" ? 0.8 : 0.79,
-      reason: match.reason === "goods" ? "\u8BC4\u8BBA\u533A\u547D\u4E2D\u5546\u54C1\u5361\u5E7F\u544A" : `\u8BC4\u8BBA\u533A\u547D\u4E2D\u5546\u4E1A\u7EBF\u7D22\uFF1A${match.matches.join(" / ")}`
+      confidence: match.reason === "goods" ? 0.96 : match.reason === "shill" ? 0.84 : match.category === "sponsor" ? 0.87 : match.category === "exclusive_access" ? 0.8 : 0.79,
+      reason: match.reason === "goods" ? "\u8BC4\u8BBA\u533A\u547D\u4E2D\u5546\u54C1\u5361\u5E7F\u544A" : match.reason === "shill" ? `\u8BC4\u8BBA\u533A\u547D\u4E2D\u7591\u4F3C\u6258\u8BC4\u7EBF\u7D22\uFF1A${match.matches.join(" / ")}` : `\u8BC4\u8BBA\u533A\u547D\u4E2D\u5546\u4E1A\u7EBF\u7D22\uFF1A${match.matches.join(" / ")}`
     };
   }
   function getBadgeText(match) {
     if (match.reason === "goods") {
       return "\u8BC4\u8BBA\u533A\u5546\u54C1\u5E7F\u544A";
+    }
+    if (match.reason === "shill") {
+      return "\u7591\u4F3C\u6258\u8BC4\u8BC4\u8BBA";
     }
     if (match.category === "selfpromo") {
       return `\u7591\u4F3C\u5BFC\u6D41\u8BC4\u8BBA: ${match.matches.join(" / ")}`;

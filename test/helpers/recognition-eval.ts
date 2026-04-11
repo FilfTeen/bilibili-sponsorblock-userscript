@@ -56,6 +56,12 @@ function createCommentRenderer(sample: CommentRecognitionSample): HTMLElement & 
     link.setAttribute("data-type", "goods");
     richRoot.appendChild(link);
   }
+  if (sample.input.hasMediaAttachment) {
+    const image = document.createElement("img");
+    image.alt = "评论晒单图";
+    image.src = "https://i0.hdslb.com/bfs/test/order.jpg";
+    richRoot.appendChild(image);
+  }
 
   const userInfo = document.createElement("bili-comment-user-info");
   userInfo.attachShadow({ mode: "open" }).appendChild(document.createElement("span"));

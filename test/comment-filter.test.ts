@@ -21,6 +21,7 @@ function createCommentRenderer(
   options: {
     location?: string | null;
     legacyLocationText?: string | null;
+    hasMediaAttachment?: boolean;
   } = {}
 ): HTMLElement {
   const renderer = document.createElement("bili-comment-renderer");
@@ -35,6 +36,12 @@ function createCommentRenderer(
     link.textContent = "商品卡";
     link.setAttribute("data-type", "goods");
     richRoot.appendChild(link);
+  }
+  if (options.hasMediaAttachment) {
+    const image = document.createElement("img");
+    image.alt = "评论晒单图";
+    image.src = "https://i0.hdslb.com/bfs/test/order.jpg";
+    richRoot.appendChild(image);
   }
 
   const userInfo = document.createElement("bili-comment-user-info");
@@ -256,6 +263,38 @@ describe("comment filter", () => {
     });
   });
 
+  it("classifies screenshot purchase testimonials as suspected shill comments", () => {
+    const match = classifyCommentRenderer(
+      createCommentRenderer(
+        false,
+        "我喜欢的吧牛 想买个适合的内裤，感觉up推荐的万力象挺适合我的，下单了，坐等收货",
+        { hasMediaAttachment: true }
+      ) as HTMLElement & { shadowRoot: ShadowRoot },
+      {
+        dynamicRegexPattern: "/广告|推广|购买|推荐/gi",
+        dynamicRegexKeywordMinMatches: 1
+      }
+    );
+
+    expect(match).toEqual({
+      reason: "shill",
+      category: "sponsor",
+      matches: expect.arrayContaining(["晒单图", "购买/使用反馈", "UP推荐语境"])
+    });
+  });
+
+  it("keeps negative product warnings out of suspected shill comments", () => {
+    const match = classifyCommentRenderer(
+      createCommentRenderer(false, "刚买这条内裤就退了，不推荐，别被广告话术带了。") as HTMLElement & { shadowRoot: ShadowRoot },
+      {
+        dynamicRegexPattern: "/广告|购买|推荐/gi",
+        dynamicRegexKeywordMinMatches: 1
+      }
+    );
+
+    expect(match).toBeNull();
+  });
+
   it("scans the current page comments for a reusable video-level local signal", () => {
     const root = document.createElement("bili-comments");
     const rootShadow = root.attachShadow({ mode: "open" });
@@ -282,7 +321,7 @@ describe("comment filter", () => {
       })?.category ?? null
     );
 
-    expect(results).toEqual(["sponsor", "sponsor", "sponsor", "selfpromo", null, null, "sponsor"]);
+    expect(results).toEqual(["sponsor", "sponsor", "sponsor", "sponsor", "sponsor", null, "selfpromo", null, null, "sponsor"]);
   });
 
   it("reads comment locations from renderer data before legacy DOM fallbacks", () => {

@@ -50,6 +50,7 @@ export type CommentRecognitionSample = BaseSample & {
   input: {
     text: string;
     hasGoodsLink?: boolean;
+    hasMediaAttachment?: boolean;
     storedMatches?: string[];
     regexPattern?: string;
     regexKeywordMinMatches?: number;
@@ -233,6 +234,49 @@ export const COMMENT_RECOGNITION_SAMPLES: readonly CommentRecognitionSample[] = 
     expectedCategory: "sponsor",
     expectedBehavior: "classify",
     riskTag: "false-negative-risk",
+    source: "manual-real-world",
+    humanVerdict: "confirmed"
+  },
+  {
+    id: "comment-hit-shill-screenshot-purchase",
+    domain: "comment",
+    caseType: "must-hit",
+    input: {
+      text: "我喜欢的吧牛 想买个适合的内裤，感觉up推荐的万力象挺适合我的，下单了，坐等收货",
+      hasMediaAttachment: true,
+      regexPattern: DEFAULT_DYNAMIC_REGEX_PATTERN
+    },
+    expectedCategory: "sponsor",
+    expectedBehavior: "classify",
+    riskTag: "false-negative-risk",
+    source: "manual-real-world",
+    humanVerdict: "confirmed"
+  },
+  {
+    id: "comment-hit-shill-product-testimonial",
+    domain: "comment",
+    caseType: "must-hit",
+    input: {
+      text: "刚拿到手，哇这手感绝了，滑溜溜的像丝绸一样，下水洗了一下也没掉色，晾干后感觉更软了，迫不及待想明天穿上试试。",
+      regexPattern: DEFAULT_DYNAMIC_REGEX_PATTERN
+    },
+    expectedCategory: "sponsor",
+    expectedBehavior: "classify",
+    riskTag: "false-negative-risk",
+    source: "manual-real-world",
+    humanVerdict: "confirmed"
+  },
+  {
+    id: "comment-pass-negative-product-warning",
+    domain: "comment",
+    caseType: "must-pass",
+    input: {
+      text: "刚买这条内裤就退了，不推荐，别被广告话术带了。",
+      regexPattern: "/广告|购买|推荐/gi"
+    },
+    expectedCategory: null,
+    expectedBehavior: "suppress",
+    riskTag: "false-positive-protection",
     source: "manual-real-world",
     humanVerdict: "confirmed"
   },

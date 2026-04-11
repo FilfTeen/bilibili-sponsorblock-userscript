@@ -71,6 +71,7 @@ type CommentRenderer = HTMLElement & {
 };
 type CommentSponsorMatch =
   | { reason: "goods"; category: "sponsor"; matches: [] }
+  | { reason: "shill"; category: "sponsor"; matches: string[] }
   | { reason: "suspicion"; category: Extract<Category, "sponsor" | "selfpromo" | "exclusive_access">; matches: string[] };
 type CommentTarget = {
   host: HTMLElement;
@@ -82,6 +83,14 @@ type CommentTarget = {
 
 const COMMENT_STRONG_MATCHES = new Set(["赞助", "商务合作", "商品卡", "优惠券", "购买指引"]);
 const COMMENT_INVITATION_PATTERN = /邀请码|体验码|兑换码|注册码/iu;
+const COMMENT_SHILL_PATTERNS = {
+  purchaseOrUse: /(?:刚|才)?(?:买|入手|拿到|收到|下单|收货|到手)|试穿|穿上|穿了|穿着|用了|用起来|洗了|下水洗|轮着穿|回购|复购|淘宝买/iu,
+  productQuality:
+    /透气|弹力|包裹|勒|印子|性价比|变形|掉色|面料|材质|水洗|下水|洗衣机|丝滑|滑溜|缝线|颜色|尺码|好穿|舒服|舒适|支撑|做工|手感|质感|素材|剪辑|后期|效率/iu,
+  endorsement: /可以|确实|真(?:的)?|挺|非常|绝了|好用|不错|满意|放心|适合|推荐|希望(?:能|可以)|性价比还行/iu,
+  videoLead: /up(?:主)?推荐|UP(?:主)?推荐|博主推荐|视频(?:里)?(?:推荐|种草|安利)|看(?:了)?评论|评论(?:都|区)?(?:说好|放心)|这(?:个|条|件|款|盒)|同款/iu,
+  warning: /别(?:买|点|被)|不(?:推荐|建议|值|好用|舒服)|踩坑|避雷|退(?:了|货|款)|差评|翻车|广告话术|割韭菜/iu
+} as const;
 
 function getActionRendererNode(commentRenderer: CommentRenderer): HTMLElement | null {
   return (
@@ -165,6 +174,19 @@ export function hasSponsoredGoodsLink(commentRenderer: CommentRenderer): boolean
   return false;
 }
 
+export function hasCommentMediaAttachment(commentRenderer: CommentRenderer): boolean {
+  const richTextRoot = commentRenderer.shadowRoot?.querySelector("bili-rich-text")?.shadowRoot;
+  const selector = [
+    "img",
+    "picture",
+    "bili-comment-picture",
+    "bili-rich-text-img",
+    ".reply-picture",
+    ".comment-image"
+  ].join(",");
+  return Boolean(richTextRoot?.querySelector(selector) ?? commentRenderer.shadowRoot?.querySelector(selector));
+}
+
 export function extractCommentText(commentRenderer: CommentRenderer): string {
   const richTextNodes = [
     ...(commentRenderer.shadowRoot?.querySelector("bili-rich-text")?.shadowRoot?.querySelectorAll("span, a") ?? [])
@@ -198,11 +220,20 @@ export function classifyCommentRenderer(
     storedMatches,
     minMatches: config.dynamicRegexKeywordMinMatches
   });
+  const actionability = inspectCommercialActionability(text);
+  const shillMatches = inspectCommentShillSignals(commentRenderer, text, actionability.hasQuotedOrMockingContext);
+  if (shillMatches) {
+    return {
+      reason: "shill",
+      category: "sponsor",
+      matches: shillMatches
+    };
+  }
+
   if (!assessment.category) {
     return null;
   }
 
-  const actionability = inspectCommercialActionability(text);
   const hasStrongToken = assessment.matches.some((match) => COMMENT_STRONG_MATCHES.has(match));
   const hasInvitationLead = COMMENT_INVITATION_PATTERN.test(text);
   const hasStrongEvidence = actionability.hasStrongClosure || hasStrongToken || hasInvitationLead;
@@ -239,6 +270,43 @@ export function classifyCommentRenderer(
   };
 }
 
+function inspectCommentShillSignals(
+  commentRenderer: CommentRenderer,
+  text: string,
+  hasQuotedOrMockingContext: boolean
+): string[] | null {
+  const normalized = text.replace(/\s+/gu, " ").trim();
+  if (!normalized || hasQuotedOrMockingContext || COMMENT_SHILL_PATTERNS.warning.test(normalized)) {
+    return null;
+  }
+
+  const hasMedia = hasCommentMediaAttachment(commentRenderer);
+  const hits = [
+    COMMENT_SHILL_PATTERNS.purchaseOrUse.test(normalized) ? "购买/使用反馈" : null,
+    COMMENT_SHILL_PATTERNS.productQuality.test(normalized) ? "产品体验细节" : null,
+    COMMENT_SHILL_PATTERNS.endorsement.test(normalized) ? "正向背书" : null,
+    COMMENT_SHILL_PATTERNS.videoLead.test(normalized) ? "UP推荐语境" : null,
+    hasMedia ? "晒单图" : null
+  ].filter((hit): hit is string => Boolean(hit));
+
+  const hasPurchaseOrUse = hits.includes("购买/使用反馈");
+  const hasProductQuality = hits.includes("产品体验细节");
+  const hasEndorsement = hits.includes("正向背书");
+  const hasVideoLead = hits.includes("UP推荐语境");
+
+  const tightlyCoupledToVideoPromo =
+    hasVideoLead && hasPurchaseOrUse && (hasProductQuality || hasEndorsement || hasMedia);
+  const testimonialWithEnoughDetail =
+    hasPurchaseOrUse && hasProductQuality && hasEndorsement && (hasMedia || normalized.length >= 28);
+  const mediaBackedOrderClaim = hasMedia && hasPurchaseOrUse && (hasProductQuality || hasVideoLead);
+
+  if (!tightlyCoupledToVideoPromo && !testimonialWithEnoughDetail && !mediaBackedOrderClaim) {
+    return null;
+  }
+
+  return hits;
+}
+
 export function commentMatchToVideoSignal(match: CommentSponsorMatch): LocalVideoSignal {
   return {
     source: match.reason === "goods" ? "comment-goods" : "comment-suspicion",
@@ -246,6 +314,8 @@ export function commentMatchToVideoSignal(match: CommentSponsorMatch): LocalVide
     confidence:
       match.reason === "goods"
         ? 0.96
+        : match.reason === "shill"
+          ? 0.84
         : match.category === "sponsor"
           ? 0.87
           : match.category === "exclusive_access"
@@ -254,6 +324,8 @@ export function commentMatchToVideoSignal(match: CommentSponsorMatch): LocalVide
     reason:
       match.reason === "goods"
         ? "评论区命中商品卡广告"
+        : match.reason === "shill"
+          ? `评论区命中疑似托评线索：${match.matches.join(" / ")}`
         : `评论区命中商业线索：${match.matches.join(" / ")}`
   };
 }
@@ -261,6 +333,9 @@ export function commentMatchToVideoSignal(match: CommentSponsorMatch): LocalVide
 function getBadgeText(match: CommentSponsorMatch): string {
   if (match.reason === "goods") {
     return "评论区商品广告";
+  }
+  if (match.reason === "shill") {
+    return "疑似托评评论";
   }
   if (match.category === "selfpromo") {
     return `疑似导流评论: ${match.matches.join(" / ")}`;
