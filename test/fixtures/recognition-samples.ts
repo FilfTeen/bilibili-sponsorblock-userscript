@@ -407,12 +407,82 @@ export const COMMENT_RECOGNITION_SAMPLES: readonly CommentRecognitionSample[] = 
     humanVerdict: "confirmed"
   },
   {
+    id: "comment-hit-shill-marketing-reply",
+    domain: "comment",
+    caseType: "must-hit",
+    input: {
+      text: "朋友们，和客服报【大吉】，专属优惠！7天不满意有运费险随时退，放心入手，给家人把春敏尘螨隐患全扫清～",
+      regexPattern: DEFAULT_DYNAMIC_REGEX_PATTERN
+    },
+    expectedCategory: "sponsor",
+    expectedBehavior: "classify",
+    riskTag: "false-negative-risk",
+    source: "manual-real-world",
+    humanVerdict: "confirmed"
+  },
+  {
+    id: "comment-hit-shill-problem-solution-testimonial",
+    domain: "comment",
+    caseType: "must-hit",
+    input: {
+      text: "我腿粗，以前穿别家老卷边，元力象这个不会，裤腿长度刚好，走路也不往上窜，比纯棉的干爽多了。",
+      regexPattern: DEFAULT_DYNAMIC_REGEX_PATTERN
+    },
+    expectedCategory: "sponsor",
+    expectedBehavior: "classify",
+    riskTag: "false-negative-risk",
+    source: "manual-real-world",
+    humanVerdict: "confirmed"
+  },
+  {
+    id: "comment-hit-shill-fake-reply-chain-answer",
+    domain: "comment",
+    caseType: "must-hit",
+    input: {
+      text: "我买了两条，客服说报大吉有优惠，穿了一天不勒腿也不卷边，运费险随时退可以放心入手。",
+      regexPattern: DEFAULT_DYNAMIC_REGEX_PATTERN
+    },
+    expectedCategory: "sponsor",
+    expectedBehavior: "classify",
+    riskTag: "false-negative-risk",
+    source: "manual-real-world",
+    humanVerdict: "confirmed"
+  },
+  {
     id: "comment-pass-negative-product-warning",
     domain: "comment",
     caseType: "must-pass",
     input: {
       text: "刚买这条内裤就退了，不推荐，别被广告话术带了。",
       regexPattern: "/广告|购买|推荐/gi"
+    },
+    expectedCategory: null,
+    expectedBehavior: "suppress",
+    riskTag: "false-positive-protection",
+    source: "manual-real-world",
+    humanVerdict: "confirmed"
+  },
+  {
+    id: "comment-pass-normal-size-discussion",
+    domain: "comment",
+    caseType: "must-pass",
+    input: {
+      text: "腿粗的人买裤子确实容易卷边，这期横评把不同版型讲清楚就行。",
+      regexPattern: DEFAULT_DYNAMIC_REGEX_PATTERN
+    },
+    expectedCategory: null,
+    expectedBehavior: "suppress",
+    riskTag: "false-positive-protection",
+    source: "manual-real-world",
+    humanVerdict: "confirmed"
+  },
+  {
+    id: "comment-pass-negative-marketing-warning",
+    domain: "comment",
+    caseType: "must-pass",
+    input: {
+      text: "别信评论里客服报暗号返钱那套，优惠和运费险都是广告话术。",
+      regexPattern: DEFAULT_DYNAMIC_REGEX_PATTERN
     },
     expectedCategory: null,
     expectedBehavior: "suppress",

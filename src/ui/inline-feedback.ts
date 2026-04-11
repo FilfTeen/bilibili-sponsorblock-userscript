@@ -209,6 +209,19 @@ ${inlineSurfaceFrostedGlass.overlay}
     inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
+.bsb-tm-inline-toggle:disabled {
+  cursor: default;
+  opacity: 0.72;
+  transform: none;
+}
+
+.bsb-tm-inline-toggle:disabled:hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.84),
+    0 8px 18px rgba(15, 23, 42, 0.08);
+  transform: none;
+}
+
 .bsb-tm-inline-feedback-menu {
   --bsb-inline-feedback-menu-accent: #60a5fa;
   display: inline-flex;
@@ -235,6 +248,13 @@ ${inlineSurfaceFrostedGlass.overlay}
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.72),
     0 8px 18px rgba(15, 23, 42, 0.08);
+}
+
+.bsb-tm-inline-feedback-menu[data-disabled="true"] {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(245, 248, 252, 0.48)),
+    rgba(148, 163, 184, 0.08);
+  border-color: rgba(148, 163, 184, 0.2);
 }
 
 .bsb-tm-inline-feedback-menu .bsb-tm-inline-toggle {

@@ -377,6 +377,35 @@ describe("comment filter", () => {
     expect(match).toBeNull();
   });
 
+  it("classifies marketing replies and problem-solution testimonials as suspected shill comments", () => {
+    const samples = [
+      {
+        text: "朋友们，和客服报【大吉】，专属优惠！7天不满意有运费险随时退，放心入手，给家人把春敏尘螨隐患全扫清～",
+        expected: ["营销回复"]
+      },
+      {
+        text: "我腿粗，以前穿别家老卷边，元力象这个不会，裤腿长度刚好，走路也不往上窜，比纯棉的干爽多了。",
+        expected: ["痛点解决背书", "产品体验细节"]
+      }
+    ];
+
+    for (const sample of samples) {
+      const match = classifyCommentRenderer(
+        createCommentRenderer(false, sample.text) as HTMLElement & { shadowRoot: ShadowRoot },
+        {
+          dynamicRegexPattern: "/广告|推广|购买|推荐|优惠|客服/gi",
+          dynamicRegexKeywordMinMatches: 1
+        }
+      );
+
+      expect(match).toMatchObject({
+        reason: "shill",
+        category: "sponsor",
+        matches: expect.arrayContaining(sample.expected)
+      });
+    }
+  });
+
   it("keeps lightweight shill patterns as account-gated candidates", () => {
     const samples = [
       "看着质感不错，准备入手两条试试水。",
@@ -846,8 +875,95 @@ describe("comment filter", () => {
     expect(actionRoot?.textContent).not.toContain("忽略此视频");
   });
 
+  it("shows a disabled explanation instead of hiding feedback when upstream owns the video label", async () => {
+    history.replaceState({}, "", "https://www.bilibili.com/video/BV1xx411c7mR");
+
+    const root = document.createElement("bili-comments");
+    const rootShadow = root.attachShadow({ mode: "open" });
+    document.body.appendChild(root);
+    rootShadow.appendChild(createThread(createCommentRenderer(false, "点评论区置顶领取优惠券") as HTMLElement));
+
+    const controller = new CommentSponsorController(new ConfigStore());
+    Reflect.get(controller, "handleFeedbackAvailability").call(
+      controller,
+      new CustomEvent(LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT, {
+        detail: {
+          enabled: false,
+          locked: true,
+          disabledReason: "upstream-whole-video",
+          bvid: "BV1xx411c7mR"
+        }
+      })
+    );
+    Reflect.get(controller, "refresh").call(controller);
+
+    const actionRoot = getMainActionRoot(rootShadow);
+    const menu = actionRoot?.querySelector<HTMLElement>("[data-bsb-comment-feedback-menu='true']");
+    const trigger = actionRoot?.querySelector<HTMLButtonElement>("[data-bsb-comment-feedback-trigger='true']");
+    expect(menu?.dataset.disabled).toBe("true");
+    expect(trigger?.disabled).toBe(true);
+    expect(trigger?.textContent).toBe("上游已接管");
+    expect(trigger?.title).toContain("不会覆盖上游判断");
+  });
+
+  it("keeps submitted comment feedback independent per comment after a re-render", async () => {
+    history.replaceState({}, "", "https://www.bilibili.com/video/BV1xx411c7mS");
+    const storedFeedback: Record<string, number> = {};
+    vi.stubGlobal("GM_getValue", vi.fn(async (_key, fallback) => (Object.keys(storedFeedback).length > 0 ? storedFeedback : fallback)));
+    vi.stubGlobal("GM_setValue", vi.fn(async (_key, value) => Object.assign(storedFeedback, value)));
+
+    const root = document.createElement("bili-comments");
+    const rootShadow = root.attachShadow({ mode: "open" });
+    document.body.appendChild(root);
+    rootShadow.appendChild(createThread(createCommentRenderer(false, "点评论区置顶领取优惠券") as HTMLElement));
+    rootShadow.appendChild(createThread(createCommentRenderer(false, "朋友们，和客服报【大吉】，专属优惠！") as HTMLElement));
+
+    const controller = new CommentSponsorController(new ConfigStore());
+    Reflect.get(controller, "handleFeedbackAvailability").call(
+      controller,
+      new CustomEvent(LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT, {
+        detail: {
+          enabled: true,
+          locked: false,
+          bvid: "BV1xx411c7mS"
+        }
+      })
+    );
+    Reflect.get(controller, "refresh").call(controller);
+
+    const actionRoots = Array.from(rootShadow.querySelectorAll("bili-comment-thread-renderer")).map(
+      (thread) =>
+        thread.shadowRoot
+          ?.querySelector("bili-comment-renderer")
+          ?.shadowRoot?.querySelector("#main")
+          ?.querySelector("bili-comment-action-buttons-renderer")
+          ?.shadowRoot
+    );
+    const firstKeepButton = actionRoots[0]?.querySelector<HTMLButtonElement>("[data-bsb-comment-feedback-keep='true']");
+    firstKeepButton?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    Reflect.get(controller, "resetProcessedThreads").call(controller);
+    Reflect.get(controller, "refresh").call(controller);
+
+    const nextActionRoots = Array.from(rootShadow.querySelectorAll("bili-comment-thread-renderer")).map(
+      (thread) =>
+        thread.shadowRoot
+          ?.querySelector("bili-comment-renderer")
+          ?.shadowRoot?.querySelector("#main")
+          ?.querySelector("bili-comment-action-buttons-renderer")
+          ?.shadowRoot
+    );
+    expect(nextActionRoots[0]?.querySelector<HTMLButtonElement>("[data-bsb-comment-feedback-trigger='true']")?.textContent).toBe("已提交");
+    expect(nextActionRoots[0]?.querySelector<HTMLButtonElement>("[data-bsb-comment-feedback-trigger='true']")?.disabled).toBe(true);
+    expect(nextActionRoots[1]?.querySelector<HTMLButtonElement>("[data-bsb-comment-feedback-trigger='true']")?.textContent).toBe("反馈");
+    expect(nextActionRoots[1]?.querySelector<HTMLButtonElement>("[data-bsb-comment-feedback-trigger='true']")?.disabled).toBe(false);
+  });
+
   it("dispatches structured feedback from the inserted comment actions", async () => {
     history.replaceState({}, "", "https://www.bilibili.com/video/BV1xx411c7mQ");
+    vi.stubGlobal("GM_getValue", vi.fn(async (_key, fallback) => fallback));
+    vi.stubGlobal("GM_setValue", vi.fn(async () => {}));
 
     const root = document.createElement("bili-comments");
     const rootShadow = root.attachShadow({ mode: "open" });
