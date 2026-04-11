@@ -18,6 +18,8 @@ const THREAD_PROCESSED_ATTR = "data-bsb-comment-processed";
 const REPLY_PROCESSED_ATTR = "data-bsb-comment-reply-processed";
 const BADGE_ATTR = "data-bsb-comment-badge";
 const TOGGLE_ATTR = "data-bsb-comment-toggle";
+const FEEDBACK_MENU_ATTR = "data-bsb-comment-feedback-menu";
+const FEEDBACK_TRIGGER_ATTR = "data-bsb-comment-feedback-trigger";
 const FEEDBACK_KEEP_ATTR = "data-bsb-comment-feedback-keep";
 const FEEDBACK_DISMISS_ATTR = "data-bsb-comment-feedback-dismiss";
 const LOCATION_ATTR = "data-bsb-comment-location";
@@ -46,6 +48,8 @@ const COMMENT_RELEVANT_SELECTORS = [
 const COMMENT_IGNORED_SELECTORS = [
   `[${BADGE_ATTR}]`,
   `[${TOGGLE_ATTR}]`,
+  `[${FEEDBACK_MENU_ATTR}]`,
+  `[${FEEDBACK_TRIGGER_ATTR}]`,
   `[${FEEDBACK_KEEP_ATTR}]`,
   `[${FEEDBACK_DISMISS_ATTR}]`,
   `[${LOCATION_ATTR}]`
@@ -371,6 +375,57 @@ function createFeedbackButton(
   return button;
 }
 
+function createFeedbackMenu(match: CommentSponsorMatch): HTMLElement {
+  const menu = document.createElement("span");
+  const choices = document.createElement("span");
+  const trigger = createFeedbackButton(
+    FEEDBACK_TRIGGER_ATTR,
+    "反馈",
+    "反馈这条评论对当前视频本地标签的影响",
+    () => {
+      setFeedbackMenuOpen(trigger, choices, choices.hidden);
+    }
+  );
+  const keepButton = createFeedbackButton(
+    FEEDBACK_KEEP_ATTR,
+    "保留",
+    "将这条评论线索作为当前视频的本地保留标签",
+    () => {
+      dispatchVideoSignalFeedback(match, "confirm");
+      setFeedbackMenuOpen(trigger, choices, false);
+    }
+  );
+  const dismissButton = createFeedbackButton(
+    FEEDBACK_DISMISS_ATTR,
+    "忽略",
+    "忽略当前视频的本地评论推理结果，并停止继续提示",
+    () => {
+      dispatchVideoSignalFeedback(match, "dismiss");
+      setFeedbackMenuOpen(trigger, choices, false);
+    }
+  );
+
+  menu.className = "bsb-tm-inline-feedback-menu";
+  menu.setAttribute(FEEDBACK_MENU_ATTR, "true");
+  choices.className = "bsb-tm-inline-feedback-menu__choices";
+  choices.hidden = true;
+  choices.setAttribute("role", "menu");
+  trigger.setAttribute("aria-haspopup", "menu");
+  trigger.setAttribute("aria-expanded", "false");
+  keepButton.setAttribute("role", "menuitem");
+  dismissButton.setAttribute("role", "menuitem");
+
+  choices.append(keepButton, dismissButton);
+  menu.append(trigger, choices);
+  return menu;
+}
+
+function setFeedbackMenuOpen(trigger: HTMLButtonElement, choices: HTMLElement, open: boolean): void {
+  choices.hidden = !open;
+  trigger.dataset.state = open ? "shown" : "hidden";
+  trigger.setAttribute("aria-expanded", String(open));
+}
+
 function createLocationBadge(text: string, color?: string): HTMLDivElement {
   return createInlineBadge(
     LOCATION_ATTR,
@@ -541,7 +596,7 @@ function removeInjectedDecorations(commentRenderer: CommentRenderer): void {
   getBadgeRoot(commentRenderer)?.querySelectorAll<HTMLElement>(`[${BADGE_ATTR}='true']`).forEach((node) => node.remove());
   getActionRoot(commentRenderer)
     ?.querySelectorAll<HTMLElement>(
-      `[${TOGGLE_ATTR}='true'], [${FEEDBACK_KEEP_ATTR}='true'], [${FEEDBACK_DISMISS_ATTR}='true'], [${LOCATION_ATTR}='true'], #location, .reply-location`
+      `[${TOGGLE_ATTR}='true'], [${FEEDBACK_MENU_ATTR}='true'], [${FEEDBACK_TRIGGER_ATTR}='true'], [${FEEDBACK_KEEP_ATTR}='true'], [${FEEDBACK_DISMISS_ATTR}='true'], [${LOCATION_ATTR}='true'], #location, .reply-location`
     )
     .forEach((node) => node.remove());
 }
@@ -912,20 +967,7 @@ export class CommentSponsorController {
         ensureInlineFeedbackStyles(actionRoot);
       }
 
-      const keepButton = createFeedbackButton(
-        FEEDBACK_KEEP_ATTR,
-        "保留此视频标签",
-        "将这条评论线索作为当前视频的本地保留标签",
-        () => dispatchVideoSignalFeedback(match, "confirm")
-      );
-      const dismissButton = createFeedbackButton(
-        FEEDBACK_DISMISS_ATTR,
-        "忽略此视频",
-        "忽略当前视频的本地评论推理结果，并停止继续提示",
-        () => dispatchVideoSignalFeedback(match, "dismiss")
-      );
-      insertAfter(actionAnchor, dismissButton);
-      insertAfter(actionAnchor, keepButton);
+      insertAfter(actionAnchor, createFeedbackMenu(match));
     }
 
     if (this.currentConfig.commentFilterMode !== "hide") {

@@ -223,6 +223,20 @@ export const COMMENT_RECOGNITION_SAMPLES: readonly CommentRecognitionSample[] = 
     humanVerdict: "confirmed"
   },
   {
+    id: "comment-hit-tool-trial-link",
+    domain: "comment",
+    caseType: "must-hit",
+    input: {
+      text: "给大家安利一个做视频的工具:花生!是啊b自己的产品，非常好用，做视频的时候，找素材又快又准，后期的效率那真的是大大提升啊，想在B站做视频，但是时间不够用，或者没怎么学过剪辑的小伙伴，真的可以试一下哦，戳体验 https://www.huasheng.cn/home",
+      regexPattern: DEFAULT_DYNAMIC_REGEX_PATTERN
+    },
+    expectedCategory: "sponsor",
+    expectedBehavior: "classify",
+    riskTag: "false-negative-risk",
+    source: "manual-real-world",
+    humanVerdict: "confirmed"
+  },
+  {
     id: "comment-hit-owned-surface",
     domain: "comment",
     caseType: "must-hit",

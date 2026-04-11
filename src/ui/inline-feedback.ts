@@ -148,6 +148,7 @@ ${inlineSurfaceFrostedGlass.overlay}
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: none;
   min-height: 30px;
   padding: 8px 13px;
   border-radius: 999px;
@@ -164,6 +165,9 @@ ${inlineSurfaceFrostedGlass.overlay}
   line-height: 1.1;
   letter-spacing: 0.01em;
   text-align: center;
+  white-space: nowrap;
+  word-break: keep-all;
+  overflow-wrap: normal;
   cursor: pointer;
   transition:
     box-shadow 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
@@ -203,6 +207,35 @@ ${inlineSurfaceFrostedGlass.overlay}
   box-shadow:
     0 0 0 3px rgba(0, 174, 236, 0.18),
     inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.bsb-tm-inline-feedback-menu {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-inline-start: 8px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.bsb-tm-inline-feedback-menu .bsb-tm-inline-toggle {
+  min-height: 24px;
+  padding: 5px 9px;
+  font-size: 11px;
+}
+
+.bsb-tm-inline-feedback-menu .bsb-tm-inline-toggle--inline {
+  margin-inline-start: 0;
+}
+
+.bsb-tm-inline-feedback-menu__choices {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bsb-tm-inline-feedback-menu__choices[hidden] {
+  display: none !important;
 }
 `;
 

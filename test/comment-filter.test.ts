@@ -238,6 +238,24 @@ describe("comment filter", () => {
     });
   });
 
+  it("classifies tool trial links with an explicit experience CTA as sponsor comments", () => {
+    const match = classifyCommentRenderer(
+      createCommentRenderer(
+        false,
+        "给大家安利一个做视频的工具:花生!是啊b自己的产品，非常好用，做视频的时候，找素材又快又准，后期的效率那真的是大大提升啊，想在B站做视频，但是时间不够用，或者没怎么学过剪辑的小伙伴，真的可以试一下哦，戳体验 https://www.huasheng.cn/home"
+      ) as HTMLElement & { shadowRoot: ShadowRoot },
+      {
+        dynamicRegexPattern: "/评论区|优惠券|广告|推广|好物推荐|邀请码|主页|店铺|橱窗/gi",
+        dynamicRegexKeywordMinMatches: 1
+      }
+    );
+
+    expect(match).toMatchObject({
+      reason: "suspicion",
+      category: "sponsor"
+    });
+  });
+
   it("scans the current page comments for a reusable video-level local signal", () => {
     const root = document.createElement("bili-comments");
     const rootShadow = root.attachShadow({ mode: "open" });
@@ -264,7 +282,7 @@ describe("comment filter", () => {
       })?.category ?? null
     );
 
-    expect(results).toEqual(["sponsor", "sponsor", "selfpromo", null, null, "sponsor"]);
+    expect(results).toEqual(["sponsor", "sponsor", "sponsor", "selfpromo", null, null, "sponsor"]);
   });
 
   it("reads comment locations from renderer data before legacy DOM fallbacks", () => {
@@ -487,7 +505,7 @@ describe("comment filter", () => {
     expect(replyItem.querySelector("[data-bsb-comment-location='true']")?.textContent).toBe("IP属地：湖北");
   });
 
-  it("shows comment feedback buttons only when local feedback is enabled", async () => {
+  it("shows a compact comment feedback menu only when local feedback is enabled", async () => {
     history.replaceState({}, "", "https://www.bilibili.com/video/BV1xx411c7mP");
 
     const root = document.createElement("bili-comments");
@@ -505,8 +523,15 @@ describe("comment filter", () => {
     Reflect.get(controller, "refresh").call(controller);
 
     const actionRoot = getMainActionRoot(rootShadow);
-    expect(actionRoot?.textContent).toContain("保留此视频标签");
-    expect(actionRoot?.textContent).toContain("忽略此视频");
+    const menu = actionRoot?.querySelector<HTMLElement>("[data-bsb-comment-feedback-menu='true']");
+    const trigger = actionRoot?.querySelector<HTMLButtonElement>("[data-bsb-comment-feedback-trigger='true']");
+    const choices = menu?.querySelector<HTMLElement>(".bsb-tm-inline-feedback-menu__choices");
+    expect(menu).toBeTruthy();
+    expect(trigger?.textContent).toBe("反馈");
+    expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+    expect(choices?.hidden).toBe(true);
+    expect(actionRoot?.textContent).not.toContain("保留此视频标签");
+    expect(actionRoot?.textContent).not.toContain("忽略此视频");
   });
 
   it("dispatches structured feedback from the inserted comment actions", async () => {
@@ -530,9 +555,14 @@ describe("comment filter", () => {
     Reflect.get(controller, "refresh").call(controller);
 
     const actionRoot = getMainActionRoot(rootShadow);
-    const keepButton = Array.from(actionRoot?.querySelectorAll<HTMLButtonElement>("button") ?? []).find((button) =>
-      button.textContent?.includes("保留此视频标签")
-    );
+    const trigger = actionRoot?.querySelector<HTMLButtonElement>("[data-bsb-comment-feedback-trigger='true']");
+    const choices = actionRoot?.querySelector<HTMLElement>(".bsb-tm-inline-feedback-menu__choices");
+    trigger?.click();
+    expect(trigger?.getAttribute("aria-expanded")).toBe("true");
+    expect(choices?.hidden).toBe(false);
+
+    const keepButton = actionRoot?.querySelector<HTMLButtonElement>("[data-bsb-comment-feedback-keep='true']");
+    expect(keepButton?.textContent).toBe("保留");
     keepButton?.click();
 
     expect(eventSpy).toHaveBeenCalledTimes(1);
@@ -541,6 +571,8 @@ describe("comment filter", () => {
       category: "sponsor",
       source: "comment-suspicion"
     });
+    expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+    expect(choices?.hidden).toBe(true);
 
     window.removeEventListener(VIDEO_SIGNAL_FEEDBACK_EVENT, eventSpy as EventListener);
   });

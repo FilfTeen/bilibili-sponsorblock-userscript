@@ -498,11 +498,14 @@
     { token: "\u9996\u53D1", pattern: /首发|首批|首个|最先/iu, weight: 2.1 },
     { token: "\u5DE5\u7A0B\u673A", pattern: /工程机|样机|内测|beta|试玩|预览版|体验版/iu, weight: 2.4 }
   ];
-  var CTA_ACTION_PATTERN = /点击|点开|点进|戳|打开|去|领取|领|抢|下单|购买|买|入手|搜索|看我|看主页|主页见|置顶看我/iu;
-  var CTA_SURFACE_PATTERN = /评论区(?:置顶)?|蓝链|链接|商品卡|店铺|橱窗|主页|频道|直播间|专栏|收藏夹|合集/iu;
+  var CTA_ACTION_PATTERN = /点击|点开|点进|戳|打开|去|领取|领|抢|下单|购买|买|入手|搜索|看我|看主页|主页见|置顶看我|试一下|试试|体验一下|立即体验|戳体验/iu;
+  var CTA_SURFACE_PATTERN = /评论区(?:置顶)?|蓝链|链接|商品卡|店铺|橱窗|主页|频道|直播间|专栏|收藏夹|合集|官网|网址/iu;
   var CTA_BENEFIT_PATTERN = /优惠(?:券|卷|劵)|红包|福利|返利|返现|折扣|到手价|密令/iu;
   var CTA_PURCHASE_PATTERN = /下单|购买|买|入手/u;
   var CTA_OWNED_SURFACE_PATTERN = /(?:我的|本)?(?:店铺|小店|橱窗|主页|频道|直播间|专栏|收藏夹|合集)/iu;
+  var EXTERNAL_LINK_PATTERN = /https?:\/\/|www\.|(?:^|[\s:：])(?:[a-z0-9-]+\.)+(?:com|cn|net|org|io|app)(?:\/|\b)/iu;
+  var EXPERIENCE_CUE_PATTERN = /戳体验|立即体验|去体验|体验一下|试一下|试试|试用|可以试|值得试/iu;
+  var PRODUCT_OR_SERVICE_CUE_PATTERN = /工具|产品|服务|平台|软件|app|APP|官网|网站|做视频|剪辑|素材|后期|效率/iu;
   var QUOTED_OR_MOCKING_CONTEXT_PATTERN = /玩梗|整活|反串|阴阳怪气|吐槽|调侃|引用|复读|照搬|原话|话术|文案|笑死|绷不住|尬|土味|逆天|离谱|“[^”]{0,24}(?:广告|推广|优惠券|购买|下单|链接)[^”]{0,24}”|"[^"]{0,24}(?:广告|推广|优惠券|购买|下单|链接)[^"]{0,24}"/iu;
   function normalizeText(text) {
     return text.replace(/\s+/gu, " ").trim();
@@ -538,17 +541,23 @@
         hasPurchaseCue: false,
         hasOwnedSurface: false,
         hasOwnedActionLead: false,
+        hasExternalLink: false,
+        hasExperienceCue: false,
+        hasProductOrServiceCue: false,
         hasStrongClosure: false,
         hasQuotedOrMockingContext: false
       };
     }
-    const hasActionVerb = hasNonNegatedPattern(normalized, CTA_ACTION_PATTERN);
-    const hasCommerceSurface = hasNonNegatedPattern(normalized, CTA_SURFACE_PATTERN);
+    const hasExternalLink = hasNonNegatedPattern(normalized, EXTERNAL_LINK_PATTERN);
+    const hasExperienceCue = hasNonNegatedPattern(normalized, EXPERIENCE_CUE_PATTERN);
+    const hasProductOrServiceCue = hasNonNegatedPattern(normalized, PRODUCT_OR_SERVICE_CUE_PATTERN);
+    const hasActionVerb = hasNonNegatedPattern(normalized, CTA_ACTION_PATTERN) || hasExperienceCue;
+    const hasCommerceSurface = hasNonNegatedPattern(normalized, CTA_SURFACE_PATTERN) || hasExternalLink;
     const hasBenefitCue = hasNonNegatedPattern(normalized, CTA_BENEFIT_PATTERN);
     const hasPurchaseCue = hasNonNegatedPattern(normalized, CTA_PURCHASE_PATTERN);
     const hasOwnedSurface = hasNonNegatedPattern(normalized, CTA_OWNED_SURFACE_PATTERN);
     const hasOwnedActionLead = hasOwnedSurface && (hasActionVerb || /主页见|置顶看我/iu.test(normalized));
-    const hasStrongClosure = hasActionVerb && hasCommerceSurface || hasBenefitCue && (hasCommerceSurface || hasPurchaseCue) || hasPurchaseCue && hasCommerceSurface || hasOwnedActionLead;
+    const hasStrongClosure = hasActionVerb && hasCommerceSurface || hasBenefitCue && (hasCommerceSurface || hasPurchaseCue) || hasPurchaseCue && hasCommerceSurface || hasExternalLink && hasExperienceCue && hasProductOrServiceCue || hasOwnedActionLead;
     return {
       hasActionVerb,
       hasCommerceSurface,
@@ -556,6 +565,9 @@
       hasPurchaseCue,
       hasOwnedSurface,
       hasOwnedActionLead,
+      hasExternalLink,
+      hasExperienceCue,
+      hasProductOrServiceCue,
       hasStrongClosure,
       hasQuotedOrMockingContext: QUOTED_OR_MOCKING_CONTEXT_PATTERN.test(normalized)
     };
@@ -610,6 +622,7 @@
     let sponsorScore = sponsorStrong.score + sponsorSupport.score;
     let selfpromoScore = selfpromo.score;
     let exclusiveScore = exclusive.score;
+    const actionability = inspectCommercialActionability(normalized);
     const hasExplicitCTA = /评论区(?:置顶)?|(?:购买|下单|点击|打开).{0,8}(?:链接|蓝链)|(?:领|抢)(?:券|红包|福利)|优惠(?:券|卷|劵)|商品卡/iu.test(
       normalized
     );
@@ -633,6 +646,9 @@
     }
     if (hasExplicitCTA) {
       sponsorScore += 1.45;
+    }
+    if (actionability.hasExternalLink && actionability.hasExperienceCue && actionability.hasProductOrServiceCue && sponsorSupport.matches.includes("\u5BFC\u8D2D\u8BCD")) {
+      sponsorScore += 2.25;
     }
     if (hasOwnedSurface && /(?:评论区|置顶|链接|主页|店铺|橱窗|直播间)/iu.test(normalized)) {
       selfpromoScore += 1.4;
@@ -4549,6 +4565,7 @@ ${inlineSurfaceFrostedGlass.overlay}
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: none;
   min-height: 30px;
   padding: 8px 13px;
   border-radius: 999px;
@@ -4565,6 +4582,9 @@ ${inlineSurfaceFrostedGlass.overlay}
   line-height: 1.1;
   letter-spacing: 0.01em;
   text-align: center;
+  white-space: nowrap;
+  word-break: keep-all;
+  overflow-wrap: normal;
   cursor: pointer;
   transition:
     box-shadow 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
@@ -4604,6 +4624,35 @@ ${inlineSurfaceFrostedGlass.overlay}
   box-shadow:
     0 0 0 3px rgba(0, 174, 236, 0.18),
     inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.bsb-tm-inline-feedback-menu {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-inline-start: 8px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.bsb-tm-inline-feedback-menu .bsb-tm-inline-toggle {
+  min-height: 24px;
+  padding: 5px 9px;
+  font-size: 11px;
+}
+
+.bsb-tm-inline-feedback-menu .bsb-tm-inline-toggle--inline {
+  margin-inline-start: 0;
+}
+
+.bsb-tm-inline-feedback-menu__choices {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bsb-tm-inline-feedback-menu__choices[hidden] {
+  display: none !important;
 }
 `;
   function ensureInlineFeedbackStyles(root) {
@@ -4657,6 +4706,8 @@ ${inlineSurfaceFrostedGlass.overlay}
   var REPLY_PROCESSED_ATTR = "data-bsb-comment-reply-processed";
   var BADGE_ATTR = "data-bsb-comment-badge";
   var TOGGLE_ATTR = "data-bsb-comment-toggle";
+  var FEEDBACK_MENU_ATTR = "data-bsb-comment-feedback-menu";
+  var FEEDBACK_TRIGGER_ATTR = "data-bsb-comment-feedback-trigger";
   var FEEDBACK_KEEP_ATTR = "data-bsb-comment-feedback-keep";
   var FEEDBACK_DISMISS_ATTR = "data-bsb-comment-feedback-dismiss";
   var LOCATION_ATTR = "data-bsb-comment-location";
@@ -4685,6 +4736,8 @@ ${inlineSurfaceFrostedGlass.overlay}
   var COMMENT_IGNORED_SELECTORS = [
     `[${BADGE_ATTR}]`,
     `[${TOGGLE_ATTR}]`,
+    `[${FEEDBACK_MENU_ATTR}]`,
+    `[${FEEDBACK_TRIGGER_ATTR}]`,
     `[${FEEDBACK_KEEP_ATTR}]`,
     `[${FEEDBACK_DISMISS_ATTR}]`,
     `[${LOCATION_ATTR}]`
@@ -4918,6 +4971,53 @@ ${inlineSurfaceFrostedGlass.overlay}
     button.title = title;
     return button;
   }
+  function createFeedbackMenu(match) {
+    const menu = document.createElement("span");
+    const choices = document.createElement("span");
+    const trigger = createFeedbackButton(
+      FEEDBACK_TRIGGER_ATTR,
+      "\u53CD\u9988",
+      "\u53CD\u9988\u8FD9\u6761\u8BC4\u8BBA\u5BF9\u5F53\u524D\u89C6\u9891\u672C\u5730\u6807\u7B7E\u7684\u5F71\u54CD",
+      () => {
+        setFeedbackMenuOpen(trigger, choices, choices.hidden);
+      }
+    );
+    const keepButton = createFeedbackButton(
+      FEEDBACK_KEEP_ATTR,
+      "\u4FDD\u7559",
+      "\u5C06\u8FD9\u6761\u8BC4\u8BBA\u7EBF\u7D22\u4F5C\u4E3A\u5F53\u524D\u89C6\u9891\u7684\u672C\u5730\u4FDD\u7559\u6807\u7B7E",
+      () => {
+        dispatchVideoSignalFeedback(match, "confirm");
+        setFeedbackMenuOpen(trigger, choices, false);
+      }
+    );
+    const dismissButton = createFeedbackButton(
+      FEEDBACK_DISMISS_ATTR,
+      "\u5FFD\u7565",
+      "\u5FFD\u7565\u5F53\u524D\u89C6\u9891\u7684\u672C\u5730\u8BC4\u8BBA\u63A8\u7406\u7ED3\u679C\uFF0C\u5E76\u505C\u6B62\u7EE7\u7EED\u63D0\u793A",
+      () => {
+        dispatchVideoSignalFeedback(match, "dismiss");
+        setFeedbackMenuOpen(trigger, choices, false);
+      }
+    );
+    menu.className = "bsb-tm-inline-feedback-menu";
+    menu.setAttribute(FEEDBACK_MENU_ATTR, "true");
+    choices.className = "bsb-tm-inline-feedback-menu__choices";
+    choices.hidden = true;
+    choices.setAttribute("role", "menu");
+    trigger.setAttribute("aria-haspopup", "menu");
+    trigger.setAttribute("aria-expanded", "false");
+    keepButton.setAttribute("role", "menuitem");
+    dismissButton.setAttribute("role", "menuitem");
+    choices.append(keepButton, dismissButton);
+    menu.append(trigger, choices);
+    return menu;
+  }
+  function setFeedbackMenuOpen(trigger, choices, open) {
+    choices.hidden = !open;
+    trigger.dataset.state = open ? "shown" : "hidden";
+    trigger.setAttribute("aria-expanded", String(open));
+  }
   function createLocationBadge(text, color) {
     return createInlineBadge(
       LOCATION_ATTR,
@@ -5058,7 +5158,7 @@ ${inlineSurfaceFrostedGlass.overlay}
     var _a, _b;
     (_a = getBadgeRoot(commentRenderer)) == null ? void 0 : _a.querySelectorAll(`[${BADGE_ATTR}='true']`).forEach((node) => node.remove());
     (_b = getActionRoot(commentRenderer)) == null ? void 0 : _b.querySelectorAll(
-      `[${TOGGLE_ATTR}='true'], [${FEEDBACK_KEEP_ATTR}='true'], [${FEEDBACK_DISMISS_ATTR}='true'], [${LOCATION_ATTR}='true'], #location, .reply-location`
+      `[${TOGGLE_ATTR}='true'], [${FEEDBACK_MENU_ATTR}='true'], [${FEEDBACK_TRIGGER_ATTR}='true'], [${FEEDBACK_KEEP_ATTR}='true'], [${FEEDBACK_DISMISS_ATTR}='true'], [${LOCATION_ATTR}='true'], #location, .reply-location`
     ).forEach((node) => node.remove());
   }
   function insertAfter(anchor, node) {
@@ -5376,20 +5476,7 @@ ${inlineSurfaceFrostedGlass.overlay}
         if (actionRoot) {
           ensureInlineFeedbackStyles(actionRoot);
         }
-        const keepButton = createFeedbackButton(
-          FEEDBACK_KEEP_ATTR,
-          "\u4FDD\u7559\u6B64\u89C6\u9891\u6807\u7B7E",
-          "\u5C06\u8FD9\u6761\u8BC4\u8BBA\u7EBF\u7D22\u4F5C\u4E3A\u5F53\u524D\u89C6\u9891\u7684\u672C\u5730\u4FDD\u7559\u6807\u7B7E",
-          () => dispatchVideoSignalFeedback(match, "confirm")
-        );
-        const dismissButton = createFeedbackButton(
-          FEEDBACK_DISMISS_ATTR,
-          "\u5FFD\u7565\u6B64\u89C6\u9891",
-          "\u5FFD\u7565\u5F53\u524D\u89C6\u9891\u7684\u672C\u5730\u8BC4\u8BBA\u63A8\u7406\u7ED3\u679C\uFF0C\u5E76\u505C\u6B62\u7EE7\u7EED\u63D0\u793A",
-          () => dispatchVideoSignalFeedback(match, "dismiss")
-        );
-        insertAfter(actionAnchor, dismissButton);
-        insertAfter(actionAnchor, keepButton);
+        insertAfter(actionAnchor, createFeedbackMenu(match));
       }
       if (this.currentConfig.commentFilterMode !== "hide") {
         return;
