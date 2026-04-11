@@ -4,7 +4,11 @@ import { PersistentCache } from "../src/core/cache";
 import { LocalVideoLabelStore } from "../src/core/local-label-store";
 import { VoteHistoryStore } from "../src/core/vote-history-store";
 import { ScriptController } from "../src/core/controller";
-import type { FetchResponse, SegmentRecord } from "../src/types";
+import { VIDEO_SIGNAL_EVENT, VIDEO_SIGNAL_FEEDBACK_EVENT } from "../src/features/comment-filter";
+import * as pageBridge from "../src/platform/page-bridge";
+import * as domUtils from "../src/utils/dom";
+import * as videoContextUtils from "../src/utils/video-context";
+import type { FetchResponse, SegmentRecord, VideoContext } from "../src/types";
 
 function createController(): ScriptController {
   vi.stubGlobal("GM_getValue", vi.fn(async (_key, fallback) => fallback));
@@ -49,6 +53,7 @@ const skipSegment: SegmentRecord = {
 describe("script controller", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   it("undoes a skip back to the segment start and opens a grace window", async () => {
@@ -256,5 +261,156 @@ describe("script controller", () => {
 
     expect(document.querySelector<HTMLButtonElement>("[data-tab='filters']")?.classList.contains("active")).toBe(true);
     expect(document.querySelector<HTMLElement>("[data-section='filters']")?.hidden).toBe(false);
+  });
+
+  it("skips local title reasoning when an upstream whole-video label already exists", async () => {
+    const controller = createController();
+    const context: VideoContext = {
+      bvid: "BV1xx411c7mK",
+      cid: "12345",
+      page: 1,
+      title: "测试视频",
+      href: "https://www.bilibili.com/video/BV1xx411c7mK"
+    };
+    const video = document.createElement("video");
+    window.history.replaceState({}, "", context.href);
+
+    Reflect.set(controller, "currentConfig", cloneDefaultConfig());
+    vi.spyOn(pageBridge, "requestPageSnapshot").mockResolvedValue({
+      url: context.href,
+      initialState: null,
+      playerManifest: null,
+      playInfo: null
+    });
+    vi.spyOn(videoContextUtils, "resolveVideoContext").mockReturnValue(context);
+    vi.spyOn(domUtils, "findVideoElement").mockReturnValue(video);
+    vi.spyOn(Reflect.get(controller, "client"), "getSegments").mockResolvedValue([]);
+    vi.spyOn(Reflect.get(controller, "videoLabelClient"), "getVideoLabel").mockResolvedValue("sponsor");
+    const resolveLocalTitleLabelSpy = vi.spyOn(controller as never, "resolveLocalTitleLabel" as never);
+
+    await Reflect.get(controller, "refreshCurrentVideo").call(controller, true);
+
+    expect(resolveLocalTitleLabelSpy).not.toHaveBeenCalled();
+    expect((Reflect.get(controller, "currentTitleLabel") as SegmentRecord | null)?.UUID).toBe("video-label:BV1xx411c7mK:sponsor");
+  });
+
+  it("does not let automatic signals override a manually kept local title label", () => {
+    const controller = createController();
+    const rememberSignalSpy = vi.spyOn(Reflect.get(controller, "localVideoLabelStore"), "rememberSignal");
+
+    Reflect.set(controller, "started", true);
+    Reflect.set(controller, "currentConfig", cloneDefaultConfig());
+    Reflect.set(controller, "currentContext", {
+      bvid: "BV1xx411c7mL",
+      cid: "12345",
+      page: 1,
+      title: "测试视频",
+      href: "https://www.bilibili.com/video/BV1xx411c7mL"
+    } satisfies VideoContext);
+    Reflect.set(controller, "currentTitleLabel", {
+      UUID: "local-signal:BV1xx411c7mL:manual:sponsor",
+      category: "sponsor",
+      actionType: "full",
+      segment: [0, 0],
+      start: 0,
+      end: 0,
+      duration: 0,
+      mode: "auto"
+    } satisfies SegmentRecord);
+
+    Reflect.get(controller, "handleVideoSignal").call(
+      controller,
+      new CustomEvent(VIDEO_SIGNAL_EVENT, {
+        detail: {
+          category: "sponsor",
+          source: "comment-goods",
+          confidence: 0.96,
+          reason: "评论区命中商品卡广告"
+        }
+      })
+    );
+
+    expect((Reflect.get(controller, "currentTitleLabel") as SegmentRecord | null)?.UUID).toContain(":manual:");
+    expect(rememberSignalSpy).not.toHaveBeenCalled();
+  });
+
+  it("accepts comment feedback as a manual keep for the current video", async () => {
+    const controller = createController();
+    const rememberManualSpy = vi.spyOn(Reflect.get(controller, "localVideoLabelStore"), "rememberManual");
+
+    Reflect.set(controller, "started", true);
+    Reflect.set(controller, "currentConfig", cloneDefaultConfig());
+    Reflect.set(controller, "currentContext", {
+      bvid: "BV1xx411c7mM",
+      cid: "12345",
+      page: 1,
+      title: "测试视频",
+      href: "https://www.bilibili.com/video/BV1xx411c7mM"
+    } satisfies VideoContext);
+
+    Reflect.get(controller, "handleVideoSignalFeedback").call(
+      controller,
+      new CustomEvent(VIDEO_SIGNAL_FEEDBACK_EVENT, {
+        detail: {
+          category: "sponsor",
+          decision: "confirm",
+          source: "comment-suspicion",
+          reason: "评论区用户反馈"
+        }
+      })
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(rememberManualSpy).toHaveBeenCalledWith("BV1xx411c7mM", "sponsor", "手动保留 商单广告");
+    expect((Reflect.get(controller, "currentTitleLabel") as SegmentRecord | null)?.UUID).toContain(":manual:sponsor");
+  });
+
+  it("blocks comment feedback when an upstream whole-video label is already present", async () => {
+    const controller = createController();
+    const rememberManualSpy = vi.spyOn(Reflect.get(controller, "localVideoLabelStore"), "rememberManual");
+    const notices = Reflect.get(controller, "notices") as { show: (options: unknown) => void };
+    const showSpy = vi.spyOn(notices, "show");
+
+    Reflect.set(controller, "started", true);
+    Reflect.set(controller, "currentConfig", cloneDefaultConfig());
+    Reflect.set(controller, "currentContext", {
+      bvid: "BV1xx411c7mN",
+      cid: "12345",
+      page: 1,
+      title: "测试视频",
+      href: "https://www.bilibili.com/video/BV1xx411c7mN"
+    } satisfies VideoContext);
+    Reflect.set(controller, "currentFullVideoLabels", [
+      {
+        UUID: "video-label:BV1xx411c7mN:sponsor",
+        category: "sponsor",
+        actionType: "full",
+        segment: [0, 0],
+        start: 0,
+        end: 0,
+        duration: 0,
+        mode: "auto"
+      } satisfies SegmentRecord
+    ]);
+
+    Reflect.get(controller, "handleVideoSignalFeedback").call(
+      controller,
+      new CustomEvent(VIDEO_SIGNAL_FEEDBACK_EVENT, {
+        detail: {
+          category: "sponsor",
+          decision: "confirm",
+          source: "comment-suspicion",
+          reason: "评论区用户反馈"
+        }
+      })
+    );
+    await Promise.resolve();
+
+    expect(rememberManualSpy).not.toHaveBeenCalled();
+    expect(showSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "local-feedback-blocked:BV1xx411c7mN"
+      })
+    );
   });
 });

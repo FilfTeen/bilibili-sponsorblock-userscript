@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cloneDefaultConfig, ConfigStore } from "../src/core/config-store";
 import {
   CommentSponsorController,
+  LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT,
+  VIDEO_SIGNAL_FEEDBACK_EVENT,
   classifyCommentRenderer,
   extractCommentLocation,
   commentMatchToVideoSignal,
@@ -152,6 +154,12 @@ function getMainActionRoot(rootShadow: ShadowRoot): ShadowRoot | null {
     ?.querySelector("bili-comment-action-buttons-renderer")
     ?.shadowRoot ?? null;
 }
+
+afterEach(() => {
+  vi.useRealTimers();
+  document.body.innerHTML = "";
+  history.replaceState({}, "", "https://www.bilibili.com/");
+});
 
 describe("comment filter", () => {
   it("detects comment goods links", () => {
@@ -477,5 +485,63 @@ describe("comment filter", () => {
 
     expect(resolveVueCommentLocation(replyTime)).toBe("IP属地：湖北");
     expect(replyItem.querySelector("[data-bsb-comment-location='true']")?.textContent).toBe("IP属地：湖北");
+  });
+
+  it("shows comment feedback buttons only when local feedback is enabled", async () => {
+    history.replaceState({}, "", "https://www.bilibili.com/video/BV1xx411c7mP");
+
+    const root = document.createElement("bili-comments");
+    const rootShadow = root.attachShadow({ mode: "open" });
+    document.body.appendChild(root);
+    rootShadow.appendChild(createThread(createCommentRenderer(false, "点评论区置顶领取优惠券") as HTMLElement));
+
+    const controller = new CommentSponsorController(new ConfigStore());
+    Reflect.get(controller, "handleFeedbackAvailability").call(
+      controller,
+      new CustomEvent(LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT, {
+        detail: { enabled: true }
+      })
+    );
+    Reflect.get(controller, "refresh").call(controller);
+
+    const actionRoot = getMainActionRoot(rootShadow);
+    expect(actionRoot?.textContent).toContain("保留此视频标签");
+    expect(actionRoot?.textContent).toContain("忽略此视频");
+  });
+
+  it("dispatches structured feedback from the inserted comment actions", async () => {
+    history.replaceState({}, "", "https://www.bilibili.com/video/BV1xx411c7mQ");
+
+    const root = document.createElement("bili-comments");
+    const rootShadow = root.attachShadow({ mode: "open" });
+    document.body.appendChild(root);
+    rootShadow.appendChild(createThread(createCommentRenderer(false, "点评论区置顶领取优惠券") as HTMLElement));
+
+    const eventSpy = vi.fn();
+    window.addEventListener(VIDEO_SIGNAL_FEEDBACK_EVENT, eventSpy as EventListener);
+
+    const controller = new CommentSponsorController(new ConfigStore());
+    Reflect.get(controller, "handleFeedbackAvailability").call(
+      controller,
+      new CustomEvent(LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT, {
+        detail: { enabled: true }
+      })
+    );
+    Reflect.get(controller, "refresh").call(controller);
+
+    const actionRoot = getMainActionRoot(rootShadow);
+    const keepButton = Array.from(actionRoot?.querySelectorAll<HTMLButtonElement>("button") ?? []).find((button) =>
+      button.textContent?.includes("保留此视频标签")
+    );
+    keepButton?.click();
+
+    expect(eventSpy).toHaveBeenCalledTimes(1);
+    expect((eventSpy.mock.calls[0]?.[0] as CustomEvent).detail).toMatchObject({
+      decision: "confirm",
+      category: "sponsor",
+      source: "comment-suspicion"
+    });
+
+    window.removeEventListener(VIDEO_SIGNAL_FEEDBACK_EVENT, eventSpy as EventListener);
   });
 });

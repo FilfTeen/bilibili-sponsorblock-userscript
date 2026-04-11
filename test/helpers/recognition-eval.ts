@@ -3,7 +3,11 @@ import { LocalVideoLabelStore } from "../../src/core/local-label-store";
 import { classifyCommentRenderer } from "../../src/features/comment-filter";
 import { classifyDynamicItem } from "../../src/features/dynamic-filter";
 import type { LocalVideoLabelRecord, LocalVideoSignal } from "../../src/types";
-import { pickPreferredLocalVideoSignal, shouldPersistLocalVideoSignal } from "../../src/utils/local-learning";
+import {
+  pickPreferredLocalVideoSignal,
+  shouldPersistLocalVideoSignal,
+  shouldReplaceAutomaticLocalLabel
+} from "../../src/utils/local-learning";
 import { inferLocalVideoSignal } from "../../src/utils/local-video-signal";
 import type {
   CommentRecognitionSample,
@@ -162,13 +166,7 @@ function createStoreWithExistingRecord(existingRecord: LocalVideoLabelRecord | n
 function applyIncomingSignal(store: LocalVideoLabelStore, videoId: string, signal: LocalVideoSignal): void {
   const records = Reflect.get(store as unknown as Record<string, unknown>, "records") as Map<string, LocalVideoLabelRecord>;
   const existing = records.get(videoId);
-  if (existing?.source === "manual-dismiss") {
-    return;
-  }
-  if (existing?.source === "manual" && existing.category) {
-    return;
-  }
-  if (existing?.category === signal.category && existing.source === signal.source && existing.confidence >= signal.confidence) {
+  if (!shouldReplaceAutomaticLocalLabel(existing, signal)) {
     return;
   }
 

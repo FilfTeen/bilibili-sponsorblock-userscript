@@ -18,7 +18,12 @@ import { SettingsPanel, type PanelTab } from "../ui/panel";
 import { PreviewBar } from "../ui/preview-bar";
 import { TitleBadge, type TitleBadgeVoteResult } from "../ui/title-badge";
 import { CompactVideoHeader } from "../ui/compact-header";
-import { scanCurrentPageCommentSignal, VIDEO_SIGNAL_EVENT } from "../features/comment-filter";
+import {
+  LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT,
+  scanCurrentPageCommentSignal,
+  VIDEO_SIGNAL_EVENT,
+  VIDEO_SIGNAL_FEEDBACK_EVENT
+} from "../features/comment-filter";
 import type {
   Category,
   CategoryMode,
@@ -33,7 +38,11 @@ import type {
 } from "../types";
 import { roundMinutes } from "../utils/number";
 import { mutationsTouchSelectors } from "../utils/mutation";
-import { pickPreferredLocalVideoSignal, shouldPersistLocalVideoSignal } from "../utils/local-learning";
+import {
+  pickPreferredLocalVideoSignal,
+  shouldBypassLocalReasoning,
+  shouldPersistLocalVideoSignal
+} from "../utils/local-learning";
 import { inferLocalVideoSignal } from "../utils/local-video-signal";
 import { resolveVideoContext } from "../utils/video-context";
 import { debugLog, findVideoElement, formatDurationLabel, resolvePlayerHost } from "../utils/dom";
@@ -102,6 +111,7 @@ export class ScriptController {
   private pendingVisibleRefresh = false;
   private pendingPanelOpenTab: PanelTab | null = null;
   private panelRestoreArmed = false;
+  private upstreamLabelResolutionPending = false;
   private lastTickTime: number | null = null;
   private lastAnnouncedSignature = "";
   private readonly handleVisibilityChange = () => {
@@ -124,12 +134,21 @@ export class ScriptController {
     if (!detail?.category || this.currentConfig.categoryModes[detail.category] === "off") {
       return;
     }
-    if (this.currentFullVideoLabels.length > 0 || this.localVideoLabelStore.isDismissed(this.currentContext.bvid)) {
+    if (
+      shouldBypassLocalReasoning({
+        hasUpstreamWholeVideoLabel: this.currentFullVideoLabels.length > 0,
+        isUpstreamLabelPending: this.upstreamLabelResolutionPending
+      }) ||
+      this.localVideoLabelStore.isDismissed(this.currentContext.bvid)
+    ) {
       return;
     }
 
     const existing = this.currentTitleLabel;
-    if (existing && !existing.UUID.startsWith("local-signal:")) {
+    if (
+      existing &&
+      (!existing.UUID.startsWith("local-signal:") || existing.UUID.includes(":manual:") || existing.UUID.includes(":manual-dismiss:"))
+    ) {
       return;
     }
 
@@ -150,7 +169,49 @@ export class ScriptController {
       bvid: this.currentContext.bvid,
       segmentCount: this.currentSegments.length
     });
-    void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal);
+    this.syncLocalFeedbackAvailability();
+    if (shouldPersistLocalVideoSignal(signal)) {
+      void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal);
+    }
+  };
+  private readonly handleVideoSignalFeedback = (event: Event) => {
+    if (!(event instanceof CustomEvent) || !this.started || !this.currentConfig.enabled || !this.currentContext) {
+      return;
+    }
+
+    const detail = event.detail as
+      | {
+          category?: Category;
+          decision?: "confirm" | "dismiss";
+          source?: string;
+          reason?: string;
+        }
+      | null;
+    if (!detail?.category || !detail.decision || this.currentConfig.categoryModes[detail.category] === "off") {
+      return;
+    }
+
+    if (
+      shouldBypassLocalReasoning({
+        hasUpstreamWholeVideoLabel: this.currentFullVideoLabels.length > 0,
+        isUpstreamLabelPending: this.upstreamLabelResolutionPending
+      })
+    ) {
+      this.notices.show({
+        id: `local-feedback-blocked:${this.currentContext.bvid}`,
+        title: "已使用上游整视频标签",
+        message: "当前视频已有上游整视频记录，本地反馈入口不会覆盖上游结果。",
+        durationMs: 2600
+      });
+      return;
+    }
+
+    const segment = this.buildLocalSignalSegment(this.currentContext.bvid, {
+      category: detail.category,
+      source: detail.source === "comment-goods" || detail.source === "comment-suspicion" ? detail.source : "comment-suspicion",
+      reason: detail.reason ?? "评论区用户反馈"
+    });
+    void this.handleLocalBadgeDecision(segment, detail.decision);
   };
   private readonly handleMbgaLiveFallback = () => {
     this.notices.show({
@@ -272,6 +333,7 @@ export class ScriptController {
     document.addEventListener("visibilitychange", this.handleVisibilityChange);
     this.panel.mount();
     window.addEventListener(VIDEO_SIGNAL_EVENT, this.handleVideoSignal as EventListener);
+    window.addEventListener(VIDEO_SIGNAL_FEEDBACK_EVENT, this.handleVideoSignalFeedback as EventListener);
     window.addEventListener("bsb_mbga_live_fallback", this.handleMbgaLiveFallback as EventListener);
     await this.refreshCurrentVideo(true);
     this.restorePendingPanelOpen();
@@ -357,6 +419,7 @@ export class ScriptController {
     this.domObserver = null;
     document.removeEventListener("visibilitychange", this.handleVisibilityChange);
     window.removeEventListener(VIDEO_SIGNAL_EVENT, this.handleVideoSignal as EventListener);
+    window.removeEventListener(VIDEO_SIGNAL_FEEDBACK_EVENT, this.handleVideoSignalFeedback as EventListener);
     this.syncCompactVideoHeader();
     this.clearRuntimeState(true);
   }
@@ -487,6 +550,8 @@ export class ScriptController {
         bvid: context.bvid,
         segmentCount: null
       });
+      this.upstreamLabelResolutionPending = true;
+      this.syncLocalFeedbackAvailability();
 
       const [segments, videoLabelCategory] = await Promise.all([
         this.client.getSegments(context, this.currentConfig),
@@ -499,7 +564,11 @@ export class ScriptController {
         videoLabelCategory,
         this.currentConfig
       );
-      const localTitleLabel = await this.resolveLocalTitleLabel(context);
+      this.upstreamLabelResolutionPending = false;
+      const localTitleLabel =
+        this.currentFullVideoLabels.length > 0 || this.localVideoLabelStore.isDismissed(context.bvid)
+          ? null
+          : await this.resolveLocalTitleLabel(context);
       this.currentTitleLabel = this.currentFullVideoLabels[0] ?? localTitleLabel;
       this.panel.setFullVideoLabels(
         this.currentFullVideoLabels.length > 0
@@ -555,6 +624,7 @@ export class ScriptController {
           segmentCount: 0
         });
       }
+      this.syncLocalFeedbackAvailability();
       debugLog("Loaded segments", {
         signature,
         count: this.currentSegments.length
@@ -574,7 +644,9 @@ export class ScriptController {
         durationMs: 4000
       });
       this.titleBadge.clear();
+      this.syncLocalFeedbackAvailability();
     } finally {
+      this.upstreamLabelResolutionPending = false;
       this.refreshing = false;
       if (this.pendingRefresh) {
         const nextForceFetch = this.pendingForceFetch;
@@ -1017,6 +1089,7 @@ export class ScriptController {
     this.currentSegments = [];
     this.currentFullVideoLabels = [];
     this.currentTitleLabel = null;
+    this.upstreamLabelResolutionPending = false;
     this.currentSignature = "";
     this.currentContext = null;
     this.currentVideo = null;
@@ -1033,6 +1106,7 @@ export class ScriptController {
       this.syncCompactVideoHeader();
       this.updateRuntimeStatus(this.buildIdleStatus());
     }
+    this.syncLocalFeedbackAvailability();
   }
 
   private buildIdleStatus(): RuntimeStatus {
@@ -1064,6 +1138,23 @@ export class ScriptController {
 
   private updateRuntimeStatus(status: RuntimeStatus): void {
     this.panel.updateRuntimeStatus(status);
+  }
+
+  private syncLocalFeedbackAvailability(): void {
+    window.dispatchEvent(
+      new CustomEvent(LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT, {
+        detail: {
+          enabled:
+            this.started &&
+            this.currentConfig.enabled &&
+            Boolean(this.currentContext) &&
+            !shouldBypassLocalReasoning({
+              hasUpstreamWholeVideoLabel: this.currentFullVideoLabels.length > 0,
+              isUpstreamLabelPending: this.upstreamLabelResolutionPending
+            })
+        }
+      })
+    );
   }
 
   private syncCompactVideoHeader(): void {

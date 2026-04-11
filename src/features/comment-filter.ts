@@ -18,6 +18,8 @@ const THREAD_PROCESSED_ATTR = "data-bsb-comment-processed";
 const REPLY_PROCESSED_ATTR = "data-bsb-comment-reply-processed";
 const BADGE_ATTR = "data-bsb-comment-badge";
 const TOGGLE_ATTR = "data-bsb-comment-toggle";
+const FEEDBACK_KEEP_ATTR = "data-bsb-comment-feedback-keep";
+const FEEDBACK_DISMISS_ATTR = "data-bsb-comment-feedback-dismiss";
 const LOCATION_ATTR = "data-bsb-comment-location";
 const HIDDEN_ATTR = "data-bsb-comment-hidden";
 const REPLIES_HIDDEN_ATTR = "data-bsb-comment-replies-hidden";
@@ -26,6 +28,8 @@ const VUE_LOCATION_MARK_ATTR = "data-bsb-comment-location-settled";
 const NO_LOCATION_MARK = "__empty__";
 const ROOT_SWEEP_DELAYS_MS = [120, 240, 420, 760, 1200, 1800] as const;
 export const VIDEO_SIGNAL_EVENT = "bsb:video-signal";
+export const VIDEO_SIGNAL_FEEDBACK_EVENT = "bsb:video-signal-feedback";
+export const LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT = "bsb:local-video-feedback-availability";
 const COMMENT_RELEVANT_SELECTORS = [
   "bili-comments",
   "bili-comment-thread-renderer",
@@ -39,7 +43,13 @@ const COMMENT_RELEVANT_SELECTORS = [
   ".reply-time",
   ".sub-reply-time"
 ] as const;
-const COMMENT_IGNORED_SELECTORS = [`[${BADGE_ATTR}]`, `[${TOGGLE_ATTR}]`, `[${LOCATION_ATTR}]`] as const;
+const COMMENT_IGNORED_SELECTORS = [
+  `[${BADGE_ATTR}]`,
+  `[${TOGGLE_ATTR}]`,
+  `[${FEEDBACK_KEEP_ATTR}]`,
+  `[${FEEDBACK_DISMISS_ATTR}]`,
+  `[${LOCATION_ATTR}]`
+] as const;
 const currentInlineBadgeAppearance = {
   commentBadge: false,
   commentLocation: false
@@ -280,6 +290,20 @@ function dispatchVideoSignal(match: CommentSponsorMatch): void {
   );
 }
 
+function dispatchVideoSignalFeedback(match: CommentSponsorMatch, decision: "confirm" | "dismiss"): void {
+  const detail = {
+    decision,
+    ...commentMatchToVideoSignal(match),
+    matches: match.matches
+  };
+
+  window.dispatchEvent(
+    new CustomEvent(VIDEO_SIGNAL_FEEDBACK_EVENT, {
+      detail
+    })
+  );
+}
+
 function getBadgeRoot(commentRenderer: CommentRenderer): ShadowRoot | null {
   return commentRenderer.shadowRoot?.querySelector("bili-comment-user-info")?.shadowRoot ?? null;
 }
@@ -330,6 +354,20 @@ function createBadge(text: string, tone: InlineTone, color?: string): HTMLElemen
 
 function createToggleButton(onClick: () => void): HTMLButtonElement {
   const button = createInlineToggle(TOGGLE_ATTR, onClick, "inline");
+  return button;
+}
+
+function createFeedbackButton(
+  attrName: string,
+  text: string,
+  title: string,
+  onClick: () => void
+): HTMLButtonElement {
+  const button = createInlineToggle(attrName, onClick, "inline");
+  button.dataset.state = "hidden";
+  button.setAttribute("aria-pressed", "false");
+  button.textContent = text;
+  button.title = title;
   return button;
 }
 
@@ -502,7 +540,9 @@ function injectVueCommentLocation(node: HTMLElement, color?: string): void {
 function removeInjectedDecorations(commentRenderer: CommentRenderer): void {
   getBadgeRoot(commentRenderer)?.querySelectorAll<HTMLElement>(`[${BADGE_ATTR}='true']`).forEach((node) => node.remove());
   getActionRoot(commentRenderer)
-    ?.querySelectorAll<HTMLElement>(`[${TOGGLE_ATTR}='true'], [${LOCATION_ATTR}='true'], #location, .reply-location`)
+    ?.querySelectorAll<HTMLElement>(
+      `[${TOGGLE_ATTR}='true'], [${FEEDBACK_KEEP_ATTR}='true'], [${FEEDBACK_DISMISS_ATTR}='true'], [${LOCATION_ATTR}='true'], #location, .reply-location`
+    )
     .forEach((node) => node.remove());
 }
 
@@ -555,6 +595,7 @@ function restoreReplies(thread: HTMLElement): void {
 export class CommentSponsorController {
   private started = false;
   private currentConfig: StoredConfig;
+  private localVideoFeedbackEnabled = false;
   private rootSweepTimerId: number | null = null;
   private rootSweepAttempt = 0;
   private documentObserver: MutationObserver | null = null;
@@ -567,6 +608,20 @@ export class CommentSponsorController {
       this.pendingVisibleRefresh = false;
       this.scheduleRefresh();
     }
+  };
+  private readonly handleFeedbackAvailability = (event: Event) => {
+    if (!(event instanceof CustomEvent)) {
+      return;
+    }
+
+    const nextEnabled = Boolean((event.detail as { enabled?: boolean } | null)?.enabled);
+    if (nextEnabled === this.localVideoFeedbackEnabled) {
+      return;
+    }
+
+    this.localVideoFeedbackEnabled = nextEnabled;
+    this.resetProcessedThreads();
+    this.scheduleRefresh();
   };
 
   constructor(private readonly configStore: ConfigStore) {
@@ -610,6 +665,7 @@ export class CommentSponsorController {
       subtree: true
     });
     document.addEventListener("visibilitychange", this.handleVisibilityChange);
+    window.addEventListener(LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT, this.handleFeedbackAvailability as EventListener);
 
     window.addEventListener(
       "pagehide",
@@ -644,6 +700,7 @@ export class CommentSponsorController {
     this.pendingVisibleRefresh = false;
     this.rootSweepAttempt = 0;
     document.removeEventListener("visibilitychange", this.handleVisibilityChange);
+    window.removeEventListener(LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT, this.handleFeedbackAvailability as EventListener);
     this.resetProcessedThreads();
   }
 
@@ -848,17 +905,38 @@ export class CommentSponsorController {
       return;
     }
 
+    const actionAnchor = getActionAnchor(target.renderer);
+    const actionRoot = getActionRoot(target.renderer);
+    if (this.localVideoFeedbackEnabled && actionAnchor) {
+      if (actionRoot) {
+        ensureInlineFeedbackStyles(actionRoot);
+      }
+
+      const keepButton = createFeedbackButton(
+        FEEDBACK_KEEP_ATTR,
+        "保留此视频标签",
+        "将这条评论线索作为当前视频的本地保留标签",
+        () => dispatchVideoSignalFeedback(match, "confirm")
+      );
+      const dismissButton = createFeedbackButton(
+        FEEDBACK_DISMISS_ATTR,
+        "忽略此视频",
+        "忽略当前视频的本地评论推理结果，并停止继续提示",
+        () => dispatchVideoSignalFeedback(match, "dismiss")
+      );
+      insertAfter(actionAnchor, dismissButton);
+      insertAfter(actionAnchor, keepButton);
+    }
+
     if (this.currentConfig.commentFilterMode !== "hide") {
       return;
     }
 
     const content = getContentBody(target.renderer);
-    const actionAnchor = getActionAnchor(target.renderer);
     if (!content || !actionAnchor) {
       return;
     }
 
-    const actionRoot = getActionRoot(target.renderer);
     if (actionRoot) {
       ensureInlineFeedbackStyles(actionRoot);
     }

@@ -1,6 +1,7 @@
 import { LOCAL_LABEL_STORAGE_KEY } from "../constants";
 import { gmGetValue, gmSetValue } from "../platform/gm";
 import type { Category, LocalVideoLabelRecord, LocalVideoLabelSource, LocalVideoSignal } from "../types";
+import { shouldReplaceAutomaticLocalLabel } from "../utils/local-learning";
 
 const MAX_LOCAL_VIDEO_LABELS = 400;
 
@@ -114,17 +115,7 @@ export class LocalVideoLabelStore {
     }
 
     const existing = this.records.get(videoId);
-    if (existing?.source === "manual-dismiss") {
-      return;
-    }
-    if (existing?.source === "manual" && existing.category) {
-      return;
-    }
-    if (
-      existing?.category === signal.category &&
-      existing.source === signal.source &&
-      existing.confidence >= signal.confidence
-    ) {
+    if (!shouldReplaceAutomaticLocalLabel(existing, signal)) {
       return;
     }
 
