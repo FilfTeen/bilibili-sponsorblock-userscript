@@ -65,24 +65,23 @@
   };
 
   // src/platform/gm.ts
-  function resolveGlobalFunction(name) {
+  function resolveGlobalObject() {
     if (typeof window !== "undefined") {
-      const fromWindow = Reflect.get(window, name);
-      if (typeof fromWindow === "function") {
-        return fromWindow;
-      }
+      return window;
     }
     if (typeof self !== "undefined") {
-      const fromSelf = Reflect.get(self, name);
-      if (typeof fromSelf === "function") {
-        return fromSelf;
-      }
+      return self;
     }
     if (typeof global !== "undefined") {
-      const fromGlobal = Reflect.get(global, name);
-      if (typeof fromGlobal === "function") {
-        return fromGlobal;
-      }
+      return global;
+    }
+    return void 0;
+  }
+  function resolveGlobalFunction(name) {
+    const globalObject = resolveGlobalObject();
+    const fromGlobalObject = globalObject ? Reflect.get(globalObject, name) : void 0;
+    if (typeof fromGlobalObject === "function") {
+      return fromGlobalObject;
     }
     return void 0;
   }
@@ -1197,6 +1196,71 @@
     return { entries };
   }
 
+  // src/utils/local-learning.ts
+  var LOCAL_VIDEO_SIGNAL_PERSISTENCE_THRESHOLD = 0.72;
+  function sourcePriority(source) {
+    switch (source) {
+      case "manual":
+      case "manual-dismiss":
+        return 100;
+      case "comment-goods":
+        return 30;
+      case "comment-suspicion":
+        return 20;
+      case "page-heuristic":
+        return 10;
+      default:
+        return 0;
+    }
+  }
+  function resolveLocalVideoSignalPersistenceThreshold(signal) {
+    if (signal.source === "comment-goods") {
+      return 0.9;
+    }
+    if (signal.source === "comment-suspicion") {
+      return signal.category === "sponsor" ? 0.84 : 0.79;
+    }
+    if (signal.category === "exclusive_access") {
+      return 0.8;
+    }
+    return LOCAL_VIDEO_SIGNAL_PERSISTENCE_THRESHOLD;
+  }
+  function shouldPersistLocalVideoSignal(signal) {
+    return signal.confidence >= resolveLocalVideoSignalPersistenceThreshold(signal);
+  }
+  function pickPreferredLocalVideoSignal(commentSignal, pageSignal) {
+    if (commentSignal && pageSignal) {
+      return commentSignal.confidence >= pageSignal.confidence ? commentSignal : pageSignal;
+    }
+    return commentSignal != null ? commentSignal : pageSignal;
+  }
+  function shouldReplaceAutomaticLocalLabel(existing, incoming) {
+    if (!existing) {
+      return true;
+    }
+    if (existing.source === "manual-dismiss") {
+      return false;
+    }
+    if (existing.source === "manual" && existing.category) {
+      return false;
+    }
+    if (existing.category === incoming.category && existing.source === incoming.source && existing.confidence >= incoming.confidence) {
+      return false;
+    }
+    const existingPriority = sourcePriority(existing.source);
+    const incomingPriority = sourcePriority(incoming.source);
+    if (incomingPriority < existingPriority && existing.confidence >= incoming.confidence - 0.04) {
+      return false;
+    }
+    if (incomingPriority === existingPriority && existing.confidence >= incoming.confidence) {
+      return false;
+    }
+    return true;
+  }
+  function shouldBypassLocalReasoning(options) {
+    return Boolean(options.hasUpstreamWholeVideoLabel || options.isUpstreamLabelPending);
+  }
+
   // src/core/local-label-store.ts
   var MAX_LOCAL_VIDEO_LABELS = 400;
   function isCategory(value) {
@@ -1277,13 +1341,7 @@
           return;
         }
         const existing = this.records.get(videoId);
-        if ((existing == null ? void 0 : existing.source) === "manual-dismiss") {
-          return;
-        }
-        if ((existing == null ? void 0 : existing.source) === "manual" && existing.category) {
-          return;
-        }
-        if ((existing == null ? void 0 : existing.category) === signal.category && existing.source === signal.source && existing.confidence >= signal.confidence) {
+        if (!shouldReplaceAutomaticLocalLabel(existing, signal)) {
           return;
         }
         this.records.set(videoId, {
@@ -4596,6 +4654,8 @@ ${inlineSurfaceFrostedGlass.overlay}
   var REPLY_PROCESSED_ATTR = "data-bsb-comment-reply-processed";
   var BADGE_ATTR = "data-bsb-comment-badge";
   var TOGGLE_ATTR = "data-bsb-comment-toggle";
+  var FEEDBACK_KEEP_ATTR = "data-bsb-comment-feedback-keep";
+  var FEEDBACK_DISMISS_ATTR = "data-bsb-comment-feedback-dismiss";
   var LOCATION_ATTR = "data-bsb-comment-location";
   var HIDDEN_ATTR = "data-bsb-comment-hidden";
   var REPLIES_HIDDEN_ATTR = "data-bsb-comment-replies-hidden";
@@ -4604,6 +4664,8 @@ ${inlineSurfaceFrostedGlass.overlay}
   var NO_LOCATION_MARK = "__empty__";
   var ROOT_SWEEP_DELAYS_MS = [120, 240, 420, 760, 1200, 1800];
   var VIDEO_SIGNAL_EVENT = "bsb:video-signal";
+  var VIDEO_SIGNAL_FEEDBACK_EVENT = "bsb:video-signal-feedback";
+  var LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT = "bsb:local-video-feedback-availability";
   var COMMENT_RELEVANT_SELECTORS = [
     "bili-comments",
     "bili-comment-thread-renderer",
@@ -4617,7 +4679,13 @@ ${inlineSurfaceFrostedGlass.overlay}
     ".reply-time",
     ".sub-reply-time"
   ];
-  var COMMENT_IGNORED_SELECTORS = [`[${BADGE_ATTR}]`, `[${TOGGLE_ATTR}]`, `[${LOCATION_ATTR}]`];
+  var COMMENT_IGNORED_SELECTORS = [
+    `[${BADGE_ATTR}]`,
+    `[${TOGGLE_ATTR}]`,
+    `[${FEEDBACK_KEEP_ATTR}]`,
+    `[${FEEDBACK_DISMISS_ATTR}]`,
+    `[${LOCATION_ATTR}]`
+  ];
   var currentInlineBadgeAppearance = {
     commentBadge: false,
     commentLocation: false
@@ -4782,6 +4850,18 @@ ${inlineSurfaceFrostedGlass.overlay}
       })
     );
   }
+  function dispatchVideoSignalFeedback(match, decision) {
+    const detail = __spreadProps(__spreadValues({
+      decision
+    }, commentMatchToVideoSignal(match)), {
+      matches: match.matches
+    });
+    window.dispatchEvent(
+      new CustomEvent(VIDEO_SIGNAL_FEEDBACK_EVENT, {
+        detail
+      })
+    );
+  }
   function getBadgeRoot(commentRenderer) {
     var _a, _b, _c;
     return (_c = (_b = (_a = commentRenderer.shadowRoot) == null ? void 0 : _a.querySelector("bili-comment-user-info")) == null ? void 0 : _b.shadowRoot) != null ? _c : null;
@@ -4825,6 +4905,14 @@ ${inlineSurfaceFrostedGlass.overlay}
   }
   function createToggleButton(onClick) {
     const button = createInlineToggle(TOGGLE_ATTR, onClick, "inline");
+    return button;
+  }
+  function createFeedbackButton(attrName, text, title, onClick) {
+    const button = createInlineToggle(attrName, onClick, "inline");
+    button.dataset.state = "hidden";
+    button.setAttribute("aria-pressed", "false");
+    button.textContent = text;
+    button.title = title;
     return button;
   }
   function createLocationBadge(text, color) {
@@ -4966,7 +5054,9 @@ ${inlineSurfaceFrostedGlass.overlay}
   function removeInjectedDecorations(commentRenderer) {
     var _a, _b;
     (_a = getBadgeRoot(commentRenderer)) == null ? void 0 : _a.querySelectorAll(`[${BADGE_ATTR}='true']`).forEach((node) => node.remove());
-    (_b = getActionRoot(commentRenderer)) == null ? void 0 : _b.querySelectorAll(`[${TOGGLE_ATTR}='true'], [${LOCATION_ATTR}='true'], #location, .reply-location`).forEach((node) => node.remove());
+    (_b = getActionRoot(commentRenderer)) == null ? void 0 : _b.querySelectorAll(
+      `[${TOGGLE_ATTR}='true'], [${FEEDBACK_KEEP_ATTR}='true'], [${FEEDBACK_DISMISS_ATTR}='true'], [${LOCATION_ATTR}='true'], #location, .reply-location`
+    ).forEach((node) => node.remove());
   }
   function insertAfter(anchor, node) {
     const parent = anchor.parentNode;
@@ -5014,6 +5104,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       this.configStore = configStore;
       __publicField(this, "started", false);
       __publicField(this, "currentConfig");
+      __publicField(this, "localVideoFeedbackEnabled", false);
       __publicField(this, "rootSweepTimerId", null);
       __publicField(this, "rootSweepAttempt", 0);
       __publicField(this, "documentObserver", null);
@@ -5026,6 +5117,19 @@ ${inlineSurfaceFrostedGlass.overlay}
           this.pendingVisibleRefresh = false;
           this.scheduleRefresh();
         }
+      });
+      __publicField(this, "handleFeedbackAvailability", (event) => {
+        var _a;
+        if (!(event instanceof CustomEvent)) {
+          return;
+        }
+        const nextEnabled = Boolean((_a = event.detail) == null ? void 0 : _a.enabled);
+        if (nextEnabled === this.localVideoFeedbackEnabled) {
+          return;
+        }
+        this.localVideoFeedbackEnabled = nextEnabled;
+        this.resetProcessedThreads();
+        this.scheduleRefresh();
       });
       this.currentConfig = this.configStore.getSnapshot();
       currentInlineBadgeAppearance.commentBadge = this.currentConfig.labelTransparency.commentBadge;
@@ -5063,6 +5167,7 @@ ${inlineSurfaceFrostedGlass.overlay}
         subtree: true
       });
       document.addEventListener("visibilitychange", this.handleVisibilityChange);
+      window.addEventListener(LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT, this.handleFeedbackAvailability);
       window.addEventListener(
         "pagehide",
         () => {
@@ -5095,6 +5200,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       this.pendingVisibleRefresh = false;
       this.rootSweepAttempt = 0;
       document.removeEventListener("visibilitychange", this.handleVisibilityChange);
+      window.removeEventListener(LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT, this.handleFeedbackAvailability);
       this.resetProcessedThreads();
     }
     scheduleRootSweep(force = false) {
@@ -5261,15 +5367,34 @@ ${inlineSurfaceFrostedGlass.overlay}
         target.host.removeAttribute(target.processedAttr);
         return;
       }
+      const actionAnchor = getActionAnchor(target.renderer);
+      const actionRoot = getActionRoot(target.renderer);
+      if (this.localVideoFeedbackEnabled && actionAnchor) {
+        if (actionRoot) {
+          ensureInlineFeedbackStyles(actionRoot);
+        }
+        const keepButton = createFeedbackButton(
+          FEEDBACK_KEEP_ATTR,
+          "\u4FDD\u7559\u6B64\u89C6\u9891\u6807\u7B7E",
+          "\u5C06\u8FD9\u6761\u8BC4\u8BBA\u7EBF\u7D22\u4F5C\u4E3A\u5F53\u524D\u89C6\u9891\u7684\u672C\u5730\u4FDD\u7559\u6807\u7B7E",
+          () => dispatchVideoSignalFeedback(match, "confirm")
+        );
+        const dismissButton = createFeedbackButton(
+          FEEDBACK_DISMISS_ATTR,
+          "\u5FFD\u7565\u6B64\u89C6\u9891",
+          "\u5FFD\u7565\u5F53\u524D\u89C6\u9891\u7684\u672C\u5730\u8BC4\u8BBA\u63A8\u7406\u7ED3\u679C\uFF0C\u5E76\u505C\u6B62\u7EE7\u7EED\u63D0\u793A",
+          () => dispatchVideoSignalFeedback(match, "dismiss")
+        );
+        insertAfter(actionAnchor, dismissButton);
+        insertAfter(actionAnchor, keepButton);
+      }
       if (this.currentConfig.commentFilterMode !== "hide") {
         return;
       }
       const content = getContentBody(target.renderer);
-      const actionAnchor = getActionAnchor(target.renderer);
       if (!content || !actionAnchor) {
         return;
       }
-      const actionRoot = getActionRoot(target.renderer);
       if (actionRoot) {
         ensureInlineFeedbackStyles(actionRoot);
       }
@@ -5346,18 +5471,6 @@ ${inlineSurfaceFrostedGlass.overlay}
       debugLog("Comment sponsor state reset");
     }
   };
-
-  // src/utils/local-learning.ts
-  var LOCAL_VIDEO_SIGNAL_PERSISTENCE_THRESHOLD = 0.72;
-  function shouldPersistLocalVideoSignal(signal) {
-    return signal.confidence >= LOCAL_VIDEO_SIGNAL_PERSISTENCE_THRESHOLD;
-  }
-  function pickPreferredLocalVideoSignal(commentSignal, pageSignal) {
-    if (commentSignal && pageSignal) {
-      return commentSignal.confidence >= pageSignal.confidence ? commentSignal : pageSignal;
-    }
-    return commentSignal != null ? commentSignal : pageSignal;
-  }
 
   // src/utils/local-video-signal.ts
   var DESCRIPTION_SELECTORS = [
@@ -5735,6 +5848,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       __publicField(this, "pendingVisibleRefresh", false);
       __publicField(this, "pendingPanelOpenTab", null);
       __publicField(this, "panelRestoreArmed", false);
+      __publicField(this, "upstreamLabelResolutionPending", false);
       __publicField(this, "lastTickTime", null);
       __publicField(this, "lastAnnouncedSignature", "");
       __publicField(this, "handleVisibilityChange", () => {
@@ -5757,11 +5871,14 @@ ${inlineSurfaceFrostedGlass.overlay}
         if (!(detail == null ? void 0 : detail.category) || this.currentConfig.categoryModes[detail.category] === "off") {
           return;
         }
-        if (this.currentFullVideoLabels.length > 0 || this.localVideoLabelStore.isDismissed(this.currentContext.bvid)) {
+        if (shouldBypassLocalReasoning({
+          hasUpstreamWholeVideoLabel: this.currentFullVideoLabels.length > 0,
+          isUpstreamLabelPending: this.upstreamLabelResolutionPending
+        }) || this.localVideoLabelStore.isDismissed(this.currentContext.bvid)) {
           return;
         }
         const existing = this.currentTitleLabel;
-        if (existing && !existing.UUID.startsWith("local-signal:")) {
+        if (existing && (!existing.UUID.startsWith("local-signal:") || existing.UUID.includes(":manual:") || existing.UUID.includes(":manual-dismiss:"))) {
           return;
         }
         const signal = {
@@ -5780,7 +5897,38 @@ ${inlineSurfaceFrostedGlass.overlay}
           bvid: this.currentContext.bvid,
           segmentCount: this.currentSegments.length
         });
-        void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal);
+        this.syncLocalFeedbackAvailability();
+        if (shouldPersistLocalVideoSignal(signal)) {
+          void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal);
+        }
+      });
+      __publicField(this, "handleVideoSignalFeedback", (event) => {
+        var _a;
+        if (!(event instanceof CustomEvent) || !this.started || !this.currentConfig.enabled || !this.currentContext) {
+          return;
+        }
+        const detail = event.detail;
+        if (!(detail == null ? void 0 : detail.category) || !detail.decision || this.currentConfig.categoryModes[detail.category] === "off") {
+          return;
+        }
+        if (shouldBypassLocalReasoning({
+          hasUpstreamWholeVideoLabel: this.currentFullVideoLabels.length > 0,
+          isUpstreamLabelPending: this.upstreamLabelResolutionPending
+        })) {
+          this.notices.show({
+            id: `local-feedback-blocked:${this.currentContext.bvid}`,
+            title: "\u5DF2\u4F7F\u7528\u4E0A\u6E38\u6574\u89C6\u9891\u6807\u7B7E",
+            message: "\u5F53\u524D\u89C6\u9891\u5DF2\u6709\u4E0A\u6E38\u6574\u89C6\u9891\u8BB0\u5F55\uFF0C\u672C\u5730\u53CD\u9988\u5165\u53E3\u4E0D\u4F1A\u8986\u76D6\u4E0A\u6E38\u7ED3\u679C\u3002",
+            durationMs: 2600
+          });
+          return;
+        }
+        const segment = this.buildLocalSignalSegment(this.currentContext.bvid, {
+          category: detail.category,
+          source: detail.source === "comment-goods" || detail.source === "comment-suspicion" ? detail.source : "comment-suspicion",
+          reason: (_a = detail.reason) != null ? _a : "\u8BC4\u8BBA\u533A\u7528\u6237\u53CD\u9988"
+        });
+        void this.handleLocalBadgeDecision(segment, detail.decision);
       });
       __publicField(this, "handleMbgaLiveFallback", () => {
         this.notices.show({
@@ -5887,6 +6035,7 @@ ${inlineSurfaceFrostedGlass.overlay}
         document.addEventListener("visibilitychange", this.handleVisibilityChange);
         this.panel.mount();
         window.addEventListener(VIDEO_SIGNAL_EVENT, this.handleVideoSignal);
+        window.addEventListener(VIDEO_SIGNAL_FEEDBACK_EVENT, this.handleVideoSignalFeedback);
         window.addEventListener("bsb_mbga_live_fallback", this.handleMbgaLiveFallback);
         yield this.refreshCurrentVideo(true);
         this.restorePendingPanelOpen();
@@ -5967,6 +6116,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       this.domObserver = null;
       document.removeEventListener("visibilitychange", this.handleVisibilityChange);
       window.removeEventListener(VIDEO_SIGNAL_EVENT, this.handleVideoSignal);
+      window.removeEventListener(VIDEO_SIGNAL_FEEDBACK_EVENT, this.handleVideoSignalFeedback);
       this.syncCompactVideoHeader();
       this.clearRuntimeState(true);
     }
@@ -6081,6 +6231,8 @@ ${inlineSurfaceFrostedGlass.overlay}
             bvid: context.bvid,
             segmentCount: null
           });
+          this.upstreamLabelResolutionPending = true;
+          this.syncLocalFeedbackAvailability();
           const [segments, videoLabelCategory] = yield Promise.all([
             this.client.getSegments(context, this.currentConfig),
             this.videoLabelClient.getVideoLabel(context.bvid, this.currentConfig)
@@ -6092,7 +6244,8 @@ ${inlineSurfaceFrostedGlass.overlay}
             videoLabelCategory,
             this.currentConfig
           );
-          const localTitleLabel = yield this.resolveLocalTitleLabel(context);
+          this.upstreamLabelResolutionPending = false;
+          const localTitleLabel = this.currentFullVideoLabels.length > 0 || this.localVideoLabelStore.isDismissed(context.bvid) ? null : yield this.resolveLocalTitleLabel(context);
           this.currentTitleLabel = (_d = this.currentFullVideoLabels[0]) != null ? _d : localTitleLabel;
           this.panel.setFullVideoLabels(
             this.currentFullVideoLabels.length > 0 ? this.currentFullVideoLabels : this.currentTitleLabel ? [this.currentTitleLabel] : []
@@ -6144,6 +6297,7 @@ ${inlineSurfaceFrostedGlass.overlay}
               segmentCount: 0
             });
           }
+          this.syncLocalFeedbackAvailability();
           debugLog("Loaded segments", {
             signature,
             count: this.currentSegments.length
@@ -6163,7 +6317,9 @@ ${inlineSurfaceFrostedGlass.overlay}
             durationMs: 4e3
           });
           this.titleBadge.clear();
+          this.syncLocalFeedbackAvailability();
         } finally {
+          this.upstreamLabelResolutionPending = false;
           this.refreshing = false;
           if (this.pendingRefresh) {
             const nextForceFetch = this.pendingForceFetch;
@@ -6536,6 +6692,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       this.currentSegments = [];
       this.currentFullVideoLabels = [];
       this.currentTitleLabel = null;
+      this.upstreamLabelResolutionPending = false;
       this.currentSignature = "";
       this.currentContext = null;
       this.currentVideo = null;
@@ -6552,6 +6709,7 @@ ${inlineSurfaceFrostedGlass.overlay}
         this.syncCompactVideoHeader();
         this.updateRuntimeStatus(this.buildIdleStatus());
       }
+      this.syncLocalFeedbackAvailability();
     }
     buildIdleStatus() {
       var _a, _b, _c, _d;
@@ -6580,6 +6738,18 @@ ${inlineSurfaceFrostedGlass.overlay}
     }
     updateRuntimeStatus(status) {
       this.panel.updateRuntimeStatus(status);
+    }
+    syncLocalFeedbackAvailability() {
+      window.dispatchEvent(
+        new CustomEvent(LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT, {
+          detail: {
+            enabled: this.started && this.currentConfig.enabled && Boolean(this.currentContext) && !shouldBypassLocalReasoning({
+              hasUpstreamWholeVideoLabel: this.currentFullVideoLabels.length > 0,
+              isUpstreamLabelPending: this.upstreamLabelResolutionPending
+            })
+          }
+        })
+      );
     }
     syncCompactVideoHeader() {
       this.compactHeader.setOptions({
