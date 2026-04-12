@@ -25,6 +25,9 @@ export type CommercialActionability = {
   hasPurchaseCue: boolean;
   hasOwnedSurface: boolean;
   hasOwnedActionLead: boolean;
+  hasExternalLink: boolean;
+  hasExperienceCue: boolean;
+  hasProductOrServiceCue: boolean;
   hasStrongClosure: boolean;
   hasQuotedOrMockingContext: boolean;
 };
@@ -74,12 +77,15 @@ const EXCLUSIVE_RULES: readonly CommercialRule[] = [
 ];
 
 const CTA_ACTION_PATTERN =
-  /点击|点开|点进|戳|打开|去|领取|领|抢|下单|购买|买|入手|搜索|看我|看主页|主页见|置顶看我/iu;
+  /点击|点开|点进|戳|打开|去|领取|领|抢|下单|购买|买|入手|搜索|看我|看主页|主页见|置顶看我|试一下|试试|体验一下|立即体验|戳体验/iu;
 const CTA_SURFACE_PATTERN =
-  /评论区(?:置顶)?|蓝链|链接|商品卡|店铺|橱窗|主页|频道|直播间|专栏|收藏夹|合集/iu;
+  /评论区(?:置顶)?|蓝链|链接|商品卡|店铺|橱窗|主页|频道|直播间|专栏|收藏夹|合集|官网|网址/iu;
 const CTA_BENEFIT_PATTERN = /优惠(?:券|卷|劵)|红包|福利|返利|返现|折扣|到手价|密令/iu;
 const CTA_PURCHASE_PATTERN = /下单|购买|买|入手/u;
 const CTA_OWNED_SURFACE_PATTERN = /(?:我的|本)?(?:店铺|小店|橱窗|主页|频道|直播间|专栏|收藏夹|合集)/iu;
+const EXTERNAL_LINK_PATTERN = /https?:\/\/|www\.|(?:^|[\s:：])(?:[a-z0-9-]+\.)+(?:com|cn|net|org|io|app)(?:\/|\b)/iu;
+const EXPERIENCE_CUE_PATTERN = /戳体验|立即体验|去体验|体验一下|试一下|试试|试用|可以试|值得试/iu;
+const PRODUCT_OR_SERVICE_CUE_PATTERN = /工具|产品|服务|平台|软件|app|APP|官网|网站|做视频|剪辑|素材|后期|效率/iu;
 const QUOTED_OR_MOCKING_CONTEXT_PATTERN =
   /玩梗|整活|反串|阴阳怪气|吐槽|调侃|引用|复读|照搬|原话|话术|文案|笑死|绷不住|尬|土味|逆天|离谱|“[^”]{0,24}(?:广告|推广|优惠券|购买|下单|链接)[^”]{0,24}”|"[^"]{0,24}(?:广告|推广|优惠券|购买|下单|链接)[^"]{0,24}"/iu;
 
@@ -120,13 +126,19 @@ export function inspectCommercialActionability(text: string): CommercialActionab
       hasPurchaseCue: false,
       hasOwnedSurface: false,
       hasOwnedActionLead: false,
+      hasExternalLink: false,
+      hasExperienceCue: false,
+      hasProductOrServiceCue: false,
       hasStrongClosure: false,
       hasQuotedOrMockingContext: false
     };
   }
 
-  const hasActionVerb = hasNonNegatedPattern(normalized, CTA_ACTION_PATTERN);
-  const hasCommerceSurface = hasNonNegatedPattern(normalized, CTA_SURFACE_PATTERN);
+  const hasExternalLink = hasNonNegatedPattern(normalized, EXTERNAL_LINK_PATTERN);
+  const hasExperienceCue = hasNonNegatedPattern(normalized, EXPERIENCE_CUE_PATTERN);
+  const hasProductOrServiceCue = hasNonNegatedPattern(normalized, PRODUCT_OR_SERVICE_CUE_PATTERN);
+  const hasActionVerb = hasNonNegatedPattern(normalized, CTA_ACTION_PATTERN) || hasExperienceCue;
+  const hasCommerceSurface = hasNonNegatedPattern(normalized, CTA_SURFACE_PATTERN) || hasExternalLink;
   const hasBenefitCue = hasNonNegatedPattern(normalized, CTA_BENEFIT_PATTERN);
   const hasPurchaseCue = hasNonNegatedPattern(normalized, CTA_PURCHASE_PATTERN);
   const hasOwnedSurface = hasNonNegatedPattern(normalized, CTA_OWNED_SURFACE_PATTERN);
@@ -135,6 +147,7 @@ export function inspectCommercialActionability(text: string): CommercialActionab
     (hasActionVerb && hasCommerceSurface) ||
     (hasBenefitCue && (hasCommerceSurface || hasPurchaseCue)) ||
     (hasPurchaseCue && hasCommerceSurface) ||
+    (hasExternalLink && hasExperienceCue && hasProductOrServiceCue) ||
     hasOwnedActionLead;
 
   return {
@@ -144,6 +157,9 @@ export function inspectCommercialActionability(text: string): CommercialActionab
     hasPurchaseCue,
     hasOwnedSurface,
     hasOwnedActionLead,
+    hasExternalLink,
+    hasExperienceCue,
+    hasProductOrServiceCue,
     hasStrongClosure,
     hasQuotedOrMockingContext: QUOTED_OR_MOCKING_CONTEXT_PATTERN.test(normalized)
   };
@@ -212,6 +228,7 @@ export function analyzeCommercialIntent(
   let sponsorScore = sponsorStrong.score + sponsorSupport.score;
   let selfpromoScore = selfpromo.score;
   let exclusiveScore = exclusive.score;
+  const actionability = inspectCommercialActionability(normalized);
 
   const hasExplicitCTA =
     /评论区(?:置顶)?|(?:购买|下单|点击|打开).{0,8}(?:链接|蓝链)|(?:领|抢)(?:券|红包|福利)|优惠(?:券|卷|劵)|商品卡/iu.test(
@@ -241,6 +258,15 @@ export function analyzeCommercialIntent(
 
   if (hasExplicitCTA) {
     sponsorScore += 1.45;
+  }
+
+  if (
+    actionability.hasExternalLink &&
+    actionability.hasExperienceCue &&
+    actionability.hasProductOrServiceCue &&
+    sponsorSupport.matches.includes("导购词")
+  ) {
+    sponsorScore += 2.25;
   }
 
   if (hasOwnedSurface && /(?:评论区|置顶|链接|主页|店铺|橱窗|直播间)/iu.test(normalized)) {

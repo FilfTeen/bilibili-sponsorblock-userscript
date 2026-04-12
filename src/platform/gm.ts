@@ -1,25 +1,26 @@
 import type { FetchResponse } from "../types";
 
-function resolveGlobalFunction(name: string): unknown {
+function resolveGlobalObject(): Record<string, unknown> | undefined {
   if (typeof window !== "undefined") {
-    const fromWindow = Reflect.get(window as unknown as Record<string, unknown>, name);
-    if (typeof fromWindow === "function") {
-      return fromWindow;
-    }
+    return window as unknown as Record<string, unknown>;
   }
 
   if (typeof self !== "undefined") {
-    const fromSelf = Reflect.get(self as unknown as Record<string, unknown>, name);
-    if (typeof fromSelf === "function") {
-      return fromSelf;
-    }
+    return self as unknown as Record<string, unknown>;
   }
 
   if (typeof global !== "undefined") {
-    const fromGlobal = Reflect.get(global as unknown as Record<string, unknown>, name);
-    if (typeof fromGlobal === "function") {
-      return fromGlobal;
-    }
+    return global as unknown as Record<string, unknown>;
+  }
+
+  return undefined;
+}
+
+function resolveGlobalFunction(name: string): unknown {
+  const globalObject = resolveGlobalObject();
+  const fromGlobalObject = globalObject ? Reflect.get(globalObject, name) : undefined;
+  if (typeof fromGlobalObject === "function") {
+    return fromGlobalObject;
   }
 
   return undefined;

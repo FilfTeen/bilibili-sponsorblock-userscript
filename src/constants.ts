@@ -13,6 +13,7 @@ export const STATS_STORAGE_KEY = "bsb_tm_stats_v1";
 export const CACHE_STORAGE_KEY = "bsb_tm_cache_v1";
 export const USER_ID_STORAGE_KEY = "bsb_tm_user_id_v1";
 export const LOCAL_LABEL_STORAGE_KEY = "bsb_tm_local_video_labels_v1";
+export const COMMENT_FEEDBACK_STORAGE_KEY = "bsb_tm_comment_feedback_v1";
 export const VOTE_HISTORY_STORAGE_KEY = "bsb_tm_vote_history_v1";
 export const BRIDGE_FLAG = "__BSB_TM_PAGE_BRIDGE__";
 export const REQUEST_TIMEOUT_MS = 8000;

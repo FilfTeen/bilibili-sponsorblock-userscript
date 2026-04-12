@@ -3,7 +3,11 @@ import { LocalVideoLabelStore } from "../../src/core/local-label-store";
 import { classifyCommentRenderer } from "../../src/features/comment-filter";
 import { classifyDynamicItem } from "../../src/features/dynamic-filter";
 import type { LocalVideoLabelRecord, LocalVideoSignal } from "../../src/types";
-import { pickPreferredLocalVideoSignal, shouldPersistLocalVideoSignal } from "../../src/utils/local-learning";
+import {
+  pickPreferredLocalVideoSignal,
+  shouldPersistLocalVideoSignal,
+  shouldReplaceAutomaticLocalLabel
+} from "../../src/utils/local-learning";
 import { inferLocalVideoSignal } from "../../src/utils/local-video-signal";
 import type {
   CommentRecognitionSample,
@@ -51,6 +55,12 @@ function createCommentRenderer(sample: CommentRecognitionSample): HTMLElement & 
     link.textContent = "商品卡";
     link.setAttribute("data-type", "goods");
     richRoot.appendChild(link);
+  }
+  if (sample.input.hasMediaAttachment) {
+    const image = document.createElement("img");
+    image.alt = "评论晒单图";
+    image.src = "https://i0.hdslb.com/bfs/test/order.jpg";
+    richRoot.appendChild(image);
   }
 
   const userInfo = document.createElement("bili-comment-user-info");
@@ -137,7 +147,7 @@ export function evaluateCommentRecognitionSample(sample: CommentRecognitionSampl
   const match = classifyCommentRenderer(createCommentRenderer(sample), {
     dynamicRegexPattern: sample.input.regexPattern ?? DEFAULT_DYNAMIC_REGEX_PATTERN,
     dynamicRegexKeywordMinMatches: sample.input.regexKeywordMinMatches ?? 1
-  });
+  }, sample.input.authorProfile ?? null);
   return evaluateClassification(sample, match?.category ?? null);
 }
 
@@ -162,13 +172,7 @@ function createStoreWithExistingRecord(existingRecord: LocalVideoLabelRecord | n
 function applyIncomingSignal(store: LocalVideoLabelStore, videoId: string, signal: LocalVideoSignal): void {
   const records = Reflect.get(store as unknown as Record<string, unknown>, "records") as Map<string, LocalVideoLabelRecord>;
   const existing = records.get(videoId);
-  if (existing?.source === "manual-dismiss") {
-    return;
-  }
-  if (existing?.source === "manual" && existing.category) {
-    return;
-  }
-  if (existing?.category === signal.category && existing.source === signal.source && existing.confidence >= signal.confidence) {
+  if (!shouldReplaceAutomaticLocalLabel(existing, signal)) {
     return;
   }
 

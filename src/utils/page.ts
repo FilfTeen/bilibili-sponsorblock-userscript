@@ -68,6 +68,35 @@ export function supportsVideoFeatures(url: string): boolean {
   );
 }
 
+export function supportsCompactVideoHeader(url: string): boolean {
+  return supportsVideoFeatures(url);
+}
+
+export function isCompactVideoHeaderSuppressed(documentRef: Document = document): boolean {
+  if (documentRef.fullscreenElement) {
+    return true;
+  }
+
+  return Boolean(
+    documentRef.querySelector(
+      [
+        ".player-full-win",
+        ".player-fullscreen",
+        ".bpx-state-webfull",
+        ".bpx-state-webscreen",
+        ".bpx-state-fullscreen",
+        ".bpx-player-container[data-screen='web']",
+        ".bpx-player-container[data-screen='webscreen']",
+        ".bpx-player-container[data-screen='full']",
+        ".squirtle-video-pagefullscreen",
+        ".squirtle-video-fullscreen",
+        ".player-mode-webfullscreen",
+        ".mode-webscreen"
+      ].join(",")
+    )
+  );
+}
+
 export function supportsDynamicFilters(url: string): boolean {
   const pageType = detectPageType(url);
   return pageType === "main" || pageType === "dynamic" || pageType === "channel";
