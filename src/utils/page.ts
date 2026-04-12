@@ -69,7 +69,26 @@ export function supportsVideoFeatures(url: string): boolean {
 }
 
 export function supportsCompactVideoHeader(url: string): boolean {
-  return detectPageType(url) === "video";
+  return supportsVideoFeatures(url);
+}
+
+export function isCompactVideoHeaderSuppressed(documentRef: Document = document): boolean {
+  if (documentRef.fullscreenElement) {
+    return true;
+  }
+
+  return Boolean(
+    documentRef.querySelector(
+      [
+        ".player-full-win",
+        ".player-fullscreen",
+        ".bpx-state-webfull",
+        ".bpx-state-fullscreen",
+        ".bpx-player-container[data-screen='web']",
+        ".bpx-player-container[data-screen='full']"
+      ].join(",")
+    )
+  );
 }
 
 export function supportsDynamicFilters(url: string): boolean {

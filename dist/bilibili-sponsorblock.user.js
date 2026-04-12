@@ -3446,7 +3446,24 @@
     return pageType === "video" || pageType === "list" || pageType === "festival" || pageType === "anime" || pageType === "opus";
   }
   function supportsCompactVideoHeader(url) {
-    return detectPageType(url) === "video";
+    return supportsVideoFeatures(url);
+  }
+  function isCompactVideoHeaderSuppressed(documentRef = document) {
+    if (documentRef.fullscreenElement) {
+      return true;
+    }
+    return Boolean(
+      documentRef.querySelector(
+        [
+          ".player-full-win",
+          ".player-fullscreen",
+          ".bpx-state-webfull",
+          ".bpx-state-fullscreen",
+          ".bpx-player-container[data-screen='web']",
+          ".bpx-player-container[data-screen='full']"
+        ].join(",")
+      )
+    );
   }
   function supportsDynamicFilters(url) {
     const pageType = detectPageType(url);
@@ -7511,7 +7528,7 @@ ${inlineSurfaceFrostedGlass.overlay}
         placeholderVisible: this.currentConfig.compactHeaderPlaceholderVisible,
         searchPlaceholderEnabled: this.currentConfig.compactHeaderSearchPlaceholderEnabled
       });
-      const shouldCompact = this.started && this.currentConfig.enabled && this.currentConfig.compactVideoHeader && supportsCompactVideoHeader(window.location.href);
+      const shouldCompact = this.started && this.currentConfig.enabled && this.currentConfig.compactVideoHeader && supportsCompactVideoHeader(window.location.href) && !isCompactVideoHeaderSuppressed(document);
       if (shouldCompact) {
         this.compactHeader.mount();
         return;

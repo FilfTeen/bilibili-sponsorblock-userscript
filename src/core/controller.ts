@@ -50,7 +50,7 @@ import { inferLocalVideoSignal } from "../utils/local-video-signal";
 import { resolveVideoContext } from "../utils/video-context";
 import { debugLog, findVideoElement, formatDurationLabel, resolvePlayerHost } from "../utils/dom";
 import { observeUrlChanges } from "../utils/navigation";
-import { supportsCompactVideoHeader, supportsVideoFeatures } from "../utils/page";
+import { isCompactVideoHeaderSuppressed, supportsCompactVideoHeader, supportsVideoFeatures } from "../utils/page";
 
 type RuntimeSegmentState = {
   actionConsumed: boolean;
@@ -1282,7 +1282,8 @@ export class ScriptController {
       this.started &&
       this.currentConfig.enabled &&
       this.currentConfig.compactVideoHeader &&
-      supportsCompactVideoHeader(window.location.href);
+      supportsCompactVideoHeader(window.location.href) &&
+      !isCompactVideoHeaderSuppressed(document);
     if (shouldCompact) {
       this.compactHeader.mount();
       return;
