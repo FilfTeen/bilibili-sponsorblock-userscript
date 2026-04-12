@@ -83,9 +83,15 @@ export function isCompactVideoHeaderSuppressed(documentRef: Document = document)
         ".player-full-win",
         ".player-fullscreen",
         ".bpx-state-webfull",
+        ".bpx-state-webscreen",
         ".bpx-state-fullscreen",
         ".bpx-player-container[data-screen='web']",
-        ".bpx-player-container[data-screen='full']"
+        ".bpx-player-container[data-screen='webscreen']",
+        ".bpx-player-container[data-screen='full']",
+        ".squirtle-video-pagefullscreen",
+        ".squirtle-video-fullscreen",
+        ".player-mode-webfullscreen",
+        ".mode-webscreen"
       ].join(",")
     )
   );

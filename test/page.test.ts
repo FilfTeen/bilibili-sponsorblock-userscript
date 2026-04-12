@@ -39,7 +39,7 @@ describe("page detection", () => {
     expect(isCompactVideoHeaderSuppressed(doc)).toBe(false);
 
     const player = doc.createElement("div");
-    player.className = "bpx-state-webfull";
+    player.className = "bpx-state-webscreen";
     doc.body.appendChild(player);
 
     expect(isCompactVideoHeaderSuppressed(doc)).toBe(true);

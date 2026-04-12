@@ -72,6 +72,8 @@ describe("shared glass contexts", () => {
     expect(styles).toMatch(
       /\.bsb-tm-video-header-bar \{[\s\S]*box-sizing: border-box;[\s\S]*padding: var\(--bsb-compact-header-padding\);/
     );
+    expect(styles).toContain(".bsb-tm-video-header-compact:has(.bpx-state-webscreen) .bsb-tm-video-header-shell");
+    expect(styles).toContain(".bsb-tm-video-header-compact:has(.squirtle-video-pagefullscreen) .bsb-tm-video-header-shell");
   });
 
   it("places notices below the compact video header and animates dismissal", () => {

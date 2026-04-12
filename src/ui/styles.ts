@@ -1800,6 +1800,21 @@ ${inlineFeedbackStyles}
   display: none !important;
 }
 
+.bsb-tm-video-header-compact.player-full-win .bsb-tm-video-header-shell,
+.bsb-tm-video-header-compact.player-fullscreen .bsb-tm-video-header-shell,
+.bsb-tm-video-header-compact.bpx-state-webfull .bsb-tm-video-header-shell,
+.bsb-tm-video-header-compact.bpx-state-webscreen .bsb-tm-video-header-shell,
+.bsb-tm-video-header-compact:has(.player-full-win) .bsb-tm-video-header-shell,
+.bsb-tm-video-header-compact:has(.player-fullscreen) .bsb-tm-video-header-shell,
+.bsb-tm-video-header-compact:has(.bpx-state-webfull) .bsb-tm-video-header-shell,
+.bsb-tm-video-header-compact:has(.bpx-state-webscreen) .bsb-tm-video-header-shell,
+.bsb-tm-video-header-compact:has(.squirtle-video-pagefullscreen) .bsb-tm-video-header-shell,
+.bsb-tm-video-header-compact:has(.squirtle-video-fullscreen) .bsb-tm-video-header-shell,
+.bsb-tm-video-header-compact:has(.player-mode-webfullscreen) .bsb-tm-video-header-shell,
+.bsb-tm-video-header-compact:has(.mode-webscreen) .bsb-tm-video-header-shell {
+  display: none !important;
+}
+
 .player-full-win .video-container-v1,
 .player-fullscreen .video-container-v1 {
   margin-top: 0 !important;

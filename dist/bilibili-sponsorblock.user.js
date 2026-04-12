@@ -3458,9 +3458,15 @@
           ".player-full-win",
           ".player-fullscreen",
           ".bpx-state-webfull",
+          ".bpx-state-webscreen",
           ".bpx-state-fullscreen",
           ".bpx-player-container[data-screen='web']",
-          ".bpx-player-container[data-screen='full']"
+          ".bpx-player-container[data-screen='webscreen']",
+          ".bpx-player-container[data-screen='full']",
+          ".squirtle-video-pagefullscreen",
+          ".squirtle-video-fullscreen",
+          ".player-mode-webfullscreen",
+          ".mode-webscreen"
         ].join(",")
       )
     );
@@ -11319,6 +11325,21 @@ ${inlineFeedbackStyles}
 
 .player-full-win .bsb-tm-video-header-shell,
 .player-fullscreen .bsb-tm-video-header-shell {
+  display: none !important;
+}
+
+.bsb-tm-video-header-compact.player-full-win .bsb-tm-video-header-shell,
+.bsb-tm-video-header-compact.player-fullscreen .bsb-tm-video-header-shell,
+.bsb-tm-video-header-compact.bpx-state-webfull .bsb-tm-video-header-shell,
+.bsb-tm-video-header-compact.bpx-state-webscreen .bsb-tm-video-header-shell,
+.bsb-tm-video-header-compact:has(.player-full-win) .bsb-tm-video-header-shell,
+.bsb-tm-video-header-compact:has(.player-fullscreen) .bsb-tm-video-header-shell,
+.bsb-tm-video-header-compact:has(.bpx-state-webfull) .bsb-tm-video-header-shell,
+.bsb-tm-video-header-compact:has(.bpx-state-webscreen) .bsb-tm-video-header-shell,
+.bsb-tm-video-header-compact:has(.squirtle-video-pagefullscreen) .bsb-tm-video-header-shell,
+.bsb-tm-video-header-compact:has(.squirtle-video-fullscreen) .bsb-tm-video-header-shell,
+.bsb-tm-video-header-compact:has(.player-mode-webfullscreen) .bsb-tm-video-header-shell,
+.bsb-tm-video-header-compact:has(.mode-webscreen) .bsb-tm-video-header-shell {
   display: none !important;
 }
 
