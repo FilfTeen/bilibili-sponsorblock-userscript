@@ -73,6 +73,8 @@ describe("shared glass contexts", () => {
       /\.bsb-tm-video-header-bar \{[\s\S]*box-sizing: border-box;[\s\S]*padding: var\(--bsb-compact-header-padding\);/
     );
     expect(styles).toContain(".bsb-tm-video-header-compact:has(.bpx-state-webscreen) .bsb-tm-video-header-shell");
+    expect(styles).toContain('.bsb-tm-video-header-compact:has(.bpx-player-container[data-screen="web"]) .bsb-tm-video-header-shell');
+    expect(styles).toContain('.bsb-tm-video-header-compact:has(#bilibili-player-wrap[class*="playerFullScreen"]) .bsb-tm-video-header-shell');
     expect(styles).toContain(".bsb-tm-video-header-compact:has(.squirtle-video-pagefullscreen) .bsb-tm-video-header-shell");
   });
 
