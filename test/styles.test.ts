@@ -109,6 +109,28 @@ describe("shared glass contexts", () => {
     expect(textStackBlock).not.toContain("transition: width");
   });
 
+  it("keeps color editing previews inside the panel instead of a floating duplicate", () => {
+    expect(styles).not.toContain(".bsb-tm-color-floating-preview");
+    expect(styles).toMatch(
+      /\.bsb-tm-color-preview-card \{[\s\S]*display: flex;[\s\S]*align-items: center;[\s\S]*gap: 10px;/
+    );
+    expect(styles).toMatch(
+      /\.bsb-tm-color-preview-card \.bsb-tm-inline-chip,[\s\S]*\.bsb-tm-color-preview-card \.bsb-tm-title-pill-wrap \{[\s\S]*margin-inline-start: 0;/
+    );
+  });
+
+  it("uses compact dirty-only actions for color editing", () => {
+    expect(styles).toMatch(
+      /\.bsb-tm-color-editor-row \{[\s\S]*grid-template-columns: minmax\(0, 1fr\) auto;[\s\S]*gap: 8px;/
+    );
+    expect(styles).toMatch(
+      /\.bsb-tm-color-actions\[hidden\] \{[\s\S]*display: none !important;/
+    );
+    expect(styles).toMatch(
+      /\.bsb-tm-color-action \{[\s\S]*min-height: 30px;[\s\S]*padding: 0 10px;[\s\S]*font: 650 12px\/1 var\(--bsb-font-ui\);/
+    );
+  });
+
   it("defines motion and glass fallbacks for constrained rendering environments", () => {
     expect(styles).toContain("@media (prefers-reduced-motion: reduce)");
     expect(styles).toContain("transition-duration: 1ms !important;");

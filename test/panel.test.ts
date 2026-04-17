@@ -295,10 +295,13 @@ describe("settings panel", () => {
     );
     const swatch = field?.querySelector<HTMLInputElement>("input[type='color']");
     const textInput = field?.querySelector<HTMLInputElement>("input[type='text']");
-    const applyButton = field?.querySelector<HTMLButtonElement>(".bsb-tm-color-actions .primary");
+    const applyButton = field?.querySelector<HTMLButtonElement>(".bsb-tm-color-action.primary");
+    const actions = field?.querySelector<HTMLElement>(".bsb-tm-color-actions");
     expect(field).toBeTruthy();
     expect(swatch).toBeTruthy();
     expect(textInput).toBeTruthy();
+    expect(field?.querySelector(".bsb-tm-title-pill-wrap")).toBeTruthy();
+    expect(actions?.hidden).toBe(true);
 
     const originalSwatch = swatch!;
     originalSwatch.value = "#123456";
@@ -307,8 +310,9 @@ describe("settings panel", () => {
     expect(onPatchConfig).not.toHaveBeenCalled();
     expect(document.querySelector<HTMLInputElement>("input[type='color']")).toBe(originalSwatch);
     expect(textInput?.value).toBe("#123456");
-    expect(field?.querySelector<HTMLElement>(".bsb-tm-color-preview")?.style.getPropertyValue("--bsb-color-preview")).toBe("#123456");
-    expect(document.querySelector<HTMLElement>(".bsb-tm-color-floating-preview")?.hidden).toBe(false);
+    expect(field?.querySelector<HTMLElement>(".bsb-tm-title-pill-wrap")?.style.getPropertyValue("--bsb-category-accent")).toBe("#123456");
+    expect(document.querySelector(".bsb-tm-color-floating-preview")).toBeNull();
+    expect(actions?.hidden).toBe(false);
 
     applyButton?.click();
     await Promise.resolve();
@@ -338,17 +342,53 @@ describe("settings panel", () => {
     );
     const swatch = field?.querySelector<HTMLInputElement>("input[type='color']");
     const textInput = field?.querySelector<HTMLInputElement>("input[type='text']");
-    const cancelButton = field?.querySelector<HTMLButtonElement>(".bsb-tm-color-actions .secondary");
+    const actions = field?.querySelector<HTMLElement>(".bsb-tm-color-actions");
+    const cancelButton = field?.querySelector<HTMLButtonElement>(".bsb-tm-color-action.secondary");
     const originalValue = swatch?.value;
+    expect(actions?.hidden).toBe(true);
 
     swatch!.value = "#654321";
     swatch!.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(actions?.hidden).toBe(false);
     cancelButton?.click();
 
     expect(onPatchConfig).not.toHaveBeenCalled();
     expect(swatch?.value).toBe(originalValue);
     expect(textInput?.value).toBe(originalValue);
     expect(field?.dataset.colorDirty).toBe("false");
+    expect(actions?.hidden).toBe(true);
+  });
+
+  it("uses Escape to cancel draft colors without closing the panel", () => {
+    const onPatchConfig = vi.fn(async () => {});
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig,
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const backdrop = document.querySelector<HTMLElement>(".bsb-tm-panel-backdrop");
+    const field = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-color-field[data-color-editor='true']")).find(
+      (candidate) => candidate.textContent?.includes(CATEGORY_LABELS.sponsor)
+    );
+    const swatch = field?.querySelector<HTMLInputElement>("input[type='color']");
+    const textInput = field?.querySelector<HTMLInputElement>("input[type='text']");
+    const actions = field?.querySelector<HTMLElement>(".bsb-tm-color-actions");
+    const originalValue = swatch?.value;
+
+    swatch!.value = "#654321";
+    swatch!.dispatchEvent(new Event("input", { bubbles: true }));
+    textInput!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+
+    expect(backdrop?.hidden).toBe(false);
+    expect(onPatchConfig).not.toHaveBeenCalled();
+    expect(swatch?.value).toBe(originalValue);
+    expect(textInput?.value).toBe(originalValue);
+    expect(actions?.hidden).toBe(true);
   });
 
   it("does not rewrite text color input while the user is typing a valid short hex", () => {
@@ -373,5 +413,41 @@ describe("settings panel", () => {
 
     expect(textInput?.value).toBe("#123");
     expect(swatch?.value).toBe("#112233");
+  });
+
+  it("uses real inline comment badge previews with transparency state", () => {
+    const config = {
+      ...cloneDefaultConfig(),
+      labelTransparency: {
+        ...cloneDefaultConfig().labelTransparency,
+        commentLocation: true,
+        commentBadge: true
+      }
+    };
+    const panel = new SettingsPanel(config, { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig: vi.fn(async () => {}),
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("filters");
+
+    const locationWrapper = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-field.stacked")).find(
+      (candidate) => candidate.textContent?.includes("IP 属地标签颜色")
+    );
+    const adWrapper = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-field.stacked")).find(
+      (candidate) => candidate.textContent?.includes("评论广告标签颜色")
+    );
+    const locationPreview = locationWrapper?.querySelector<HTMLElement>(".bsb-tm-color-preview-badge .bsb-tm-inline-chip");
+    const adPreview = adWrapper?.querySelector<HTMLElement>(".bsb-tm-color-preview-badge .bsb-tm-inline-chip");
+
+    expect(locationPreview?.dataset.appearance).toBe("glass");
+    expect(locationPreview?.textContent).toContain("IP 属地");
+    expect(locationPreview?.getAttribute("data-bsb-color-preview-inline")).toBe("true");
+    expect(adPreview?.dataset.appearance).toBe("glass");
+    expect(adPreview?.textContent).toContain("评论广告");
+    expect(adPreview?.getAttribute("data-bsb-color-preview-inline")).toBe("true");
   });
 });

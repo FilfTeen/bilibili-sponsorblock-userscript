@@ -19,9 +19,10 @@ import type {
   StoredStats,
   ThumbnailLabelMode
 } from "../types";
-import { getReadableTextColor, mixColors, normalizeHexColor, resolveCategoryAccent } from "../utils/color";
+import { normalizeHexColor, resolveCategoryAccent, resolveCategoryStyle } from "../utils/color";
 import { validateStoredPattern } from "../utils/pattern";
 import { createSponsorShieldIcon } from "./icons";
+import { createInlineBadge, type InlineBadgeAppearance, type InlineTone } from "./inline-feedback";
 
 type PanelCallbacks = {
   onPatchConfig: (patch: Partial<StoredConfig>) => Promise<void>;
@@ -33,6 +34,20 @@ type PanelCallbacks = {
 
 export type PanelTab = "overview" | "behavior" | "transparency" | "filters" | "mbga" | "help";
 export type PanelCloseReason = "user" | "system";
+
+type ColorPreviewSpec =
+  | {
+      kind: "category";
+      category: Category;
+      description: string;
+    }
+  | {
+      kind: "inline";
+      text: string;
+      tone: InlineTone;
+      appearance: InlineBadgeAppearance;
+      description: string;
+    };
 
 const TAB_LABELS: Record<PanelTab, string> = {
   overview: "概览",
@@ -64,9 +79,6 @@ export class SettingsPanel {
   private readonly filterForm = document.createElement("div");
   private readonly categoryForm = document.createElement("div");
   private readonly mbgaForm = document.createElement("div");
-  private readonly colorFloatingPreview = document.createElement("div");
-  private readonly colorFloatingPill = document.createElement("span");
-  private readonly colorFloatingLabel = document.createElement("span");
   private readonly sections = new Map<PanelTab, HTMLElement>();
   private readonly panelId = "bsb-tm-panel";
   private readonly contentScrollByTab: Partial<Record<PanelTab, number>> = {};
@@ -83,20 +95,13 @@ export class SettingsPanel {
   };
   private readonly activeFeedbacks = new Map<string, string>(); // id -> originalText
   private readonly pendingConfirmations = new Set<string>(); // id
-  private colorPreviewAnchor: HTMLElement | null = null;
-  private colorPreviewFrame: number | null = null;
   private readonly handleKeydown = (event: KeyboardEvent) => {
-    if (event.key === "Escape" && this.colorFloatingPreview.isConnected && !this.colorFloatingPreview.hidden) {
-      this.hideColorPreview();
-      return;
-    }
     if (event.key === "Escape" && !this.backdrop.hidden) {
       this.close("user");
     }
   };
   private readonly handleViewportResize = () => {
     this.syncViewportMetrics();
-    this.scheduleColorPreviewPosition();
   };
   private viewportListenersAttached = false;
 
@@ -125,13 +130,6 @@ export class SettingsPanel {
     this.body.className = "bsb-tm-panel-body";
     this.nav.className = "bsb-tm-panel-nav";
     this.content.className = "bsb-tm-panel-content";
-    this.colorFloatingPreview.className = "bsb-tm-color-floating-preview";
-    this.colorFloatingPreview.hidden = true;
-    this.colorFloatingPreview.setAttribute("aria-hidden", "true");
-    this.colorFloatingPill.className = "bsb-tm-title-pill bsb-tm-color-floating-pill";
-    this.colorFloatingLabel.className = "bsb-tm-title-pill-label";
-    this.colorFloatingPill.append(this.colorFloatingLabel);
-    this.colorFloatingPreview.append(this.colorFloatingPill);
 
     this.statsEl.className = "bsb-tm-stats";
     this.form.className = "bsb-tm-form";
@@ -190,7 +188,6 @@ export class SettingsPanel {
   close(reason: PanelCloseReason = "user"): void {
     const wasOpen = !this.backdrop.hidden;
     this.backdrop.hidden = true;
-    this.hideColorPreview();
     this.detachViewportListeners();
     document.documentElement.classList.remove("bsb-tm-panel-open");
     document.removeEventListener("keydown", this.handleKeydown);
@@ -202,11 +199,9 @@ export class SettingsPanel {
   unmount(): void {
     this.close("system");
     this.backdrop.remove();
-    this.colorFloatingPreview.remove();
   }
 
   updateConfig(config: StoredConfig): void {
-    this.hideColorPreview();
     this.rememberActiveScroll();
     this.config = config;
     this.filterValidationMessage = null;
@@ -998,6 +993,11 @@ export class SettingsPanel {
       label: CATEGORY_LABELS[category],
       value,
       fallbackValue: CATEGORY_COLORS[category],
+      preview: {
+        kind: "category",
+        category,
+        description: CATEGORY_DESCRIPTIONS[category]
+      },
       onCommit: async (normalized) => {
         await this.callbacks.onPatchConfig({
           categoryColorOverrides: {
@@ -1015,13 +1015,23 @@ export class SettingsPanel {
     value: string,
     onCommit: (value: string) => Promise<void>
   ): HTMLElement {
+    const isLocation = labelText.includes("IP");
     const wrapper = document.createElement("div");
     wrapper.className = "bsb-tm-field stacked";
     wrapper.append(this.createInputLabel(labelText, helpText));
     wrapper.append(this.createDraftColorInput({
-      label: labelText.includes("IP") ? "IP 属地" : "评论广告",
+      label: isLocation ? "IP 属地" : "评论广告",
       value,
       fallbackValue: value,
+      preview: {
+        kind: "inline",
+        text: isLocation ? "IP 属地" : "评论广告",
+        tone: isLocation ? "info" : "danger",
+        appearance: (isLocation ? this.config.labelTransparency.commentLocation : this.config.labelTransparency.commentBadge) ? "glass" : "solid",
+        description: isLocation
+          ? "评论区 IP 属地标签，用于显示评论 payload 自带属地信息。"
+          : "评论广告标签，用于标出广告、带货或可疑促销评论。"
+      },
       onCommit
     }, true));
     return wrapper;
@@ -1032,6 +1042,7 @@ export class SettingsPanel {
       label: string;
       value: string;
       fallbackValue: string;
+      preview: ColorPreviewSpec;
       onCommit: (value: string) => Promise<void>;
     },
     compact = false
@@ -1045,11 +1056,17 @@ export class SettingsPanel {
       field.classList.add("compact");
     }
 
-    const preview = document.createElement("span");
-    preview.className = "bsb-tm-color-preview";
-    preview.style.setProperty("--bsb-color-preview", savedValue);
-    preview.textContent = options.label;
+    const preview = document.createElement("div");
+    preview.className = "bsb-tm-color-preview-card";
+    const previewBadgeSlot = document.createElement("span");
+    previewBadgeSlot.className = "bsb-tm-color-preview-badge";
+    const previewDescription = document.createElement("small");
+    previewDescription.className = "bsb-tm-color-preview-description";
+    previewDescription.textContent = options.preview.description;
+    preview.append(previewBadgeSlot, previewDescription);
 
+    const editorRow = document.createElement("div");
+    editorRow.className = "bsb-tm-color-editor-row";
     const controls = document.createElement("div");
     controls.className = "bsb-tm-color-controls";
 
@@ -1066,17 +1083,22 @@ export class SettingsPanel {
 
     const actions = document.createElement("div");
     actions.className = "bsb-tm-color-actions";
+    actions.hidden = true;
     const applyButton = document.createElement("button");
     applyButton.type = "button";
-    applyButton.className = "bsb-tm-button compact primary";
+    applyButton.className = "bsb-tm-color-action primary";
     applyButton.textContent = "应用";
     const cancelButton = document.createElement("button");
     cancelButton.type = "button";
-    cancelButton.className = "bsb-tm-button compact secondary";
+    cancelButton.className = "bsb-tm-color-action secondary";
     cancelButton.textContent = "取消";
 
     let draftValue = savedValue;
     let isCommitting = false;
+
+    const renderPreview = (nextValue: string): void => {
+      previewBadgeSlot.replaceChildren(this.createColorPreviewBadge(options.preview, nextValue));
+    };
 
     const updatePreview = (nextValue: string, previewOptions?: { syncText?: boolean }): void => {
       draftValue = nextValue;
@@ -1084,21 +1106,20 @@ export class SettingsPanel {
       if (previewOptions?.syncText !== false) {
         textInput.value = nextValue;
       }
-      preview.style.setProperty("--bsb-color-preview", nextValue);
-      this.showColorPreview(field, nextValue, options.label);
+      renderPreview(nextValue);
     };
 
     const updateButtons = (): void => {
       const isDirty = draftValue !== savedValue;
       const isValid = normalizeHexColor(textInput.value) !== null;
       field.dataset.colorDirty = String(isDirty);
+      actions.hidden = !isDirty;
       applyButton.disabled = isCommitting || !isDirty || !isValid;
       cancelButton.disabled = isCommitting || !isDirty;
     };
 
     const resetDraft = (): void => {
       updatePreview(savedValue);
-      this.hideColorPreview();
       updateButtons();
     };
 
@@ -1114,7 +1135,7 @@ export class SettingsPanel {
       try {
         await options.onCommit(normalized);
         savedValue = normalized;
-        this.hideColorPreview();
+        updatePreview(savedValue);
       } finally {
         isCommitting = false;
         updateButtons();
@@ -1126,18 +1147,17 @@ export class SettingsPanel {
       updateButtons();
     });
     swatch.addEventListener("focus", () => {
-      this.showColorPreview(field, draftValue, options.label);
-    });
-    swatch.addEventListener("blur", () => {
-      this.scheduleHideColorPreview();
+      renderPreview(draftValue);
     });
     swatch.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
+        event.stopPropagation();
         void commitDraft();
       }
       if (event.key === "Escape") {
         event.preventDefault();
+        event.stopPropagation();
         resetDraft();
       }
     });
@@ -1150,18 +1170,17 @@ export class SettingsPanel {
       updateButtons();
     });
     textInput.addEventListener("focus", () => {
-      this.showColorPreview(field, draftValue, options.label);
-    });
-    textInput.addEventListener("blur", () => {
-      this.scheduleHideColorPreview();
+      renderPreview(draftValue);
     });
     textInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
+        event.stopPropagation();
         void commitDraft();
       }
       if (event.key === "Escape") {
         event.preventDefault();
+        event.stopPropagation();
         resetDraft();
       }
     });
@@ -1171,10 +1190,12 @@ export class SettingsPanel {
     });
     cancelButton.addEventListener("click", resetDraft);
 
+    renderPreview(savedValue);
     updateButtons();
     actions.append(applyButton, cancelButton);
     controls.append(swatch, textInput);
-    field.append(preview, controls, actions);
+    editorRow.append(controls, actions);
+    field.append(preview, editorRow);
     return field;
   }
 
@@ -1512,87 +1533,46 @@ export class SettingsPanel {
     return box;
   }
 
-  private showColorPreview(anchor: HTMLElement, color: string, label: string): void {
+  private createColorPreviewBadge(spec: ColorPreviewSpec, color: string): HTMLElement {
     const normalized = normalizeHexColor(color);
     if (!normalized) {
-      return;
+      const fallback = document.createElement("span");
+      fallback.className = "bsb-tm-color-preview-invalid";
+      fallback.textContent = "颜色格式无效";
+      return fallback;
     }
 
-    this.colorPreviewAnchor = anchor;
-    this.colorFloatingLabel.textContent = label;
-    this.colorFloatingPreview.style.setProperty("--bsb-category-accent", normalized);
-    this.colorFloatingPreview.style.setProperty("--bsb-category-accent-strong", mixColors(normalized, "#0f172a", 0.12));
-    this.colorFloatingPreview.style.setProperty("--bsb-category-contrast", getReadableTextColor(normalized));
-    this.colorFloatingPreview.hidden = false;
-    this.colorFloatingPreview.classList.add("open");
-    this.colorFloatingPreview.setAttribute("aria-hidden", "false");
-    if (!this.colorFloatingPreview.isConnected) {
-      document.documentElement.appendChild(this.colorFloatingPreview);
-    }
-    this.scheduleColorPreviewPosition();
-  }
-
-  private scheduleHideColorPreview(): void {
-    window.setTimeout(() => {
-      const active = document.activeElement;
-      if (
-        active instanceof HTMLElement &&
-        this.colorPreviewAnchor &&
-        (this.colorPreviewAnchor.contains(active) || this.colorFloatingPreview.contains(active))
-      ) {
-        return;
-      }
-      this.hideColorPreview();
-    }, 80);
-  }
-
-  private hideColorPreview(): void {
-    this.colorFloatingPreview.classList.remove("open");
-    this.colorFloatingPreview.hidden = true;
-    this.colorFloatingPreview.setAttribute("aria-hidden", "true");
-    this.colorPreviewAnchor = null;
-    if (this.colorPreviewFrame !== null) {
-      window.cancelAnimationFrame(this.colorPreviewFrame);
-      this.colorPreviewFrame = null;
-    }
-  }
-
-  private scheduleColorPreviewPosition(): void {
-    if (!this.colorPreviewAnchor || this.colorFloatingPreview.hidden || this.colorPreviewFrame !== null) {
-      return;
+    if (spec.kind === "inline") {
+      return createInlineBadge("data-bsb-color-preview-inline", spec.text, spec.tone, "inline", normalized, spec.appearance);
     }
 
-    this.colorPreviewFrame = window.requestAnimationFrame(() => {
-      this.colorPreviewFrame = null;
-      this.positionColorPreview();
-    });
-  }
+    const overrides: CategoryColorOverrides = { [spec.category]: normalized };
+    const style = resolveCategoryStyle(spec.category, overrides);
+    const wrap = document.createElement("span");
+    const pill = document.createElement("span");
+    const label = document.createElement("span");
+    const glassVariant = this.config.labelTransparency.titleBadge ? style.transparentVariant : "dark";
 
-  private positionColorPreview(): void {
-    const anchor = this.colorPreviewAnchor;
-    if (!anchor || this.colorFloatingPreview.hidden) {
-      return;
-    }
+    wrap.className = "bsb-tm-title-pill-wrap bsb-tm-color-preview-title-wrap";
+    wrap.dataset.category = spec.category;
+    wrap.dataset.transparent = String(this.config.labelTransparency.titleBadge);
+    wrap.dataset.glassContext = "surface";
+    wrap.dataset.glassVariant = glassVariant;
+    wrap.style.setProperty("--bsb-category-accent", style.accent);
+    wrap.style.setProperty("--bsb-category-accent-strong", style.accentStrong);
+    wrap.style.setProperty("--bsb-category-display-accent", style.transparentDisplayAccent);
+    wrap.style.setProperty("--bsb-category-contrast", this.config.labelTransparency.titleBadge ? "#0f172a" : style.contrast);
+    wrap.style.setProperty("--bsb-category-soft-surface", style.softSurface);
+    wrap.style.setProperty("--bsb-category-soft-border", style.softBorder);
+    wrap.style.setProperty("--bsb-category-glass-surface", style.glassSurface);
+    wrap.style.setProperty("--bsb-category-glass-border", style.glassBorder);
 
-    const viewport = window.visualViewport;
-    const viewportWidth = Math.max(320, Math.floor(viewport?.width ?? window.innerWidth));
-    const viewportHeight = Math.max(240, Math.floor(viewport?.height ?? window.innerHeight));
-    const viewportLeft = Math.floor(viewport?.offsetLeft ?? 0);
-    const viewportTop = Math.floor(viewport?.offsetTop ?? 0);
-    const anchorRect = anchor.getBoundingClientRect();
-    const previewRect = this.colorFloatingPreview.getBoundingClientRect();
-    const gap = 10;
-
-    let left = anchorRect.right + gap;
-    if (left + previewRect.width > viewportWidth - 10) {
-      left = anchorRect.left - previewRect.width - gap;
-    }
-    left = Math.max(10, Math.min(left, viewportWidth - previewRect.width - 10));
-
-    let top = anchorRect.top + (anchorRect.height - previewRect.height) / 2;
-    top = Math.max(10, Math.min(top, viewportHeight - previewRect.height - 10));
-
-    this.colorFloatingPreview.style.transform = `translate3d(${viewportLeft + Math.round(left)}px, ${viewportTop + Math.round(top)}px, 0)`;
+    pill.className = "bsb-tm-title-pill bsb-tm-color-preview-title-pill";
+    label.className = "bsb-tm-title-pill-label";
+    label.textContent = CATEGORY_LABELS[spec.category];
+    pill.append(createSponsorShieldIcon(), label);
+    wrap.append(pill);
+    return wrap;
   }
 
   private attachViewportListeners(): void {

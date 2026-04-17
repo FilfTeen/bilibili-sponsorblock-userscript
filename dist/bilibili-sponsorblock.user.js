@@ -2027,6 +2027,372 @@
     }
   };
 
+  // src/ui/surface-frosted-glass.ts
+  function createSurfaceFrostedGlassMaterial(options) {
+    const { accentExpression, textVariable } = options;
+    const textAssignment = textVariable ? `  ${textVariable}: #0f172a;
+` : "";
+    return {
+      base: `${textAssignment}  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, ${accentExpression} 7%, rgba(255, 255, 255, 0.18)),
+    color-mix(in srgb, ${accentExpression} 10%, rgba(255, 255, 255, 0.04))
+  );
+  border: 1px solid color-mix(in srgb, ${accentExpression} 16%, rgba(255, 255, 255, 0.12));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 -1px 0 color-mix(in srgb, ${accentExpression} 8%, rgba(15, 23, 42, 0.05)),
+    0 5px 12px rgba(15, 23, 42, 0.04),
+    0 10px 20px rgba(15, 23, 42, 0.018);
+  backdrop-filter: none;`,
+      overlay: `  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 18% 8%, color-mix(in srgb, ${accentExpression} 22%, rgba(255, 255, 255, 0.26)) 0%, transparent 36%),
+    radial-gradient(circle at 78% 120%, color-mix(in srgb, ${accentExpression} 14%, rgba(15, 23, 42, 0.1)) 0%, transparent 46%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.035) 34%, transparent 62%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, ${accentExpression} 14%, rgba(255, 255, 255, 0.28)),
+      color-mix(in srgb, ${accentExpression} 22%, rgba(231, 238, 245, 0.12))
+    ),
+    linear-gradient(112deg, transparent 14%, rgba(255, 255, 255, 0.14) 24%, rgba(255, 255, 255, 0.03) 32%, transparent 42%);
+  opacity: 0.82;
+  backdrop-filter: blur(7px) saturate(148%) brightness(1.04);
+  mix-blend-mode: screen;`
+    };
+  }
+
+  // src/ui/inline-feedback.ts
+  var INLINE_STYLE_ATTR = "data-bsb-inline-feedback-style";
+  var DEFAULT_TONE_ACCENTS = {
+    danger: "#ff6b66",
+    warning: "#ffd56a",
+    success: "#4ade80",
+    info: "#60a5fa"
+  };
+  var inlineSurfaceFrostedGlass = createSurfaceFrostedGlassMaterial({
+    accentExpression: "var(--bsb-inline-accent)",
+    textVariable: "--bsb-inline-text"
+  });
+  var inlineFeedbackStyles = `
+.bsb-tm-inline-chip,
+.bsb-tm-inline-toggle {
+  font-family: "SF Pro Text", "PingFang SC", sans-serif;
+  font-kerning: normal;
+  font-feature-settings: "kern" 1;
+  font-synthesis-weight: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+.bsb-tm-inline-chip {
+  --bsb-inline-accent: #ff6b6b;
+  --bsb-inline-surface: rgba(45, 55, 72, 0.94);
+  --bsb-inline-surface-strong: rgba(29, 37, 52, 0.98);
+  --bsb-inline-text: #f8fafc;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  max-width: min(100%, 24rem);
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background:
+    radial-gradient(circle at 20% 18%, rgba(255, 255, 255, 0.18), transparent 38%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.09), transparent 52%),
+    linear-gradient(180deg, var(--bsb-inline-surface), var(--bsb-inline-surface-strong));
+  color: var(--bsb-inline-text);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 -1px 0 rgba(15, 23, 42, 0.22),
+    0 10px 20px rgba(15, 23, 42, 0.16);
+  backdrop-filter: blur(16px) saturate(155%);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  line-height: 1.1;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bsb-tm-inline-chip[data-appearance="glass"] {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.bsb-tm-inline-chip[data-appearance="glass"][data-glass-context="surface"] {
+${inlineSurfaceFrostedGlass.base}
+}
+
+.bsb-tm-inline-chip[data-appearance="glass"][data-glass-context="surface"]::after {
+${inlineSurfaceFrostedGlass.overlay}
+  z-index: 0;
+}
+
+.bsb-tm-inline-chip::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  flex: none;
+  background: var(--bsb-inline-accent);
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.14),
+    0 0 14px color-mix(in srgb, var(--bsb-inline-accent) 72%, transparent);
+  position: relative;
+  z-index: 1;
+}
+
+.bsb-tm-inline-chip[data-appearance="glass"][data-glass-context="surface"]::before {
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.24),
+    0 0 10px color-mix(in srgb, var(--bsb-inline-accent) 38%, transparent);
+}
+
+.bsb-tm-inline-chip__label {
+  position: relative;
+  z-index: 1;
+}
+
+.bsb-tm-inline-chip--inline,
+.bsb-tm-inline-toggle--inline {
+  margin-inline-start: 8px;
+}
+
+.bsb-tm-inline-chip--stack,
+.bsb-tm-inline-toggle--stack {
+  margin-top: 8px;
+}
+
+.bsb-tm-inline-chip[data-tone="danger"] {
+  --bsb-inline-accent: #ff6b66;
+  --bsb-inline-surface: rgba(130, 41, 41, 0.94);
+  --bsb-inline-surface-strong: rgba(104, 28, 28, 0.98);
+}
+
+.bsb-tm-inline-chip[data-tone="warning"] {
+  --bsb-inline-accent: #ffd56a;
+  --bsb-inline-surface: rgba(109, 74, 20, 0.94);
+  --bsb-inline-surface-strong: rgba(82, 53, 13, 0.98);
+}
+
+.bsb-tm-inline-chip[data-tone="success"] {
+  --bsb-inline-accent: #4ade80;
+  --bsb-inline-surface: rgba(25, 101, 73, 0.94);
+  --bsb-inline-surface-strong: rgba(18, 76, 55, 0.98);
+}
+
+.bsb-tm-inline-chip[data-tone="info"] {
+  --bsb-inline-accent: #60a5fa;
+  --bsb-inline-surface: rgba(30, 88, 153, 0.94);
+  --bsb-inline-surface-strong: rgba(21, 66, 118, 0.98);
+}
+
+.bsb-tm-inline-toggle {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  min-height: 30px;
+  padding: 8px 13px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(245, 248, 252, 0.78)),
+    rgba(247, 250, 252, 0.84);
+  color: #0f172a;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.84),
+    0 8px 18px rgba(15, 23, 42, 0.08);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.1;
+  letter-spacing: 0.01em;
+  text-align: center;
+  white-space: nowrap;
+  word-break: keep-all;
+  overflow-wrap: normal;
+  cursor: pointer;
+  transition:
+    box-shadow 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    background 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-color 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    color 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.bsb-tm-inline-toggle[data-state="hidden"] {
+  border-color: rgba(59, 130, 246, 0.2);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(247, 250, 252, 0.84)),
+    rgba(59, 130, 246, 0.08);
+}
+
+.bsb-tm-inline-toggle[data-state="shown"] {
+  border-color: rgba(239, 68, 68, 0.22);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(252, 246, 246, 0.86)),
+    rgba(239, 68, 68, 0.08);
+}
+
+.bsb-tm-inline-toggle:hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 12px 22px rgba(15, 23, 42, 0.1);
+  transform: translateY(-1px);
+}
+
+.bsb-tm-inline-toggle:active {
+  transform: scale(0.985);
+}
+
+.bsb-tm-inline-toggle:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 3px rgba(0, 174, 236, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.bsb-tm-inline-toggle:disabled {
+  cursor: default;
+  opacity: 0.72;
+  transform: none;
+}
+
+.bsb-tm-inline-toggle:disabled:hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.84),
+    0 8px 18px rgba(15, 23, 42, 0.08);
+  transform: none;
+}
+
+.bsb-tm-inline-feedback-menu {
+  --bsb-inline-feedback-menu-accent: #60a5fa;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-inline-start: 8px;
+  padding: 2px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  vertical-align: middle;
+  white-space: nowrap;
+  isolation: isolate;
+  transition:
+    background 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-color 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.bsb-tm-inline-feedback-menu[data-open="true"] {
+  background:
+    radial-gradient(circle at 16% 10%, color-mix(in srgb, var(--bsb-inline-feedback-menu-accent) 16%, rgba(255, 255, 255, 0.34)), transparent 44%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.68), rgba(244, 248, 255, 0.42));
+  border-color: color-mix(in srgb, var(--bsb-inline-feedback-menu-accent) 16%, rgba(148, 163, 184, 0.22));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 8px 18px rgba(15, 23, 42, 0.08);
+}
+
+.bsb-tm-inline-feedback-menu[data-disabled="true"] {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(245, 248, 252, 0.48)),
+    rgba(148, 163, 184, 0.08);
+  border-color: rgba(148, 163, 184, 0.2);
+}
+
+.bsb-tm-inline-feedback-menu .bsb-tm-inline-toggle {
+  min-height: 24px;
+  padding: 5px 9px;
+  font-size: 11px;
+}
+
+.bsb-tm-inline-feedback-menu .bsb-tm-inline-toggle--inline {
+  margin-inline-start: 0;
+}
+
+.bsb-tm-inline-feedback-menu__choices {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-inline-size: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transform: translateX(-6px) scale(0.96);
+  transform-origin: left center;
+  clip-path: inset(0 100% 0 0 round 999px);
+  transition:
+    max-inline-size 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 180ms ease,
+    transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    clip-path 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.bsb-tm-inline-feedback-menu[data-open="true"] .bsb-tm-inline-feedback-menu__choices {
+  max-inline-size: 96px;
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0) scale(1);
+  clip-path: inset(0 0 0 0 round 999px);
+}
+`;
+  function ensureInlineFeedbackStyles(root) {
+    if (root.querySelector(`style[${INLINE_STYLE_ATTR}]`)) {
+      return;
+    }
+    const style = document.createElement("style");
+    style.setAttribute(INLINE_STYLE_ATTR, "true");
+    style.textContent = inlineFeedbackStyles;
+    root.prepend(style);
+  }
+  function createInlineBadge(attrName, text, tone, layout, customColor, appearance = "solid") {
+    const badge = document.createElement("div");
+    const label = document.createElement("span");
+    const accent = customColor != null ? customColor : DEFAULT_TONE_ACCENTS[tone];
+    badge.className = `bsb-tm-inline-chip bsb-tm-inline-chip--${layout}`;
+    badge.setAttribute(attrName, "true");
+    badge.dataset.tone = tone;
+    badge.dataset.appearance = appearance;
+    badge.dataset.glassVariant = resolveTransparentGlassVariant(accent);
+    if (appearance === "glass") {
+      badge.dataset.glassContext = "surface";
+    }
+    badge.title = text;
+    label.className = "bsb-tm-inline-chip__label";
+    label.textContent = text;
+    badge.append(label);
+    if (customColor) {
+      badge.style.setProperty("--bsb-inline-accent", customColor);
+      badge.style.setProperty("--bsb-inline-surface", `color-mix(in srgb, ${customColor} 20%, rgba(45, 55, 72, 0.94))`);
+      badge.style.setProperty("--bsb-inline-surface-strong", `color-mix(in srgb, ${customColor} 28%, rgba(29, 37, 52, 0.98))`);
+    }
+    return badge;
+  }
+  function createInlineToggle(attrName, onClick, layout) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `bsb-tm-inline-toggle bsb-tm-inline-toggle--${layout}`;
+    button.setAttribute(attrName, "true");
+    button.addEventListener("click", onClick);
+    return button;
+  }
+  function setInlineToggleState(button, state, labels) {
+    button.dataset.state = state;
+    button.setAttribute("aria-pressed", String(state === "shown"));
+    button.textContent = state === "shown" ? labels.shown : labels.hidden;
+  }
+
   // src/ui/panel.ts
   var TAB_LABELS = {
     overview: "\u6982\u89C8",
@@ -2058,9 +2424,6 @@
       __publicField(this, "filterForm", document.createElement("div"));
       __publicField(this, "categoryForm", document.createElement("div"));
       __publicField(this, "mbgaForm", document.createElement("div"));
-      __publicField(this, "colorFloatingPreview", document.createElement("div"));
-      __publicField(this, "colorFloatingPill", document.createElement("span"));
-      __publicField(this, "colorFloatingLabel", document.createElement("span"));
       __publicField(this, "sections", /* @__PURE__ */ new Map());
       __publicField(this, "panelId", "bsb-tm-panel");
       __publicField(this, "contentScrollByTab", {});
@@ -2079,20 +2442,13 @@
       // id -> originalText
       __publicField(this, "pendingConfirmations", /* @__PURE__ */ new Set());
       // id
-      __publicField(this, "colorPreviewAnchor", null);
-      __publicField(this, "colorPreviewFrame", null);
       __publicField(this, "handleKeydown", (event) => {
-        if (event.key === "Escape" && this.colorFloatingPreview.isConnected && !this.colorFloatingPreview.hidden) {
-          this.hideColorPreview();
-          return;
-        }
         if (event.key === "Escape" && !this.backdrop.hidden) {
           this.close("user");
         }
       });
       __publicField(this, "handleViewportResize", () => {
         this.syncViewportMetrics();
-        this.scheduleColorPreviewPosition();
       });
       __publicField(this, "viewportListenersAttached", false);
       this.config = config;
@@ -2112,13 +2468,6 @@
       this.body.className = "bsb-tm-panel-body";
       this.nav.className = "bsb-tm-panel-nav";
       this.content.className = "bsb-tm-panel-content";
-      this.colorFloatingPreview.className = "bsb-tm-color-floating-preview";
-      this.colorFloatingPreview.hidden = true;
-      this.colorFloatingPreview.setAttribute("aria-hidden", "true");
-      this.colorFloatingPill.className = "bsb-tm-title-pill bsb-tm-color-floating-pill";
-      this.colorFloatingLabel.className = "bsb-tm-title-pill-label";
-      this.colorFloatingPill.append(this.colorFloatingLabel);
-      this.colorFloatingPreview.append(this.colorFloatingPill);
       this.statsEl.className = "bsb-tm-stats";
       this.form.className = "bsb-tm-form";
       this.transparencyForm.className = "bsb-tm-form";
@@ -2169,7 +2518,6 @@
       var _a, _b;
       const wasOpen = !this.backdrop.hidden;
       this.backdrop.hidden = true;
-      this.hideColorPreview();
       this.detachViewportListeners();
       document.documentElement.classList.remove("bsb-tm-panel-open");
       document.removeEventListener("keydown", this.handleKeydown);
@@ -2180,10 +2528,8 @@
     unmount() {
       this.close("system");
       this.backdrop.remove();
-      this.colorFloatingPreview.remove();
     }
     updateConfig(config) {
-      this.hideColorPreview();
       this.rememberActiveScroll();
       this.config = config;
       this.filterValidationMessage = null;
@@ -2897,6 +3243,11 @@
         label: CATEGORY_LABELS[category],
         value,
         fallbackValue: CATEGORY_COLORS[category],
+        preview: {
+          kind: "category",
+          category,
+          description: CATEGORY_DESCRIPTIONS[category]
+        },
         onCommit: (normalized) => __async(this, null, function* () {
           yield this.callbacks.onPatchConfig({
             categoryColorOverrides: __spreadProps(__spreadValues({}, this.config.categoryColorOverrides), {
@@ -2907,13 +3258,21 @@
       });
     }
     createCustomColorInput(labelText, helpText, value, onCommit) {
+      const isLocation = labelText.includes("IP");
       const wrapper = document.createElement("div");
       wrapper.className = "bsb-tm-field stacked";
       wrapper.append(this.createInputLabel(labelText, helpText));
       wrapper.append(this.createDraftColorInput({
-        label: labelText.includes("IP") ? "IP \u5C5E\u5730" : "\u8BC4\u8BBA\u5E7F\u544A",
+        label: isLocation ? "IP \u5C5E\u5730" : "\u8BC4\u8BBA\u5E7F\u544A",
         value,
         fallbackValue: value,
+        preview: {
+          kind: "inline",
+          text: isLocation ? "IP \u5C5E\u5730" : "\u8BC4\u8BBA\u5E7F\u544A",
+          tone: isLocation ? "info" : "danger",
+          appearance: (isLocation ? this.config.labelTransparency.commentLocation : this.config.labelTransparency.commentBadge) ? "glass" : "solid",
+          description: isLocation ? "\u8BC4\u8BBA\u533A IP \u5C5E\u5730\u6807\u7B7E\uFF0C\u7528\u4E8E\u663E\u793A\u8BC4\u8BBA payload \u81EA\u5E26\u5C5E\u5730\u4FE1\u606F\u3002" : "\u8BC4\u8BBA\u5E7F\u544A\u6807\u7B7E\uFF0C\u7528\u4E8E\u6807\u51FA\u5E7F\u544A\u3001\u5E26\u8D27\u6216\u53EF\u7591\u4FC3\u9500\u8BC4\u8BBA\u3002"
+        },
         onCommit
       }, true));
       return wrapper;
@@ -2928,10 +3287,16 @@
       if (compact) {
         field.classList.add("compact");
       }
-      const preview = document.createElement("span");
-      preview.className = "bsb-tm-color-preview";
-      preview.style.setProperty("--bsb-color-preview", savedValue);
-      preview.textContent = options.label;
+      const preview = document.createElement("div");
+      preview.className = "bsb-tm-color-preview-card";
+      const previewBadgeSlot = document.createElement("span");
+      previewBadgeSlot.className = "bsb-tm-color-preview-badge";
+      const previewDescription = document.createElement("small");
+      previewDescription.className = "bsb-tm-color-preview-description";
+      previewDescription.textContent = options.preview.description;
+      preview.append(previewBadgeSlot, previewDescription);
+      const editorRow = document.createElement("div");
+      editorRow.className = "bsb-tm-color-editor-row";
       const controls = document.createElement("div");
       controls.className = "bsb-tm-color-controls";
       const swatch = document.createElement("input");
@@ -2945,35 +3310,38 @@
       textInput.setAttribute("aria-label", `${options.label}\u989C\u8272\u503C`);
       const actions = document.createElement("div");
       actions.className = "bsb-tm-color-actions";
+      actions.hidden = true;
       const applyButton = document.createElement("button");
       applyButton.type = "button";
-      applyButton.className = "bsb-tm-button compact primary";
+      applyButton.className = "bsb-tm-color-action primary";
       applyButton.textContent = "\u5E94\u7528";
       const cancelButton = document.createElement("button");
       cancelButton.type = "button";
-      cancelButton.className = "bsb-tm-button compact secondary";
+      cancelButton.className = "bsb-tm-color-action secondary";
       cancelButton.textContent = "\u53D6\u6D88";
       let draftValue = savedValue;
       let isCommitting = false;
+      const renderPreview = (nextValue) => {
+        previewBadgeSlot.replaceChildren(this.createColorPreviewBadge(options.preview, nextValue));
+      };
       const updatePreview = (nextValue, previewOptions) => {
         draftValue = nextValue;
         swatch.value = nextValue;
         if ((previewOptions == null ? void 0 : previewOptions.syncText) !== false) {
           textInput.value = nextValue;
         }
-        preview.style.setProperty("--bsb-color-preview", nextValue);
-        this.showColorPreview(field, nextValue, options.label);
+        renderPreview(nextValue);
       };
       const updateButtons = () => {
         const isDirty = draftValue !== savedValue;
         const isValid = normalizeHexColor(textInput.value) !== null;
         field.dataset.colorDirty = String(isDirty);
+        actions.hidden = !isDirty;
         applyButton.disabled = isCommitting || !isDirty || !isValid;
         cancelButton.disabled = isCommitting || !isDirty;
       };
       const resetDraft = () => {
         updatePreview(savedValue);
-        this.hideColorPreview();
         updateButtons();
       };
       const commitDraft = () => __async(this, null, function* () {
@@ -2987,7 +3355,7 @@
         try {
           yield options.onCommit(normalized);
           savedValue = normalized;
-          this.hideColorPreview();
+          updatePreview(savedValue);
         } finally {
           isCommitting = false;
           updateButtons();
@@ -2999,18 +3367,17 @@
         updateButtons();
       });
       swatch.addEventListener("focus", () => {
-        this.showColorPreview(field, draftValue, options.label);
-      });
-      swatch.addEventListener("blur", () => {
-        this.scheduleHideColorPreview();
+        renderPreview(draftValue);
       });
       swatch.addEventListener("keydown", (event) => {
         if (event.key === "Enter") {
           event.preventDefault();
+          event.stopPropagation();
           void commitDraft();
         }
         if (event.key === "Escape") {
           event.preventDefault();
+          event.stopPropagation();
           resetDraft();
         }
       });
@@ -3022,18 +3389,17 @@
         updateButtons();
       });
       textInput.addEventListener("focus", () => {
-        this.showColorPreview(field, draftValue, options.label);
-      });
-      textInput.addEventListener("blur", () => {
-        this.scheduleHideColorPreview();
+        renderPreview(draftValue);
       });
       textInput.addEventListener("keydown", (event) => {
         if (event.key === "Enter") {
           event.preventDefault();
+          event.stopPropagation();
           void commitDraft();
         }
         if (event.key === "Escape") {
           event.preventDefault();
+          event.stopPropagation();
           resetDraft();
         }
       });
@@ -3041,10 +3407,12 @@
         void commitDraft();
       });
       cancelButton.addEventListener("click", resetDraft);
+      renderPreview(savedValue);
       updateButtons();
       actions.append(applyButton, cancelButton);
       controls.append(swatch, textInput);
-      field.append(preview, controls, actions);
+      editorRow.append(controls, actions);
+      field.append(preview, editorRow);
       return field;
     }
     createResetButton(compact) {
@@ -3307,74 +3675,42 @@
       box.append(title, body);
       return box;
     }
-    showColorPreview(anchor, color, label) {
+    createColorPreviewBadge(spec, color) {
       const normalized = normalizeHexColor(color);
       if (!normalized) {
-        return;
+        const fallback = document.createElement("span");
+        fallback.className = "bsb-tm-color-preview-invalid";
+        fallback.textContent = "\u989C\u8272\u683C\u5F0F\u65E0\u6548";
+        return fallback;
       }
-      this.colorPreviewAnchor = anchor;
-      this.colorFloatingLabel.textContent = label;
-      this.colorFloatingPreview.style.setProperty("--bsb-category-accent", normalized);
-      this.colorFloatingPreview.style.setProperty("--bsb-category-accent-strong", mixColors(normalized, "#0f172a", 0.12));
-      this.colorFloatingPreview.style.setProperty("--bsb-category-contrast", getReadableTextColor(normalized));
-      this.colorFloatingPreview.hidden = false;
-      this.colorFloatingPreview.classList.add("open");
-      this.colorFloatingPreview.setAttribute("aria-hidden", "false");
-      if (!this.colorFloatingPreview.isConnected) {
-        document.documentElement.appendChild(this.colorFloatingPreview);
+      if (spec.kind === "inline") {
+        return createInlineBadge("data-bsb-color-preview-inline", spec.text, spec.tone, "inline", normalized, spec.appearance);
       }
-      this.scheduleColorPreviewPosition();
-    }
-    scheduleHideColorPreview() {
-      window.setTimeout(() => {
-        const active = document.activeElement;
-        if (active instanceof HTMLElement && this.colorPreviewAnchor && (this.colorPreviewAnchor.contains(active) || this.colorFloatingPreview.contains(active))) {
-          return;
-        }
-        this.hideColorPreview();
-      }, 80);
-    }
-    hideColorPreview() {
-      this.colorFloatingPreview.classList.remove("open");
-      this.colorFloatingPreview.hidden = true;
-      this.colorFloatingPreview.setAttribute("aria-hidden", "true");
-      this.colorPreviewAnchor = null;
-      if (this.colorPreviewFrame !== null) {
-        window.cancelAnimationFrame(this.colorPreviewFrame);
-        this.colorPreviewFrame = null;
-      }
-    }
-    scheduleColorPreviewPosition() {
-      if (!this.colorPreviewAnchor || this.colorFloatingPreview.hidden || this.colorPreviewFrame !== null) {
-        return;
-      }
-      this.colorPreviewFrame = window.requestAnimationFrame(() => {
-        this.colorPreviewFrame = null;
-        this.positionColorPreview();
-      });
-    }
-    positionColorPreview() {
-      var _a, _b, _c, _d;
-      const anchor = this.colorPreviewAnchor;
-      if (!anchor || this.colorFloatingPreview.hidden) {
-        return;
-      }
-      const viewport = window.visualViewport;
-      const viewportWidth = Math.max(320, Math.floor((_a = viewport == null ? void 0 : viewport.width) != null ? _a : window.innerWidth));
-      const viewportHeight = Math.max(240, Math.floor((_b = viewport == null ? void 0 : viewport.height) != null ? _b : window.innerHeight));
-      const viewportLeft = Math.floor((_c = viewport == null ? void 0 : viewport.offsetLeft) != null ? _c : 0);
-      const viewportTop = Math.floor((_d = viewport == null ? void 0 : viewport.offsetTop) != null ? _d : 0);
-      const anchorRect = anchor.getBoundingClientRect();
-      const previewRect = this.colorFloatingPreview.getBoundingClientRect();
-      const gap = 10;
-      let left = anchorRect.right + gap;
-      if (left + previewRect.width > viewportWidth - 10) {
-        left = anchorRect.left - previewRect.width - gap;
-      }
-      left = Math.max(10, Math.min(left, viewportWidth - previewRect.width - 10));
-      let top = anchorRect.top + (anchorRect.height - previewRect.height) / 2;
-      top = Math.max(10, Math.min(top, viewportHeight - previewRect.height - 10));
-      this.colorFloatingPreview.style.transform = `translate3d(${viewportLeft + Math.round(left)}px, ${viewportTop + Math.round(top)}px, 0)`;
+      const overrides = { [spec.category]: normalized };
+      const style = resolveCategoryStyle(spec.category, overrides);
+      const wrap = document.createElement("span");
+      const pill = document.createElement("span");
+      const label = document.createElement("span");
+      const glassVariant = this.config.labelTransparency.titleBadge ? style.transparentVariant : "dark";
+      wrap.className = "bsb-tm-title-pill-wrap bsb-tm-color-preview-title-wrap";
+      wrap.dataset.category = spec.category;
+      wrap.dataset.transparent = String(this.config.labelTransparency.titleBadge);
+      wrap.dataset.glassContext = "surface";
+      wrap.dataset.glassVariant = glassVariant;
+      wrap.style.setProperty("--bsb-category-accent", style.accent);
+      wrap.style.setProperty("--bsb-category-accent-strong", style.accentStrong);
+      wrap.style.setProperty("--bsb-category-display-accent", style.transparentDisplayAccent);
+      wrap.style.setProperty("--bsb-category-contrast", this.config.labelTransparency.titleBadge ? "#0f172a" : style.contrast);
+      wrap.style.setProperty("--bsb-category-soft-surface", style.softSurface);
+      wrap.style.setProperty("--bsb-category-soft-border", style.softBorder);
+      wrap.style.setProperty("--bsb-category-glass-surface", style.glassSurface);
+      wrap.style.setProperty("--bsb-category-glass-border", style.glassBorder);
+      pill.className = "bsb-tm-title-pill bsb-tm-color-preview-title-pill";
+      label.className = "bsb-tm-title-pill-label";
+      label.textContent = CATEGORY_LABELS[spec.category];
+      pill.append(createSponsorShieldIcon(), label);
+      wrap.append(pill);
+      return wrap;
     }
     attachViewportListeners() {
       var _a, _b;
@@ -4650,372 +4986,6 @@
       listeners.delete(listener);
       maybeStop();
     };
-  }
-
-  // src/ui/surface-frosted-glass.ts
-  function createSurfaceFrostedGlassMaterial(options) {
-    const { accentExpression, textVariable } = options;
-    const textAssignment = textVariable ? `  ${textVariable}: #0f172a;
-` : "";
-    return {
-      base: `${textAssignment}  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, ${accentExpression} 7%, rgba(255, 255, 255, 0.18)),
-    color-mix(in srgb, ${accentExpression} 10%, rgba(255, 255, 255, 0.04))
-  );
-  border: 1px solid color-mix(in srgb, ${accentExpression} 16%, rgba(255, 255, 255, 0.12));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.16),
-    inset 0 -1px 0 color-mix(in srgb, ${accentExpression} 8%, rgba(15, 23, 42, 0.05)),
-    0 5px 12px rgba(15, 23, 42, 0.04),
-    0 10px 20px rgba(15, 23, 42, 0.018);
-  backdrop-filter: none;`,
-      overlay: `  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  background:
-    radial-gradient(circle at 18% 8%, color-mix(in srgb, ${accentExpression} 22%, rgba(255, 255, 255, 0.26)) 0%, transparent 36%),
-    radial-gradient(circle at 78% 120%, color-mix(in srgb, ${accentExpression} 14%, rgba(15, 23, 42, 0.1)) 0%, transparent 46%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.035) 34%, transparent 62%),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, ${accentExpression} 14%, rgba(255, 255, 255, 0.28)),
-      color-mix(in srgb, ${accentExpression} 22%, rgba(231, 238, 245, 0.12))
-    ),
-    linear-gradient(112deg, transparent 14%, rgba(255, 255, 255, 0.14) 24%, rgba(255, 255, 255, 0.03) 32%, transparent 42%);
-  opacity: 0.82;
-  backdrop-filter: blur(7px) saturate(148%) brightness(1.04);
-  mix-blend-mode: screen;`
-    };
-  }
-
-  // src/ui/inline-feedback.ts
-  var INLINE_STYLE_ATTR = "data-bsb-inline-feedback-style";
-  var DEFAULT_TONE_ACCENTS = {
-    danger: "#ff6b66",
-    warning: "#ffd56a",
-    success: "#4ade80",
-    info: "#60a5fa"
-  };
-  var inlineSurfaceFrostedGlass = createSurfaceFrostedGlassMaterial({
-    accentExpression: "var(--bsb-inline-accent)",
-    textVariable: "--bsb-inline-text"
-  });
-  var inlineFeedbackStyles = `
-.bsb-tm-inline-chip,
-.bsb-tm-inline-toggle {
-  font-family: "SF Pro Text", "PingFang SC", sans-serif;
-  font-kerning: normal;
-  font-feature-settings: "kern" 1;
-  font-synthesis-weight: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-}
-
-.bsb-tm-inline-chip {
-  --bsb-inline-accent: #ff6b6b;
-  --bsb-inline-surface: rgba(45, 55, 72, 0.94);
-  --bsb-inline-surface-strong: rgba(29, 37, 52, 0.98);
-  --bsb-inline-text: #f8fafc;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 24px;
-  max-width: min(100%, 24rem);
-  padding: 0 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background:
-    radial-gradient(circle at 20% 18%, rgba(255, 255, 255, 0.18), transparent 38%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.09), transparent 52%),
-    linear-gradient(180deg, var(--bsb-inline-surface), var(--bsb-inline-surface-strong));
-  color: var(--bsb-inline-text);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.14),
-    inset 0 -1px 0 rgba(15, 23, 42, 0.22),
-    0 10px 20px rgba(15, 23, 42, 0.16);
-  backdrop-filter: blur(16px) saturate(155%);
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.01em;
-  line-height: 1.1;
-  text-align: center;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.bsb-tm-inline-chip[data-appearance="glass"] {
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
-}
-
-.bsb-tm-inline-chip[data-appearance="glass"][data-glass-context="surface"] {
-${inlineSurfaceFrostedGlass.base}
-}
-
-.bsb-tm-inline-chip[data-appearance="glass"][data-glass-context="surface"]::after {
-${inlineSurfaceFrostedGlass.overlay}
-  z-index: 0;
-}
-
-.bsb-tm-inline-chip::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  flex: none;
-  background: var(--bsb-inline-accent);
-  box-shadow:
-    0 0 0 2px rgba(255, 255, 255, 0.14),
-    0 0 14px color-mix(in srgb, var(--bsb-inline-accent) 72%, transparent);
-  position: relative;
-  z-index: 1;
-}
-
-.bsb-tm-inline-chip[data-appearance="glass"][data-glass-context="surface"]::before {
-  box-shadow:
-    0 0 0 2px rgba(255, 255, 255, 0.24),
-    0 0 10px color-mix(in srgb, var(--bsb-inline-accent) 38%, transparent);
-}
-
-.bsb-tm-inline-chip__label {
-  position: relative;
-  z-index: 1;
-}
-
-.bsb-tm-inline-chip--inline,
-.bsb-tm-inline-toggle--inline {
-  margin-inline-start: 8px;
-}
-
-.bsb-tm-inline-chip--stack,
-.bsb-tm-inline-toggle--stack {
-  margin-top: 8px;
-}
-
-.bsb-tm-inline-chip[data-tone="danger"] {
-  --bsb-inline-accent: #ff6b66;
-  --bsb-inline-surface: rgba(130, 41, 41, 0.94);
-  --bsb-inline-surface-strong: rgba(104, 28, 28, 0.98);
-}
-
-.bsb-tm-inline-chip[data-tone="warning"] {
-  --bsb-inline-accent: #ffd56a;
-  --bsb-inline-surface: rgba(109, 74, 20, 0.94);
-  --bsb-inline-surface-strong: rgba(82, 53, 13, 0.98);
-}
-
-.bsb-tm-inline-chip[data-tone="success"] {
-  --bsb-inline-accent: #4ade80;
-  --bsb-inline-surface: rgba(25, 101, 73, 0.94);
-  --bsb-inline-surface-strong: rgba(18, 76, 55, 0.98);
-}
-
-.bsb-tm-inline-chip[data-tone="info"] {
-  --bsb-inline-accent: #60a5fa;
-  --bsb-inline-surface: rgba(30, 88, 153, 0.94);
-  --bsb-inline-surface-strong: rgba(21, 66, 118, 0.98);
-}
-
-.bsb-tm-inline-toggle {
-  appearance: none;
-  -webkit-appearance: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  min-height: 30px;
-  padding: 8px 13px;
-  border-radius: 999px;
-  border: 1px solid rgba(148, 163, 184, 0.26);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(245, 248, 252, 0.78)),
-    rgba(247, 250, 252, 0.84);
-  color: #0f172a;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.84),
-    0 8px 18px rgba(15, 23, 42, 0.08);
-  font-size: 12px;
-  font-weight: 650;
-  line-height: 1.1;
-  letter-spacing: 0.01em;
-  text-align: center;
-  white-space: nowrap;
-  word-break: keep-all;
-  overflow-wrap: normal;
-  cursor: pointer;
-  transition:
-    box-shadow 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    background 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    border-color 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
-    color 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.bsb-tm-inline-toggle[data-state="hidden"] {
-  border-color: rgba(59, 130, 246, 0.2);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(247, 250, 252, 0.84)),
-    rgba(59, 130, 246, 0.08);
-}
-
-.bsb-tm-inline-toggle[data-state="shown"] {
-  border-color: rgba(239, 68, 68, 0.22);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(252, 246, 246, 0.86)),
-    rgba(239, 68, 68, 0.08);
-}
-
-.bsb-tm-inline-toggle:hover {
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    0 12px 22px rgba(15, 23, 42, 0.1);
-  transform: translateY(-1px);
-}
-
-.bsb-tm-inline-toggle:active {
-  transform: scale(0.985);
-}
-
-.bsb-tm-inline-toggle:focus-visible {
-  outline: none;
-  box-shadow:
-    0 0 0 3px rgba(0, 174, 236, 0.18),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9);
-}
-
-.bsb-tm-inline-toggle:disabled {
-  cursor: default;
-  opacity: 0.72;
-  transform: none;
-}
-
-.bsb-tm-inline-toggle:disabled:hover {
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.84),
-    0 8px 18px rgba(15, 23, 42, 0.08);
-  transform: none;
-}
-
-.bsb-tm-inline-feedback-menu {
-  --bsb-inline-feedback-menu-accent: #60a5fa;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  margin-inline-start: 8px;
-  padding: 2px;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  vertical-align: middle;
-  white-space: nowrap;
-  isolation: isolate;
-  transition:
-    background 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    border-color 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    box-shadow 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.bsb-tm-inline-feedback-menu[data-open="true"] {
-  background:
-    radial-gradient(circle at 16% 10%, color-mix(in srgb, var(--bsb-inline-feedback-menu-accent) 16%, rgba(255, 255, 255, 0.34)), transparent 44%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.68), rgba(244, 248, 255, 0.42));
-  border-color: color-mix(in srgb, var(--bsb-inline-feedback-menu-accent) 16%, rgba(148, 163, 184, 0.22));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.72),
-    0 8px 18px rgba(15, 23, 42, 0.08);
-}
-
-.bsb-tm-inline-feedback-menu[data-disabled="true"] {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(245, 248, 252, 0.48)),
-    rgba(148, 163, 184, 0.08);
-  border-color: rgba(148, 163, 184, 0.2);
-}
-
-.bsb-tm-inline-feedback-menu .bsb-tm-inline-toggle {
-  min-height: 24px;
-  padding: 5px 9px;
-  font-size: 11px;
-}
-
-.bsb-tm-inline-feedback-menu .bsb-tm-inline-toggle--inline {
-  margin-inline-start: 0;
-}
-
-.bsb-tm-inline-feedback-menu__choices {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  max-inline-size: 0;
-  opacity: 0;
-  overflow: hidden;
-  pointer-events: none;
-  transform: translateX(-6px) scale(0.96);
-  transform-origin: left center;
-  clip-path: inset(0 100% 0 0 round 999px);
-  transition:
-    max-inline-size 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    opacity 180ms ease,
-    transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
-    clip-path 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.bsb-tm-inline-feedback-menu[data-open="true"] .bsb-tm-inline-feedback-menu__choices {
-  max-inline-size: 96px;
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateX(0) scale(1);
-  clip-path: inset(0 0 0 0 round 999px);
-}
-`;
-  function ensureInlineFeedbackStyles(root) {
-    if (root.querySelector(`style[${INLINE_STYLE_ATTR}]`)) {
-      return;
-    }
-    const style = document.createElement("style");
-    style.setAttribute(INLINE_STYLE_ATTR, "true");
-    style.textContent = inlineFeedbackStyles;
-    root.prepend(style);
-  }
-  function createInlineBadge(attrName, text, tone, layout, customColor, appearance = "solid") {
-    const badge = document.createElement("div");
-    const label = document.createElement("span");
-    const accent = customColor != null ? customColor : DEFAULT_TONE_ACCENTS[tone];
-    badge.className = `bsb-tm-inline-chip bsb-tm-inline-chip--${layout}`;
-    badge.setAttribute(attrName, "true");
-    badge.dataset.tone = tone;
-    badge.dataset.appearance = appearance;
-    badge.dataset.glassVariant = resolveTransparentGlassVariant(accent);
-    if (appearance === "glass") {
-      badge.dataset.glassContext = "surface";
-    }
-    badge.title = text;
-    label.className = "bsb-tm-inline-chip__label";
-    label.textContent = text;
-    badge.append(label);
-    if (customColor) {
-      badge.style.setProperty("--bsb-inline-accent", customColor);
-      badge.style.setProperty("--bsb-inline-surface", `color-mix(in srgb, ${customColor} 20%, rgba(45, 55, 72, 0.94))`);
-      badge.style.setProperty("--bsb-inline-surface-strong", `color-mix(in srgb, ${customColor} 28%, rgba(29, 37, 52, 0.98))`);
-    }
-    return badge;
-  }
-  function createInlineToggle(attrName, onClick, layout) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = `bsb-tm-inline-toggle bsb-tm-inline-toggle--${layout}`;
-    button.setAttribute(attrName, "true");
-    button.addEventListener("click", onClick);
-    return button;
-  }
-  function setInlineToggleState(button, state, labels) {
-    button.dataset.state = state;
-    button.setAttribute("aria-pressed", String(state === "shown"));
-    button.textContent = state === "shown" ? labels.shown : labels.hidden;
   }
 
   // src/features/comment-filter.ts
@@ -10097,8 +10067,8 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
 
 .bsb-tm-color-field {
   display: grid;
-  gap: 10px;
-  padding: 14px 16px;
+  gap: 9px;
+  padding: 12px 14px;
   border-radius: 16px;
   border: 1px solid var(--bsb-border-soft);
   background:
@@ -10110,77 +10080,110 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
 }
 
 .bsb-tm-color-field.compact {
-  padding: 0;
-  border: none;
-  background: transparent;
-  box-shadow: none;
+  padding: 10px 12px;
+  border-color: rgba(148, 163, 184, 0.16);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.66), rgba(247, 250, 252, 0.42)),
+    rgba(255, 255, 255, 0.32);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.38);
 }
 
-.bsb-tm-color-preview {
+.bsb-tm-color-preview-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.bsb-tm-color-preview-badge {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  width: fit-content;
-  border-radius: 999px;
-  padding: 5px 10px;
-  color: var(--bsb-text-primary);
-  font-size: 12px;
-  font-weight: 600;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  background: rgba(255, 255, 255, 0.96);
+  flex: none;
 }
 
-.bsb-tm-color-preview::before {
-  content: "";
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--bsb-color-preview, #0f172a);
+.bsb-tm-color-preview-card .bsb-tm-inline-chip,
+.bsb-tm-color-preview-card .bsb-tm-title-pill-wrap {
+  margin-inline-start: 0;
+}
+
+.bsb-tm-color-preview-description {
+  min-width: 0;
+  color: var(--bsb-text-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.bsb-tm-color-preview-title-pill {
+  min-height: 24px;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+.bsb-tm-color-preview-invalid {
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.bsb-tm-color-editor-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
 }
 
 .bsb-tm-color-controls {
   display: grid;
-  grid-template-columns: 46px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 8px;
 }
 
 .bsb-tm-color-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 6px;
 }
 
-.bsb-tm-color-field[data-color-dirty="false"] .bsb-tm-color-actions {
-  opacity: 0.72;
+.bsb-tm-color-actions[hidden] {
+  display: none !important;
+}
+
+.bsb-tm-color-action {
+  appearance: none;
+  -webkit-appearance: none;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(245, 248, 252, 0.76)),
+    rgba(255, 255, 255, 0.62);
+  color: var(--bsb-text-primary);
+  font: 650 12px/1 var(--bsb-font-ui);
+  cursor: pointer;
+  transition:
+    background 160ms var(--bsb-ease-swift),
+    border-color 160ms var(--bsb-ease-swift),
+    color 160ms var(--bsb-ease-swift),
+    opacity 160ms var(--bsb-ease-swift);
+}
+
+.bsb-tm-color-action.primary {
+  border-color: rgba(var(--bsb-brand-blue-rgb), 0.26);
+  background: rgba(var(--bsb-brand-blue-rgb), 0.1);
+  color: #0369a1;
+}
+
+.bsb-tm-color-action:disabled {
+  cursor: default;
+  opacity: 0.46;
 }
 
 .bsb-tm-color-controls input[type="color"] {
-  width: 46px;
-  min-width: 46px;
-  height: 38px;
+  width: 42px;
+  min-width: 42px;
+  height: 34px;
   padding: 4px;
-}
-
-.bsb-tm-color-floating-preview {
-  position: fixed;
-  inset: 0 auto auto 0;
-  z-index: 2147483647;
-  pointer-events: none;
-  opacity: 0;
-  transform: translate3d(-9999px, -9999px, 0);
-  transition: opacity 140ms var(--bsb-ease-swift);
-}
-
-.bsb-tm-color-floating-preview.open {
-  opacity: 1;
-}
-
-.bsb-tm-color-floating-preview .bsb-tm-title-pill {
-  min-height: 32px;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    0 10px 24px rgba(15, 23, 42, 0.16),
-    0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 .bsb-tm-overview-grid,
@@ -11868,7 +11871,6 @@ ${inlineFeedbackStyles}
   .bsb-tm-notice,
   .bsb-tm-title-pill,
   .bsb-tm-title-popover,
-  .bsb-tm-color-floating-preview,
   .sponsorThumbnailLabel,
   .sponsorThumbnailLabel * ,
   .bsb-tm-video-header-bar {

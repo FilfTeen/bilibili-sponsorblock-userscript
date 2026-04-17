@@ -361,8 +361,8 @@ export const styles = `
 
 .bsb-tm-color-field {
   display: grid;
-  gap: 10px;
-  padding: 14px 16px;
+  gap: 9px;
+  padding: 12px 14px;
   border-radius: 16px;
   border: 1px solid var(--bsb-border-soft);
   background:
@@ -374,77 +374,110 @@ export const styles = `
 }
 
 .bsb-tm-color-field.compact {
-  padding: 0;
-  border: none;
-  background: transparent;
-  box-shadow: none;
+  padding: 10px 12px;
+  border-color: rgba(148, 163, 184, 0.16);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.66), rgba(247, 250, 252, 0.42)),
+    rgba(255, 255, 255, 0.32);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.38);
 }
 
-.bsb-tm-color-preview {
+.bsb-tm-color-preview-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.bsb-tm-color-preview-badge {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  width: fit-content;
-  border-radius: 999px;
-  padding: 5px 10px;
-  color: var(--bsb-text-primary);
-  font-size: 12px;
-  font-weight: 600;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  background: rgba(255, 255, 255, 0.96);
+  flex: none;
 }
 
-.bsb-tm-color-preview::before {
-  content: "";
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--bsb-color-preview, #0f172a);
+.bsb-tm-color-preview-card .bsb-tm-inline-chip,
+.bsb-tm-color-preview-card .bsb-tm-title-pill-wrap {
+  margin-inline-start: 0;
+}
+
+.bsb-tm-color-preview-description {
+  min-width: 0;
+  color: var(--bsb-text-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.bsb-tm-color-preview-title-pill {
+  min-height: 24px;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+.bsb-tm-color-preview-invalid {
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.bsb-tm-color-editor-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
 }
 
 .bsb-tm-color-controls {
   display: grid;
-  grid-template-columns: 46px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 8px;
 }
 
 .bsb-tm-color-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 6px;
 }
 
-.bsb-tm-color-field[data-color-dirty="false"] .bsb-tm-color-actions {
-  opacity: 0.72;
+.bsb-tm-color-actions[hidden] {
+  display: none !important;
+}
+
+.bsb-tm-color-action {
+  appearance: none;
+  -webkit-appearance: none;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(245, 248, 252, 0.76)),
+    rgba(255, 255, 255, 0.62);
+  color: var(--bsb-text-primary);
+  font: 650 12px/1 var(--bsb-font-ui);
+  cursor: pointer;
+  transition:
+    background 160ms var(--bsb-ease-swift),
+    border-color 160ms var(--bsb-ease-swift),
+    color 160ms var(--bsb-ease-swift),
+    opacity 160ms var(--bsb-ease-swift);
+}
+
+.bsb-tm-color-action.primary {
+  border-color: rgba(var(--bsb-brand-blue-rgb), 0.26);
+  background: rgba(var(--bsb-brand-blue-rgb), 0.1);
+  color: #0369a1;
+}
+
+.bsb-tm-color-action:disabled {
+  cursor: default;
+  opacity: 0.46;
 }
 
 .bsb-tm-color-controls input[type="color"] {
-  width: 46px;
-  min-width: 46px;
-  height: 38px;
+  width: 42px;
+  min-width: 42px;
+  height: 34px;
   padding: 4px;
-}
-
-.bsb-tm-color-floating-preview {
-  position: fixed;
-  inset: 0 auto auto 0;
-  z-index: 2147483647;
-  pointer-events: none;
-  opacity: 0;
-  transform: translate3d(-9999px, -9999px, 0);
-  transition: opacity 140ms var(--bsb-ease-swift);
-}
-
-.bsb-tm-color-floating-preview.open {
-  opacity: 1;
-}
-
-.bsb-tm-color-floating-preview .bsb-tm-title-pill {
-  min-height: 32px;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    0 10px 24px rgba(15, 23, 42, 0.16),
-    0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 .bsb-tm-overview-grid,
@@ -2132,7 +2165,6 @@ ${inlineFeedbackStyles}
   .bsb-tm-notice,
   .bsb-tm-title-pill,
   .bsb-tm-title-popover,
-  .bsb-tm-color-floating-preview,
   .sponsorThumbnailLabel,
   .sponsorThumbnailLabel * ,
   .bsb-tm-video-header-bar {
