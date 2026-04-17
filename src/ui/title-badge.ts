@@ -46,6 +46,7 @@ export class TitleBadge {
   private currentSegment: SegmentRecord | null = null;
   private mountedHost: HTMLElement | null = null;
   private isOpen = false;
+  private openFrame: number | null = null;
   private closeTimer: number | null = null;
   private positionFrame: number | null = null;
   private categoryColorOverrides: CategoryColorOverrides = {};
@@ -177,6 +178,10 @@ export class TitleBadge {
       window.cancelAnimationFrame(this.positionFrame);
       this.positionFrame = null;
     }
+    if (this.openFrame !== null) {
+      window.cancelAnimationFrame(this.openFrame);
+      this.openFrame = null;
+    }
     const host = this.root.parentElement as HTMLElement | null;
     this.root.remove();
     cleanupVideoTitleAccessoryHost(host);
@@ -298,7 +303,14 @@ export class TitleBadge {
     this.pillButton.setAttribute("aria-expanded", "true");
     this.popover.hidden = false;
     this.schedulePopoverPosition();
-    requestAnimationFrame(() => {
+    if (this.openFrame !== null) {
+      window.cancelAnimationFrame(this.openFrame);
+    }
+    this.openFrame = window.requestAnimationFrame(() => {
+      this.openFrame = null;
+      if (!this.isOpen || this.popover.hidden) {
+        return;
+      }
       this.popover.classList.add("open");
     });
     this.attachPopoverListeners();
@@ -306,6 +318,10 @@ export class TitleBadge {
 
   private closePopover(): void {
     this.isOpen = false;
+    if (this.openFrame !== null) {
+      window.cancelAnimationFrame(this.openFrame);
+      this.openFrame = null;
+    }
     this.pillButton.setAttribute("aria-expanded", "false");
     this.popover.classList.remove("open");
     this.detachPopoverListeners();
@@ -346,8 +362,8 @@ export class TitleBadge {
     }
 
     this.popover.dataset.placement = placement;
-    this.popover.style.left = `${viewportLeft + Math.round(left)}px`;
-    this.popover.style.top = `${viewportTop + Math.round(top)}px`;
+    this.popover.style.setProperty("--bsb-title-popover-x", `${viewportLeft + Math.round(left)}px`);
+    this.popover.style.setProperty("--bsb-title-popover-y", `${viewportTop + Math.round(top)}px`);
   }
 
   private schedulePopoverPosition(): void {

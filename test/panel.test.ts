@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { CATEGORY_LABELS } from "../src/constants";
 import { cloneDefaultConfig } from "../src/core/config-store";
 import { SettingsPanel } from "../src/ui/panel";
 import { styles } from "../src/ui/styles";
@@ -275,5 +276,102 @@ describe("settings panel", () => {
     expect(firstCard?.children[0]?.className).toContain("bsb-tm-feature-title");
     expect(firstCard?.children[1]?.className).toContain("bsb-tm-feature-value");
     expect(firstCard?.children[2]?.className).toContain("bsb-tm-section-description");
+  });
+
+  it("previews category colors while dragging and only saves after explicit apply", async () => {
+    const onPatchConfig = vi.fn(async () => {});
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig,
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const field = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-color-field[data-color-editor='true']")).find(
+      (candidate) => candidate.textContent?.includes(CATEGORY_LABELS.sponsor)
+    );
+    const swatch = field?.querySelector<HTMLInputElement>("input[type='color']");
+    const textInput = field?.querySelector<HTMLInputElement>("input[type='text']");
+    const applyButton = field?.querySelector<HTMLButtonElement>(".bsb-tm-color-actions .primary");
+    expect(field).toBeTruthy();
+    expect(swatch).toBeTruthy();
+    expect(textInput).toBeTruthy();
+
+    const originalSwatch = swatch!;
+    originalSwatch.value = "#123456";
+    originalSwatch.dispatchEvent(new Event("input", { bubbles: true }));
+
+    expect(onPatchConfig).not.toHaveBeenCalled();
+    expect(document.querySelector<HTMLInputElement>("input[type='color']")).toBe(originalSwatch);
+    expect(textInput?.value).toBe("#123456");
+    expect(field?.querySelector<HTMLElement>(".bsb-tm-color-preview")?.style.getPropertyValue("--bsb-color-preview")).toBe("#123456");
+    expect(document.querySelector<HTMLElement>(".bsb-tm-color-floating-preview")?.hidden).toBe(false);
+
+    applyButton?.click();
+    await Promise.resolve();
+
+    expect(onPatchConfig).toHaveBeenCalledTimes(1);
+    expect(onPatchConfig).toHaveBeenCalledWith(expect.objectContaining({
+      categoryColorOverrides: expect.objectContaining({
+        sponsor: "#123456"
+      })
+    }));
+  });
+
+  it("cancels a draft color without persisting it", () => {
+    const onPatchConfig = vi.fn(async () => {});
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig,
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const field = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-color-field[data-color-editor='true']")).find(
+      (candidate) => candidate.textContent?.includes(CATEGORY_LABELS.sponsor)
+    );
+    const swatch = field?.querySelector<HTMLInputElement>("input[type='color']");
+    const textInput = field?.querySelector<HTMLInputElement>("input[type='text']");
+    const cancelButton = field?.querySelector<HTMLButtonElement>(".bsb-tm-color-actions .secondary");
+    const originalValue = swatch?.value;
+
+    swatch!.value = "#654321";
+    swatch!.dispatchEvent(new Event("input", { bubbles: true }));
+    cancelButton?.click();
+
+    expect(onPatchConfig).not.toHaveBeenCalled();
+    expect(swatch?.value).toBe(originalValue);
+    expect(textInput?.value).toBe(originalValue);
+    expect(field?.dataset.colorDirty).toBe("false");
+  });
+
+  it("does not rewrite text color input while the user is typing a valid short hex", () => {
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig: vi.fn(async () => {}),
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const field = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-color-field[data-color-editor='true']")).find(
+      (candidate) => candidate.textContent?.includes(CATEGORY_LABELS.sponsor)
+    );
+    const textInput = field?.querySelector<HTMLInputElement>("input[type='text']");
+    const swatch = field?.querySelector<HTMLInputElement>("input[type='color']");
+
+    textInput!.value = "#123";
+    textInput!.dispatchEvent(new Event("input", { bubbles: true }));
+
+    expect(textInput?.value).toBe("#123");
+    expect(swatch?.value).toBe("#112233");
   });
 });

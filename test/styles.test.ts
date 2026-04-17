@@ -89,6 +89,32 @@ describe("shared glass contexts", () => {
     expect(styles).toContain("@keyframes bsbNoticeOut");
   });
 
+  it("positions the title popover with composited transform instead of top-left will-change", () => {
+    expect(styles).toMatch(
+      /\.bsb-tm-title-popover \{[\s\S]*top: 0;[\s\S]*left: 0;[\s\S]*transform: translate3d\(var\(--bsb-title-popover-x, 0px\), var\(--bsb-title-popover-y, 0px\), 0\) scale\(0\.992\);/
+    );
+    expect(styles).toMatch(
+      /\.bsb-tm-title-popover\.open \{[\s\S]*transform: translate3d\(var\(--bsb-title-popover-x, 0px\), var\(--bsb-title-popover-y, 0px\), 0\) scale\(1\);[\s\S]*will-change: transform, opacity;/
+    );
+    expect(styles).not.toContain("will-change: transform, top, left;");
+  });
+
+  it("keeps thumbnail label animations away from persistent layout will-change hints", () => {
+    const labelBlock = styles.match(/\.sponsorThumbnailLabel \{[\s\S]*?\n\}/)?.[0] ?? "";
+    const textStackBlock = styles.match(/\.sponsorThumbnailLabel \.bsb-tm-thumbnail-text-stack \{[\s\S]*?\n\}/)?.[0] ?? "";
+    expect(labelBlock).not.toContain("will-change: min-width");
+    expect(labelBlock).not.toContain("min-width 280ms");
+    expect(labelBlock).not.toContain("padding 280ms");
+    expect(textStackBlock).not.toContain("will-change: width");
+    expect(textStackBlock).not.toContain("transition: width");
+  });
+
+  it("defines motion and glass fallbacks for constrained rendering environments", () => {
+    expect(styles).toContain("@media (prefers-reduced-motion: reduce)");
+    expect(styles).toContain("transition-duration: 1ms !important;");
+    expect(styles).toContain("@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)))");
+  });
+
   it("removes the edge highlight treatment from default overlay thumbnail pills only", () => {
     expect(styles).toContain('.sponsorThumbnailLabel[data-placement="default"][data-transparent="true"][data-glass-context="overlay"] {');
     expect(styles).toContain("border-color: color-mix(in srgb, var(--category-accent, #ffffff) 20%, rgba(255, 255, 255, 0.12));");

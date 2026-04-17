@@ -19,7 +19,7 @@ import type {
   StoredStats,
   ThumbnailLabelMode
 } from "../types";
-import { normalizeHexColor, resolveCategoryAccent } from "../utils/color";
+import { getReadableTextColor, mixColors, normalizeHexColor, resolveCategoryAccent } from "../utils/color";
 import { validateStoredPattern } from "../utils/pattern";
 import { createSponsorShieldIcon } from "./icons";
 
@@ -64,6 +64,9 @@ export class SettingsPanel {
   private readonly filterForm = document.createElement("div");
   private readonly categoryForm = document.createElement("div");
   private readonly mbgaForm = document.createElement("div");
+  private readonly colorFloatingPreview = document.createElement("div");
+  private readonly colorFloatingPill = document.createElement("span");
+  private readonly colorFloatingLabel = document.createElement("span");
   private readonly sections = new Map<PanelTab, HTMLElement>();
   private readonly panelId = "bsb-tm-panel";
   private readonly contentScrollByTab: Partial<Record<PanelTab, number>> = {};
@@ -80,13 +83,20 @@ export class SettingsPanel {
   };
   private readonly activeFeedbacks = new Map<string, string>(); // id -> originalText
   private readonly pendingConfirmations = new Set<string>(); // id
+  private colorPreviewAnchor: HTMLElement | null = null;
+  private colorPreviewFrame: number | null = null;
   private readonly handleKeydown = (event: KeyboardEvent) => {
+    if (event.key === "Escape" && this.colorFloatingPreview.isConnected && !this.colorFloatingPreview.hidden) {
+      this.hideColorPreview();
+      return;
+    }
     if (event.key === "Escape" && !this.backdrop.hidden) {
       this.close("user");
     }
   };
   private readonly handleViewportResize = () => {
     this.syncViewportMetrics();
+    this.scheduleColorPreviewPosition();
   };
   private viewportListenersAttached = false;
 
@@ -115,6 +125,13 @@ export class SettingsPanel {
     this.body.className = "bsb-tm-panel-body";
     this.nav.className = "bsb-tm-panel-nav";
     this.content.className = "bsb-tm-panel-content";
+    this.colorFloatingPreview.className = "bsb-tm-color-floating-preview";
+    this.colorFloatingPreview.hidden = true;
+    this.colorFloatingPreview.setAttribute("aria-hidden", "true");
+    this.colorFloatingPill.className = "bsb-tm-title-pill bsb-tm-color-floating-pill";
+    this.colorFloatingLabel.className = "bsb-tm-title-pill-label";
+    this.colorFloatingPill.append(this.colorFloatingLabel);
+    this.colorFloatingPreview.append(this.colorFloatingPill);
 
     this.statsEl.className = "bsb-tm-stats";
     this.form.className = "bsb-tm-form";
@@ -173,6 +190,7 @@ export class SettingsPanel {
   close(reason: PanelCloseReason = "user"): void {
     const wasOpen = !this.backdrop.hidden;
     this.backdrop.hidden = true;
+    this.hideColorPreview();
     this.detachViewportListeners();
     document.documentElement.classList.remove("bsb-tm-panel-open");
     document.removeEventListener("keydown", this.handleKeydown);
@@ -184,9 +202,11 @@ export class SettingsPanel {
   unmount(): void {
     this.close("system");
     this.backdrop.remove();
+    this.colorFloatingPreview.remove();
   }
 
   updateConfig(config: StoredConfig): void {
+    this.hideColorPreview();
     this.rememberActiveScroll();
     this.config = config;
     this.filterValidationMessage = null;
@@ -974,51 +994,19 @@ export class SettingsPanel {
   }
 
   private createColorInput(category: Category, value: string): HTMLElement {
-    const field = document.createElement("label");
-    field.className = "bsb-tm-color-field";
-
-    const preview = document.createElement("span");
-    preview.className = "bsb-tm-color-preview";
-    preview.style.setProperty("--bsb-color-preview", value);
-    preview.textContent = CATEGORY_LABELS[category];
-
-    const controls = document.createElement("div");
-    controls.className = "bsb-tm-color-controls";
-
-    const swatch = document.createElement("input");
-    swatch.type = "color";
-    swatch.value = value;
-    swatch.setAttribute("aria-label", `${CATEGORY_LABELS[category]}颜色`);
-
-    const textInput = document.createElement("input");
-    textInput.type = "text";
-    textInput.value = value;
-    textInput.spellcheck = false;
-
-    const commit = async (nextValue: string) => {
-      const normalized = normalizeHexColor(nextValue) ?? CATEGORY_COLORS[category];
-      swatch.value = normalized;
-      textInput.value = normalized;
-      preview.style.setProperty("--bsb-color-preview", normalized);
-      await this.callbacks.onPatchConfig({
-        categoryColorOverrides: {
-          ...this.config.categoryColorOverrides,
-          [category]: normalized
-        }
-      });
-    };
-
-    swatch.addEventListener("input", async () => {
-      await commit(swatch.value);
+    return this.createDraftColorInput({
+      label: CATEGORY_LABELS[category],
+      value,
+      fallbackValue: CATEGORY_COLORS[category],
+      onCommit: async (normalized) => {
+        await this.callbacks.onPatchConfig({
+          categoryColorOverrides: {
+            ...this.config.categoryColorOverrides,
+            [category]: normalized
+          }
+        });
+      }
     });
-
-    textInput.addEventListener("change", async () => {
-      await commit(textInput.value);
-    });
-
-    controls.append(swatch, textInput);
-    field.append(preview, controls);
-    return field;
   }
 
   private createCustomColorInput(
@@ -1027,44 +1015,167 @@ export class SettingsPanel {
     value: string,
     onCommit: (value: string) => Promise<void>
   ): HTMLElement {
-    const wrapper = document.createElement("label");
+    const wrapper = document.createElement("div");
     wrapper.className = "bsb-tm-field stacked";
     wrapper.append(this.createInputLabel(labelText, helpText));
+    wrapper.append(this.createDraftColorInput({
+      label: labelText.includes("IP") ? "IP 属地" : "评论广告",
+      value,
+      fallbackValue: value,
+      onCommit
+    }, true));
+    return wrapper;
+  }
 
-    const colorField = document.createElement("div");
-    colorField.className = "bsb-tm-color-field";
-    colorField.style.padding = "0";
-    colorField.style.border = "none";
-    colorField.style.background = "transparent";
-    colorField.style.boxShadow = "none";
+  private createDraftColorInput(
+    options: {
+      label: string;
+      value: string;
+      fallbackValue: string;
+      onCommit: (value: string) => Promise<void>;
+    },
+    compact = false
+  ): HTMLElement {
+    let savedValue = normalizeHexColor(options.value) ?? normalizeHexColor(options.fallbackValue) ?? "#60a5fa";
+    const field = document.createElement("div");
+    field.className = "bsb-tm-color-field";
+    field.dataset.colorEditor = "true";
+    field.dataset.colorDirty = "false";
+    if (compact) {
+      field.classList.add("compact");
+    }
+
+    const preview = document.createElement("span");
+    preview.className = "bsb-tm-color-preview";
+    preview.style.setProperty("--bsb-color-preview", savedValue);
+    preview.textContent = options.label;
 
     const controls = document.createElement("div");
     controls.className = "bsb-tm-color-controls";
-    controls.style.width = "100%";
 
     const swatch = document.createElement("input");
     swatch.type = "color";
-    swatch.value = value;
+    swatch.value = savedValue;
+    swatch.setAttribute("aria-label", `${options.label}颜色`);
 
     const textInput = document.createElement("input");
     textInput.type = "text";
-    textInput.value = value;
+    textInput.value = savedValue;
     textInput.spellcheck = false;
+    textInput.setAttribute("aria-label", `${options.label}颜色值`);
 
-    const commit = async (nextValue: string) => {
-      const normalized = normalizeHexColor(nextValue) ?? value;
-      swatch.value = normalized;
-      textInput.value = normalized;
-      await onCommit(normalized);
+    const actions = document.createElement("div");
+    actions.className = "bsb-tm-color-actions";
+    const applyButton = document.createElement("button");
+    applyButton.type = "button";
+    applyButton.className = "bsb-tm-button compact primary";
+    applyButton.textContent = "应用";
+    const cancelButton = document.createElement("button");
+    cancelButton.type = "button";
+    cancelButton.className = "bsb-tm-button compact secondary";
+    cancelButton.textContent = "取消";
+
+    let draftValue = savedValue;
+    let isCommitting = false;
+
+    const updatePreview = (nextValue: string, previewOptions?: { syncText?: boolean }): void => {
+      draftValue = nextValue;
+      swatch.value = nextValue;
+      if (previewOptions?.syncText !== false) {
+        textInput.value = nextValue;
+      }
+      preview.style.setProperty("--bsb-color-preview", nextValue);
+      this.showColorPreview(field, nextValue, options.label);
     };
 
-    swatch.addEventListener("input", async () => commit(swatch.value));
-    textInput.addEventListener("change", async () => commit(textInput.value));
+    const updateButtons = (): void => {
+      const isDirty = draftValue !== savedValue;
+      const isValid = normalizeHexColor(textInput.value) !== null;
+      field.dataset.colorDirty = String(isDirty);
+      applyButton.disabled = isCommitting || !isDirty || !isValid;
+      cancelButton.disabled = isCommitting || !isDirty;
+    };
 
+    const resetDraft = (): void => {
+      updatePreview(savedValue);
+      this.hideColorPreview();
+      updateButtons();
+    };
+
+    const commitDraft = async (): Promise<void> => {
+      const normalized = normalizeHexColor(textInput.value);
+      if (!normalized || normalized === savedValue || isCommitting) {
+        updateButtons();
+        return;
+      }
+
+      isCommitting = true;
+      updateButtons();
+      try {
+        await options.onCommit(normalized);
+        savedValue = normalized;
+        this.hideColorPreview();
+      } finally {
+        isCommitting = false;
+        updateButtons();
+      }
+    };
+
+    swatch.addEventListener("input", () => {
+      updatePreview(normalizeHexColor(swatch.value) ?? savedValue);
+      updateButtons();
+    });
+    swatch.addEventListener("focus", () => {
+      this.showColorPreview(field, draftValue, options.label);
+    });
+    swatch.addEventListener("blur", () => {
+      this.scheduleHideColorPreview();
+    });
+    swatch.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        void commitDraft();
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        resetDraft();
+      }
+    });
+
+    textInput.addEventListener("input", () => {
+      const normalized = normalizeHexColor(textInput.value);
+      if (normalized) {
+        updatePreview(normalized, { syncText: false });
+      }
+      updateButtons();
+    });
+    textInput.addEventListener("focus", () => {
+      this.showColorPreview(field, draftValue, options.label);
+    });
+    textInput.addEventListener("blur", () => {
+      this.scheduleHideColorPreview();
+    });
+    textInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        void commitDraft();
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        resetDraft();
+      }
+    });
+
+    applyButton.addEventListener("click", () => {
+      void commitDraft();
+    });
+    cancelButton.addEventListener("click", resetDraft);
+
+    updateButtons();
+    actions.append(applyButton, cancelButton);
     controls.append(swatch, textInput);
-    colorField.append(controls);
-    wrapper.append(colorField);
-    return wrapper;
+    field.append(preview, controls, actions);
+    return field;
   }
 
   private createResetButton(compact: boolean): HTMLElement {
@@ -1399,6 +1510,89 @@ export class SettingsPanel {
     body.textContent = bodyText;
     box.append(title, body);
     return box;
+  }
+
+  private showColorPreview(anchor: HTMLElement, color: string, label: string): void {
+    const normalized = normalizeHexColor(color);
+    if (!normalized) {
+      return;
+    }
+
+    this.colorPreviewAnchor = anchor;
+    this.colorFloatingLabel.textContent = label;
+    this.colorFloatingPreview.style.setProperty("--bsb-category-accent", normalized);
+    this.colorFloatingPreview.style.setProperty("--bsb-category-accent-strong", mixColors(normalized, "#0f172a", 0.12));
+    this.colorFloatingPreview.style.setProperty("--bsb-category-contrast", getReadableTextColor(normalized));
+    this.colorFloatingPreview.hidden = false;
+    this.colorFloatingPreview.classList.add("open");
+    this.colorFloatingPreview.setAttribute("aria-hidden", "false");
+    if (!this.colorFloatingPreview.isConnected) {
+      document.documentElement.appendChild(this.colorFloatingPreview);
+    }
+    this.scheduleColorPreviewPosition();
+  }
+
+  private scheduleHideColorPreview(): void {
+    window.setTimeout(() => {
+      const active = document.activeElement;
+      if (
+        active instanceof HTMLElement &&
+        this.colorPreviewAnchor &&
+        (this.colorPreviewAnchor.contains(active) || this.colorFloatingPreview.contains(active))
+      ) {
+        return;
+      }
+      this.hideColorPreview();
+    }, 80);
+  }
+
+  private hideColorPreview(): void {
+    this.colorFloatingPreview.classList.remove("open");
+    this.colorFloatingPreview.hidden = true;
+    this.colorFloatingPreview.setAttribute("aria-hidden", "true");
+    this.colorPreviewAnchor = null;
+    if (this.colorPreviewFrame !== null) {
+      window.cancelAnimationFrame(this.colorPreviewFrame);
+      this.colorPreviewFrame = null;
+    }
+  }
+
+  private scheduleColorPreviewPosition(): void {
+    if (!this.colorPreviewAnchor || this.colorFloatingPreview.hidden || this.colorPreviewFrame !== null) {
+      return;
+    }
+
+    this.colorPreviewFrame = window.requestAnimationFrame(() => {
+      this.colorPreviewFrame = null;
+      this.positionColorPreview();
+    });
+  }
+
+  private positionColorPreview(): void {
+    const anchor = this.colorPreviewAnchor;
+    if (!anchor || this.colorFloatingPreview.hidden) {
+      return;
+    }
+
+    const viewport = window.visualViewport;
+    const viewportWidth = Math.max(320, Math.floor(viewport?.width ?? window.innerWidth));
+    const viewportHeight = Math.max(240, Math.floor(viewport?.height ?? window.innerHeight));
+    const viewportLeft = Math.floor(viewport?.offsetLeft ?? 0);
+    const viewportTop = Math.floor(viewport?.offsetTop ?? 0);
+    const anchorRect = anchor.getBoundingClientRect();
+    const previewRect = this.colorFloatingPreview.getBoundingClientRect();
+    const gap = 10;
+
+    let left = anchorRect.right + gap;
+    if (left + previewRect.width > viewportWidth - 10) {
+      left = anchorRect.left - previewRect.width - gap;
+    }
+    left = Math.max(10, Math.min(left, viewportWidth - previewRect.width - 10));
+
+    let top = anchorRect.top + (anchorRect.height - previewRect.height) / 2;
+    top = Math.max(10, Math.min(top, viewportHeight - previewRect.height - 10));
+
+    this.colorFloatingPreview.style.transform = `translate3d(${viewportLeft + Math.round(left)}px, ${viewportTop + Math.round(top)}px, 0)`;
   }
 
   private attachViewportListeners(): void {

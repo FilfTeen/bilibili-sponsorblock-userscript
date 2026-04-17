@@ -46,6 +46,30 @@ describe("title badge", () => {
     expect(document.querySelector(".bsb-tm-title-pill-wrap")?.getAttribute("data-category")).toBe("exclusive_access");
   });
 
+  it("does not reopen the popover from a stale animation frame after immediate close", async () => {
+    document.body.innerHTML = `
+      <div class="video-info-container">
+        <h1>测试视频</h1>
+      </div>
+    `;
+
+    const badge = new TitleBadge({
+      onVote: vi.fn(async () => "submitted" as const),
+      onLocalDecision: vi.fn(async () => {}),
+      onOpenSettings: vi.fn()
+    });
+    badge.setSegment(fullSegment);
+
+    const pill = document.querySelector<HTMLButtonElement>(".bsb-tm-title-pill");
+    pill?.click();
+    pill?.click();
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+
+    const popover = document.querySelector<HTMLElement>(".bsb-tm-title-popover");
+    expect(popover?.classList.contains("open")).toBe(false);
+    expect(pill?.getAttribute("aria-expanded")).toBe("false");
+  });
+
   it("mounts inside the title without rewriting the title parent layout", () => {
     document.body.innerHTML = `
       <div class="video-info-container">

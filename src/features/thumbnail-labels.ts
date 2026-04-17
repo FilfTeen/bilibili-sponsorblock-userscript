@@ -370,12 +370,8 @@ function bindOverlayHoverState(host: HTMLElement, anchor: HTMLElement | null, sl
 
   for (const node of new Set<HTMLElement>([host, trigger, slot])) {
     node.addEventListener("pointerenter", activate);
-    node.addEventListener("mouseenter", activate);
-    node.addEventListener("mouseover", activate);
     node.addEventListener("focusin", activate);
     node.addEventListener("pointerleave", scheduleSync);
-    node.addEventListener("mouseleave", scheduleSync);
-    node.addEventListener("mouseout", scheduleSync);
     node.addEventListener("focusout", scheduleSync);
   }
 }

@@ -1928,6 +1928,9 @@
       this.root.classList.toggle("is-floating", parent === document.documentElement);
     }
     setHost(host) {
+      if (this.host && this.host !== host) {
+        this.host.classList.remove("bsb-tm-player-host");
+      }
       this.host = host;
       if (host) {
         host.classList.add("bsb-tm-player-host");
@@ -2055,6 +2058,9 @@
       __publicField(this, "filterForm", document.createElement("div"));
       __publicField(this, "categoryForm", document.createElement("div"));
       __publicField(this, "mbgaForm", document.createElement("div"));
+      __publicField(this, "colorFloatingPreview", document.createElement("div"));
+      __publicField(this, "colorFloatingPill", document.createElement("span"));
+      __publicField(this, "colorFloatingLabel", document.createElement("span"));
       __publicField(this, "sections", /* @__PURE__ */ new Map());
       __publicField(this, "panelId", "bsb-tm-panel");
       __publicField(this, "contentScrollByTab", {});
@@ -2073,13 +2079,20 @@
       // id -> originalText
       __publicField(this, "pendingConfirmations", /* @__PURE__ */ new Set());
       // id
+      __publicField(this, "colorPreviewAnchor", null);
+      __publicField(this, "colorPreviewFrame", null);
       __publicField(this, "handleKeydown", (event) => {
+        if (event.key === "Escape" && this.colorFloatingPreview.isConnected && !this.colorFloatingPreview.hidden) {
+          this.hideColorPreview();
+          return;
+        }
         if (event.key === "Escape" && !this.backdrop.hidden) {
           this.close("user");
         }
       });
       __publicField(this, "handleViewportResize", () => {
         this.syncViewportMetrics();
+        this.scheduleColorPreviewPosition();
       });
       __publicField(this, "viewportListenersAttached", false);
       this.config = config;
@@ -2099,6 +2112,13 @@
       this.body.className = "bsb-tm-panel-body";
       this.nav.className = "bsb-tm-panel-nav";
       this.content.className = "bsb-tm-panel-content";
+      this.colorFloatingPreview.className = "bsb-tm-color-floating-preview";
+      this.colorFloatingPreview.hidden = true;
+      this.colorFloatingPreview.setAttribute("aria-hidden", "true");
+      this.colorFloatingPill.className = "bsb-tm-title-pill bsb-tm-color-floating-pill";
+      this.colorFloatingLabel.className = "bsb-tm-title-pill-label";
+      this.colorFloatingPill.append(this.colorFloatingLabel);
+      this.colorFloatingPreview.append(this.colorFloatingPill);
       this.statsEl.className = "bsb-tm-stats";
       this.form.className = "bsb-tm-form";
       this.transparencyForm.className = "bsb-tm-form";
@@ -2149,6 +2169,7 @@
       var _a, _b;
       const wasOpen = !this.backdrop.hidden;
       this.backdrop.hidden = true;
+      this.hideColorPreview();
       this.detachViewportListeners();
       document.documentElement.classList.remove("bsb-tm-panel-open");
       document.removeEventListener("keydown", this.handleKeydown);
@@ -2159,8 +2180,10 @@
     unmount() {
       this.close("system");
       this.backdrop.remove();
+      this.colorFloatingPreview.remove();
     }
     updateConfig(config) {
+      this.hideColorPreview();
       this.rememberActiveScroll();
       this.config = config;
       this.filterValidationMessage = null;
@@ -2870,81 +2893,159 @@
       return grid;
     }
     createColorInput(category, value) {
-      const field = document.createElement("label");
-      field.className = "bsb-tm-color-field";
-      const preview = document.createElement("span");
-      preview.className = "bsb-tm-color-preview";
-      preview.style.setProperty("--bsb-color-preview", value);
-      preview.textContent = CATEGORY_LABELS[category];
-      const controls = document.createElement("div");
-      controls.className = "bsb-tm-color-controls";
-      const swatch = document.createElement("input");
-      swatch.type = "color";
-      swatch.value = value;
-      swatch.setAttribute("aria-label", `${CATEGORY_LABELS[category]}\u989C\u8272`);
-      const textInput = document.createElement("input");
-      textInput.type = "text";
-      textInput.value = value;
-      textInput.spellcheck = false;
-      const commit = (nextValue) => __async(this, null, function* () {
-        var _a;
-        const normalized = (_a = normalizeHexColor(nextValue)) != null ? _a : CATEGORY_COLORS[category];
-        swatch.value = normalized;
-        textInput.value = normalized;
-        preview.style.setProperty("--bsb-color-preview", normalized);
-        yield this.callbacks.onPatchConfig({
-          categoryColorOverrides: __spreadProps(__spreadValues({}, this.config.categoryColorOverrides), {
-            [category]: normalized
-          })
-        });
+      return this.createDraftColorInput({
+        label: CATEGORY_LABELS[category],
+        value,
+        fallbackValue: CATEGORY_COLORS[category],
+        onCommit: (normalized) => __async(this, null, function* () {
+          yield this.callbacks.onPatchConfig({
+            categoryColorOverrides: __spreadProps(__spreadValues({}, this.config.categoryColorOverrides), {
+              [category]: normalized
+            })
+          });
+        })
       });
-      swatch.addEventListener("input", () => __async(this, null, function* () {
-        yield commit(swatch.value);
-      }));
-      textInput.addEventListener("change", () => __async(this, null, function* () {
-        yield commit(textInput.value);
-      }));
-      controls.append(swatch, textInput);
-      field.append(preview, controls);
-      return field;
     }
     createCustomColorInput(labelText, helpText, value, onCommit) {
-      const wrapper = document.createElement("label");
+      const wrapper = document.createElement("div");
       wrapper.className = "bsb-tm-field stacked";
       wrapper.append(this.createInputLabel(labelText, helpText));
-      const colorField = document.createElement("div");
-      colorField.className = "bsb-tm-color-field";
-      colorField.style.padding = "0";
-      colorField.style.border = "none";
-      colorField.style.background = "transparent";
-      colorField.style.boxShadow = "none";
+      wrapper.append(this.createDraftColorInput({
+        label: labelText.includes("IP") ? "IP \u5C5E\u5730" : "\u8BC4\u8BBA\u5E7F\u544A",
+        value,
+        fallbackValue: value,
+        onCommit
+      }, true));
+      return wrapper;
+    }
+    createDraftColorInput(options, compact = false) {
+      var _a, _b;
+      let savedValue = (_b = (_a = normalizeHexColor(options.value)) != null ? _a : normalizeHexColor(options.fallbackValue)) != null ? _b : "#60a5fa";
+      const field = document.createElement("div");
+      field.className = "bsb-tm-color-field";
+      field.dataset.colorEditor = "true";
+      field.dataset.colorDirty = "false";
+      if (compact) {
+        field.classList.add("compact");
+      }
+      const preview = document.createElement("span");
+      preview.className = "bsb-tm-color-preview";
+      preview.style.setProperty("--bsb-color-preview", savedValue);
+      preview.textContent = options.label;
       const controls = document.createElement("div");
       controls.className = "bsb-tm-color-controls";
-      controls.style.width = "100%";
       const swatch = document.createElement("input");
       swatch.type = "color";
-      swatch.value = value;
+      swatch.value = savedValue;
+      swatch.setAttribute("aria-label", `${options.label}\u989C\u8272`);
       const textInput = document.createElement("input");
       textInput.type = "text";
-      textInput.value = value;
+      textInput.value = savedValue;
       textInput.spellcheck = false;
-      const commit = (nextValue) => __async(this, null, function* () {
-        var _a;
-        const normalized = (_a = normalizeHexColor(nextValue)) != null ? _a : value;
-        swatch.value = normalized;
-        textInput.value = normalized;
-        yield onCommit(normalized);
+      textInput.setAttribute("aria-label", `${options.label}\u989C\u8272\u503C`);
+      const actions = document.createElement("div");
+      actions.className = "bsb-tm-color-actions";
+      const applyButton = document.createElement("button");
+      applyButton.type = "button";
+      applyButton.className = "bsb-tm-button compact primary";
+      applyButton.textContent = "\u5E94\u7528";
+      const cancelButton = document.createElement("button");
+      cancelButton.type = "button";
+      cancelButton.className = "bsb-tm-button compact secondary";
+      cancelButton.textContent = "\u53D6\u6D88";
+      let draftValue = savedValue;
+      let isCommitting = false;
+      const updatePreview = (nextValue, previewOptions) => {
+        draftValue = nextValue;
+        swatch.value = nextValue;
+        if ((previewOptions == null ? void 0 : previewOptions.syncText) !== false) {
+          textInput.value = nextValue;
+        }
+        preview.style.setProperty("--bsb-color-preview", nextValue);
+        this.showColorPreview(field, nextValue, options.label);
+      };
+      const updateButtons = () => {
+        const isDirty = draftValue !== savedValue;
+        const isValid = normalizeHexColor(textInput.value) !== null;
+        field.dataset.colorDirty = String(isDirty);
+        applyButton.disabled = isCommitting || !isDirty || !isValid;
+        cancelButton.disabled = isCommitting || !isDirty;
+      };
+      const resetDraft = () => {
+        updatePreview(savedValue);
+        this.hideColorPreview();
+        updateButtons();
+      };
+      const commitDraft = () => __async(this, null, function* () {
+        const normalized = normalizeHexColor(textInput.value);
+        if (!normalized || normalized === savedValue || isCommitting) {
+          updateButtons();
+          return;
+        }
+        isCommitting = true;
+        updateButtons();
+        try {
+          yield options.onCommit(normalized);
+          savedValue = normalized;
+          this.hideColorPreview();
+        } finally {
+          isCommitting = false;
+          updateButtons();
+        }
       });
-      swatch.addEventListener("input", () => __async(this, null, function* () {
-        return commit(swatch.value);
-      }));
-      textInput.addEventListener("change", () => __async(this, null, function* () {
-        return commit(textInput.value);
-      }));
+      swatch.addEventListener("input", () => {
+        var _a2;
+        updatePreview((_a2 = normalizeHexColor(swatch.value)) != null ? _a2 : savedValue);
+        updateButtons();
+      });
+      swatch.addEventListener("focus", () => {
+        this.showColorPreview(field, draftValue, options.label);
+      });
+      swatch.addEventListener("blur", () => {
+        this.scheduleHideColorPreview();
+      });
+      swatch.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          void commitDraft();
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          resetDraft();
+        }
+      });
+      textInput.addEventListener("input", () => {
+        const normalized = normalizeHexColor(textInput.value);
+        if (normalized) {
+          updatePreview(normalized, { syncText: false });
+        }
+        updateButtons();
+      });
+      textInput.addEventListener("focus", () => {
+        this.showColorPreview(field, draftValue, options.label);
+      });
+      textInput.addEventListener("blur", () => {
+        this.scheduleHideColorPreview();
+      });
+      textInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          void commitDraft();
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          resetDraft();
+        }
+      });
+      applyButton.addEventListener("click", () => {
+        void commitDraft();
+      });
+      cancelButton.addEventListener("click", resetDraft);
+      updateButtons();
+      actions.append(applyButton, cancelButton);
       controls.append(swatch, textInput);
-      colorField.append(controls);
-      wrapper.append(colorField);
-      return wrapper;
+      field.append(preview, controls, actions);
+      return field;
     }
     createResetButton(compact) {
       const button = document.createElement("button");
@@ -3205,6 +3306,75 @@
       body.textContent = bodyText;
       box.append(title, body);
       return box;
+    }
+    showColorPreview(anchor, color, label) {
+      const normalized = normalizeHexColor(color);
+      if (!normalized) {
+        return;
+      }
+      this.colorPreviewAnchor = anchor;
+      this.colorFloatingLabel.textContent = label;
+      this.colorFloatingPreview.style.setProperty("--bsb-category-accent", normalized);
+      this.colorFloatingPreview.style.setProperty("--bsb-category-accent-strong", mixColors(normalized, "#0f172a", 0.12));
+      this.colorFloatingPreview.style.setProperty("--bsb-category-contrast", getReadableTextColor(normalized));
+      this.colorFloatingPreview.hidden = false;
+      this.colorFloatingPreview.classList.add("open");
+      this.colorFloatingPreview.setAttribute("aria-hidden", "false");
+      if (!this.colorFloatingPreview.isConnected) {
+        document.documentElement.appendChild(this.colorFloatingPreview);
+      }
+      this.scheduleColorPreviewPosition();
+    }
+    scheduleHideColorPreview() {
+      window.setTimeout(() => {
+        const active = document.activeElement;
+        if (active instanceof HTMLElement && this.colorPreviewAnchor && (this.colorPreviewAnchor.contains(active) || this.colorFloatingPreview.contains(active))) {
+          return;
+        }
+        this.hideColorPreview();
+      }, 80);
+    }
+    hideColorPreview() {
+      this.colorFloatingPreview.classList.remove("open");
+      this.colorFloatingPreview.hidden = true;
+      this.colorFloatingPreview.setAttribute("aria-hidden", "true");
+      this.colorPreviewAnchor = null;
+      if (this.colorPreviewFrame !== null) {
+        window.cancelAnimationFrame(this.colorPreviewFrame);
+        this.colorPreviewFrame = null;
+      }
+    }
+    scheduleColorPreviewPosition() {
+      if (!this.colorPreviewAnchor || this.colorFloatingPreview.hidden || this.colorPreviewFrame !== null) {
+        return;
+      }
+      this.colorPreviewFrame = window.requestAnimationFrame(() => {
+        this.colorPreviewFrame = null;
+        this.positionColorPreview();
+      });
+    }
+    positionColorPreview() {
+      var _a, _b, _c, _d;
+      const anchor = this.colorPreviewAnchor;
+      if (!anchor || this.colorFloatingPreview.hidden) {
+        return;
+      }
+      const viewport = window.visualViewport;
+      const viewportWidth = Math.max(320, Math.floor((_a = viewport == null ? void 0 : viewport.width) != null ? _a : window.innerWidth));
+      const viewportHeight = Math.max(240, Math.floor((_b = viewport == null ? void 0 : viewport.height) != null ? _b : window.innerHeight));
+      const viewportLeft = Math.floor((_c = viewport == null ? void 0 : viewport.offsetLeft) != null ? _c : 0);
+      const viewportTop = Math.floor((_d = viewport == null ? void 0 : viewport.offsetTop) != null ? _d : 0);
+      const anchorRect = anchor.getBoundingClientRect();
+      const previewRect = this.colorFloatingPreview.getBoundingClientRect();
+      const gap = 10;
+      let left = anchorRect.right + gap;
+      if (left + previewRect.width > viewportWidth - 10) {
+        left = anchorRect.left - previewRect.width - gap;
+      }
+      left = Math.max(10, Math.min(left, viewportWidth - previewRect.width - 10));
+      let top = anchorRect.top + (anchorRect.height - previewRect.height) / 2;
+      top = Math.max(10, Math.min(top, viewportHeight - previewRect.height - 10));
+      this.colorFloatingPreview.style.transform = `translate3d(${viewportLeft + Math.round(left)}px, ${viewportTop + Math.round(top)}px, 0)`;
     }
     attachViewportListeners() {
       var _a, _b;
@@ -3602,6 +3772,7 @@
       __publicField(this, "currentSegment", null);
       __publicField(this, "mountedHost", null);
       __publicField(this, "isOpen", false);
+      __publicField(this, "openFrame", null);
       __publicField(this, "closeTimer", null);
       __publicField(this, "positionFrame", null);
       __publicField(this, "categoryColorOverrides", {});
@@ -3714,6 +3885,10 @@
         window.cancelAnimationFrame(this.positionFrame);
         this.positionFrame = null;
       }
+      if (this.openFrame !== null) {
+        window.cancelAnimationFrame(this.openFrame);
+        this.openFrame = null;
+      }
       const host = this.root.parentElement;
       this.root.remove();
       cleanupVideoTitleAccessoryHost(host);
@@ -3793,13 +3968,24 @@
       this.pillButton.setAttribute("aria-expanded", "true");
       this.popover.hidden = false;
       this.schedulePopoverPosition();
-      requestAnimationFrame(() => {
+      if (this.openFrame !== null) {
+        window.cancelAnimationFrame(this.openFrame);
+      }
+      this.openFrame = window.requestAnimationFrame(() => {
+        this.openFrame = null;
+        if (!this.isOpen || this.popover.hidden) {
+          return;
+        }
         this.popover.classList.add("open");
       });
       this.attachPopoverListeners();
     }
     closePopover() {
       this.isOpen = false;
+      if (this.openFrame !== null) {
+        window.cancelAnimationFrame(this.openFrame);
+        this.openFrame = null;
+      }
       this.pillButton.setAttribute("aria-expanded", "false");
       this.popover.classList.remove("open");
       this.detachPopoverListeners();
@@ -3834,8 +4020,8 @@
         placement = "top";
       }
       this.popover.dataset.placement = placement;
-      this.popover.style.left = `${viewportLeft + Math.round(left)}px`;
-      this.popover.style.top = `${viewportTop + Math.round(top)}px`;
+      this.popover.style.setProperty("--bsb-title-popover-x", `${viewportLeft + Math.round(left)}px`);
+      this.popover.style.setProperty("--bsb-title-popover-y", `${viewportTop + Math.round(top)}px`);
     }
     schedulePopoverPosition() {
       if (!this.isOpen || this.positionFrame !== null) {
@@ -4069,13 +4255,14 @@
       avatarSrc: null
     };
   }
-  function createSearchForm(seed, options) {
+  function createSearchForm(seed, getOptions) {
     const form = document.createElement("form");
     form.className = "bsb-tm-video-header-fallback-search";
     const input = document.createElement("input");
     input.type = "search";
-    input.placeholder = resolveDisplayedPlaceholder(seed, options.placeholderVisible);
+    input.placeholder = resolveDisplayedPlaceholder(seed, getOptions().placeholderVisible);
     input.value = seed.value;
+    input.dataset.bsbSeedValue = seed.value;
     input.autocomplete = "off";
     input.spellcheck = false;
     input.setAttribute("aria-label", "\u641C\u7D22 B \u7AD9\u5185\u5BB9");
@@ -4091,7 +4278,7 @@
           placeholder: input.placeholder,
           value: input.value
         },
-        options
+        getOptions()
       );
       if (!keyword) {
         return;
@@ -4180,11 +4367,36 @@
         this.lastResolvedProfileSeed = authoritativeProfileSeed;
       }
       const profileSeed = (_b = authoritativeProfileSeed != null ? authoritativeProfileSeed : this.lastResolvedProfileSeed) != null ? _b : resolvedProfileSeed;
-      this.searchSlot.replaceChildren(createSearchForm(searchSeed, this.options));
-      this.profileSlot.replaceChildren(createProfileLink(profileSeed));
+      this.syncSearchForm(searchSeed);
+      this.syncProfileLink(profileSeed);
       this.syncProfileObserver(profileSeed);
       void this.ensureRemoteProfileSeed();
       this.scheduleRetry();
+    }
+    syncSearchForm(seed) {
+      var _a;
+      const existingForm = this.searchSlot.querySelector(".bsb-tm-video-header-fallback-search");
+      const existingInput = existingForm == null ? void 0 : existingForm.querySelector("input[type='search']");
+      if (!existingForm || !existingInput) {
+        this.searchSlot.replaceChildren(createSearchForm(seed, () => this.options));
+        return;
+      }
+      const seedValue = (_a = existingInput.dataset.bsbSeedValue) != null ? _a : "";
+      const hasUserDraft = document.activeElement === existingInput || existingInput.value !== seedValue;
+      existingInput.placeholder = resolveDisplayedPlaceholder(seed, this.options.placeholderVisible);
+      if (!hasUserDraft) {
+        existingInput.value = seed.value;
+        existingInput.dataset.bsbSeedValue = seed.value;
+      }
+    }
+    syncProfileLink(seed) {
+      const existingLink = this.profileSlot.querySelector(".bsb-tm-video-header-profile-link");
+      const existingAvatar = existingLink == null ? void 0 : existingLink.querySelector(".bsb-tm-video-header-avatar");
+      const existingAvatarSrc = normalizeAvatarUrl(existingAvatar == null ? void 0 : existingAvatar.getAttribute("src"));
+      if (existingLink && existingLink.href === seed.href && existingLink.getAttribute("aria-label") === seed.label && existingAvatarSrc === normalizeAvatarUrl(seed.avatarSrc)) {
+        return;
+      }
+      this.profileSlot.replaceChildren(createProfileLink(seed));
     }
     unmount() {
       var _a;
@@ -8319,12 +8531,8 @@ ${inlineSurfaceFrostedGlass.overlay}
     };
     for (const node of /* @__PURE__ */ new Set([host, trigger, slot])) {
       node.addEventListener("pointerenter", activate);
-      node.addEventListener("mouseenter", activate);
-      node.addEventListener("mouseover", activate);
       node.addEventListener("focusin", activate);
       node.addEventListener("pointerleave", scheduleSync);
-      node.addEventListener("mouseleave", scheduleSync);
-      node.addEventListener("mouseout", scheduleSync);
       node.addEventListener("focusout", scheduleSync);
     }
   }
@@ -9901,6 +10109,13 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
     inset 0 0 0 1px rgba(148, 163, 184, 0.08);
 }
 
+.bsb-tm-color-field.compact {
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
 .bsb-tm-color-preview {
   display: inline-flex;
   align-items: center;
@@ -9929,11 +10144,43 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
   gap: 10px;
 }
 
+.bsb-tm-color-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.bsb-tm-color-field[data-color-dirty="false"] .bsb-tm-color-actions {
+  opacity: 0.72;
+}
+
 .bsb-tm-color-controls input[type="color"] {
   width: 46px;
   min-width: 46px;
   height: 38px;
   padding: 4px;
+}
+
+.bsb-tm-color-floating-preview {
+  position: fixed;
+  inset: 0 auto auto 0;
+  z-index: 2147483647;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate3d(-9999px, -9999px, 0);
+  transition: opacity 140ms var(--bsb-ease-swift);
+}
+
+.bsb-tm-color-floating-preview.open {
+  opacity: 1;
+}
+
+.bsb-tm-color-floating-preview .bsb-tm-title-pill {
+  min-height: 32px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 10px 24px rgba(15, 23, 42, 0.16),
+    0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 .bsb-tm-overview-grid,
@@ -10485,6 +10732,8 @@ ${titleSurfaceFrostedGlass.overlay}
 
 .bsb-tm-title-popover {
   position: fixed;
+  top: 0;
+  left: 0;
   z-index: 2147483646;
   width: min(400px, calc(100vw - 32px));
   padding: 14px;
@@ -10501,18 +10750,19 @@ ${titleSurfaceFrostedGlass.overlay}
     inset 0 0 0 1px rgba(148, 163, 184, 0.08);
   backdrop-filter: blur(18px) saturate(150%);
   opacity: 0;
-  transform: scale(0.992);
+  transform: translate3d(var(--bsb-title-popover-x, 0px), var(--bsb-title-popover-y, 0px), 0) scale(0.992);
+  transform-origin: top center;
   pointer-events: none;
   transition:
     opacity 160ms ease,
     transform 180ms ease;
-  will-change: transform, top, left;
 }
 
 .bsb-tm-title-popover.open {
   opacity: 1;
-  transform: scale(1);
+  transform: translate3d(var(--bsb-title-popover-x, 0px), var(--bsb-title-popover-y, 0px), 0) scale(1);
   pointer-events: auto;
+  will-change: transform, opacity;
 }
 
 .bsb-tm-title-popover-copy {
@@ -10708,7 +10958,7 @@ ${titleSurfaceFrostedGlass.overlay}
     inset 0 -1px 0 rgba(15, 23, 42, 0.12),
     0 8px 18px rgba(15, 23, 42, 0.18),
     0 0 0 1px rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(22px) saturate(185%);
+  backdrop-filter: blur(10px) saturate(150%);
   font-size: 10px;
   font-weight: 650;
   letter-spacing: 0.01em;
@@ -10717,9 +10967,7 @@ ${titleSurfaceFrostedGlass.overlay}
   text-align: center;
   isolation: isolate;
   backface-visibility: hidden;
-  transform: translateZ(0);
   text-rendering: geometricPrecision;
-  will-change: min-width, padding, opacity;
   pointer-events: none;
   overflow: hidden;
   transition:
@@ -10727,9 +10975,7 @@ ${titleSurfaceFrostedGlass.overlay}
     background 220ms var(--bsb-ease-swift),
     opacity 160ms var(--bsb-ease-swift),
     border-color 220ms var(--bsb-ease-swift),
-    filter 220ms var(--bsb-ease-swift),
-    min-width 280ms var(--bsb-ease-fluid),
-    padding 280ms var(--bsb-ease-fluid);
+    filter 220ms var(--bsb-ease-swift);
 }
 
 .sponsorThumbnailLabel[data-transparent="true"][data-glass-context="overlay"] {
@@ -10953,9 +11199,6 @@ ${titleSurfaceFrostedGlass.overlay}
   width: var(--bsb-thumbnail-current-text-width);
   min-width: 0;
   height: 1em;
-  transform: translateZ(0);
-  will-change: width;
-  transition: width 280ms var(--bsb-ease-fluid);
 }
 
 .sponsorThumbnailLabel .bsb-tm-thumbnail-short-label {
@@ -11604,6 +11847,35 @@ ${inlineFeedbackStyles}
   .bsb-tm-video-header-avatar {
     width: 30px;
     height: 30px;
+  }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .bsb-tm-panel-backdrop,
+  .bsb-tm-panel,
+  .bsb-tm-panel-header,
+  .bsb-tm-form-group,
+  .bsb-tm-notice,
+  .bsb-tm-title-popover,
+  .bsb-tm-video-header-bar,
+  .sponsorThumbnailLabel {
+    backdrop-filter: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bsb-tm-panel *,
+  .bsb-tm-notice,
+  .bsb-tm-title-pill,
+  .bsb-tm-title-popover,
+  .bsb-tm-color-floating-preview,
+  .sponsorThumbnailLabel,
+  .sponsorThumbnailLabel * ,
+  .bsb-tm-video-header-bar {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
   }
 }
 `;
