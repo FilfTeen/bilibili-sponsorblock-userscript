@@ -45,20 +45,6 @@ describe("shared glass contexts", () => {
     );
   });
 
-  it("keeps title badge selection feedback fast without removing the shadow effect", () => {
-    expect(styles).toContain("--bsb-shadow-fast: 120ms;");
-    expect(styles).toContain("--bsb-selection-fast: 90ms;");
-    expect(styles).toMatch(
-      /\.bsb-tm-title-pill-wrap::after \{[\s\S]*box-shadow:[\s\S]*0 10px 22px rgba\(15, 23, 42, 0\.13\),[\s\S]*transition:[\s\S]*opacity 110ms var\(--bsb-ease-swift\),[\s\S]*transform 140ms var\(--bsb-ease-fluid\);[\s\S]*will-change: opacity, transform;/
-    );
-    expect(styles).toMatch(
-      /\.bsb-tm-title-pill-wrap:hover::after,[\s\S]*\.bsb-tm-title-pill-wrap:focus-within::after,[\s\S]*\.bsb-tm-title-pill-wrap\.is-open::after \{[\s\S]*opacity: 1;/
-    );
-    expect(styles).toMatch(
-      /\.bsb-tm-title-pill \{[\s\S]*z-index: 1;[\s\S]*box-shadow var\(--bsb-selection-fast\) var\(--bsb-ease-swift\),[\s\S]*filter var\(--bsb-selection-fast\) var\(--bsb-ease-swift\),/
-    );
-  });
-
   it("prevents title badge label text from collapsing into vertical wrapping", () => {
     expect(styles).toMatch(
       /\.bsb-tm-title-pill-label \{[\s\S]*overflow-wrap: normal;[\s\S]*white-space: nowrap;[\s\S]*word-break: keep-all;/

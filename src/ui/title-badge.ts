@@ -300,7 +300,6 @@ export class TitleBadge {
     this.ensureMounted();
     this.ensurePopoverMounted();
     this.isOpen = true;
-    this.root.classList.add("is-open");
     this.pillButton.setAttribute("aria-expanded", "true");
     this.popover.hidden = false;
     this.schedulePopoverPosition();
@@ -319,7 +318,6 @@ export class TitleBadge {
 
   private closePopover(): void {
     this.isOpen = false;
-    this.root.classList.remove("is-open");
     if (this.openFrame !== null) {
       window.cancelAnimationFrame(this.openFrame);
       this.openFrame = null;
