@@ -151,6 +151,12 @@ describe("shared glass contexts", () => {
     expect(styles).toMatch(
       /\.bsb-tm-color-field\.compact:hover,[\s\S]*\.bsb-tm-color-field\.compact:focus-within \{[\s\S]*0 8px 18px rgba\(15, 23, 42, 0\.045\);/
     );
+    expect(styles).toMatch(
+      /\.bsb-tm-color-field:hover \.bsb-tm-color-controls input:not\(:focus\),[\s\S]*\.bsb-tm-color-field:focus-within \.bsb-tm-color-controls input:not\(:focus\) \{[\s\S]*border-color: rgba\(var\(--bsb-brand-blue-rgb\), 0\.22\);[\s\S]*0 8px 18px rgba\(15, 23, 42, 0\.055\);/
+    );
+    expect(styles).toMatch(
+      /\.bsb-tm-color-field\.compact:hover \.bsb-tm-color-controls input:not\(:focus\),[\s\S]*\.bsb-tm-color-field\.compact:focus-within \.bsb-tm-color-controls input:not\(:focus\) \{[\s\S]*0 6px 14px rgba\(15, 23, 42, 0\.045\);/
+    );
   });
 
   it("keeps color editing previews inside the panel instead of a floating duplicate", () => {

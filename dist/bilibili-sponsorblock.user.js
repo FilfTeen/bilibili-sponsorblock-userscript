@@ -10118,6 +10118,24 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
     0 8px 18px rgba(15, 23, 42, 0.045);
 }
 
+.bsb-tm-color-field:hover .bsb-tm-color-controls input:not(:focus),
+.bsb-tm-color-field:focus-within .bsb-tm-color-controls input:not(:focus) {
+  border-color: rgba(var(--bsb-brand-blue-rgb), 0.22);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 250, 253, 0.86)),
+    rgba(255, 255, 255, 0.84);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 8px 18px rgba(15, 23, 42, 0.055);
+}
+
+.bsb-tm-color-field.compact:hover .bsb-tm-color-controls input:not(:focus),
+.bsb-tm-color-field.compact:focus-within .bsb-tm-color-controls input:not(:focus) {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    0 6px 14px rgba(15, 23, 42, 0.045);
+}
+
 .bsb-tm-color-preview-card {
   display: grid;
   justify-items: start;
