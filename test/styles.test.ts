@@ -15,6 +15,18 @@ describe("shared glass contexts", () => {
     expect(styles).toContain("backdrop-filter: none;");
   });
 
+  it("keeps title pill shadows soft enough for bright surfaces", () => {
+    expect(styles).toMatch(
+      /\.bsb-tm-title-pill \{[\s\S]*0 5px 10px rgba\(15, 23, 42, 0\.045\);[\s\S]*box-shadow 180ms var\(--bsb-ease-swift\),[\s\S]*filter 180ms var\(--bsb-ease-swift\),/
+    );
+    expect(styles).toMatch(
+      /\.bsb-tm-title-pill-wrap\[data-transparent="true"\]\[data-glass-context="surface"\] \.bsb-tm-title-pill \{[\s\S]*0 4px 10px rgba\(15, 23, 42, 0\.03\),[\s\S]*0 8px 16px rgba\(15, 23, 42, 0\.012\);/
+    );
+    expect(styles).toMatch(
+      /\.bsb-tm-title-pill-wrap\[data-transparent="true"\]\[data-glass-context="surface"\] \.bsb-tm-title-pill:hover,[\s\S]*\.bsb-tm-title-pill-wrap\[data-transparent="true"\]\[data-glass-context="surface"\] \.bsb-tm-title-pill\[aria-expanded="true"\] \{[\s\S]*0 6px 14px rgba\(15, 23, 42, 0\.04\),[\s\S]*0 11px 20px rgba\(15, 23, 42, 0\.018\);[\s\S]*filter: saturate\(1\.025\) brightness\(1\.01\);/
+    );
+  });
+
   it("uses the original category accent for the surface title pill tint", () => {
     expect(styles).toMatch(
       /\.bsb-tm-title-pill-wrap\[data-transparent="true"\]\[data-glass-context="surface"\] \.bsb-tm-title-pill::before[\s\S]*radial-gradient\(circle at 18% 8%,[\s\S]*var\(--bsb-category-accent, #2f9e72\) 22%, rgba\(255, 255, 255, 0\.26\)/
@@ -112,6 +124,21 @@ describe("shared glass contexts", () => {
     expect(textStackBlock).toContain("transform: translateZ(0);");
     expect(textStackBlock).toContain("will-change: width;");
     expect(textStackBlock).toContain("transition: width 280ms var(--bsb-ease-fluid);");
+  });
+
+  it("uses separate shadow budgets for console navigation and cards", () => {
+    expect(styles).toMatch(
+      /\.bsb-tm-tab-button \{[\s\S]*0 8px 18px rgba\(15, 23, 42, 0\.045\),[\s\S]*box-shadow 170ms var\(--bsb-ease-swift\),/
+    );
+    expect(styles).toMatch(
+      /\.bsb-tm-form-group \{[\s\S]*0 16px 34px rgba\(15, 23, 42, 0\.07\),[\s\S]*box-shadow 180ms var\(--bsb-ease-swift\),/
+    );
+    expect(styles).toMatch(
+      /\.bsb-tm-summary-line,[\s\S]*\.bsb-tm-link-card \{[\s\S]*0 10px 22px rgba\(15, 23, 42, 0\.045\),[\s\S]*box-shadow 170ms var\(--bsb-ease-swift\),/
+    );
+    expect(styles).toMatch(
+      /\.bsb-tm-form-group:hover,[\s\S]*\.bsb-tm-form-group:focus-within \{[\s\S]*0 18px 38px rgba\(15, 23, 42, 0\.095\),/
+    );
   });
 
   it("keeps color editing previews inside the panel instead of a floating duplicate", () => {
