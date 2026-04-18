@@ -362,8 +362,8 @@ export class TitleBadge {
     }
 
     this.popover.dataset.placement = placement;
-    this.popover.style.setProperty("--bsb-title-popover-x", `${viewportLeft + Math.round(left)}px`);
-    this.popover.style.setProperty("--bsb-title-popover-y", `${viewportTop + Math.round(top)}px`);
+    this.popover.style.left = `${viewportLeft + Math.round(left)}px`;
+    this.popover.style.top = `${viewportTop + Math.round(top)}px`;
   }
 
   private schedulePopoverPosition(): void {

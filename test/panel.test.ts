@@ -297,10 +297,16 @@ describe("settings panel", () => {
     const textInput = field?.querySelector<HTMLInputElement>("input[type='text']");
     const applyButton = field?.querySelector<HTMLButtonElement>(".bsb-tm-color-action.primary");
     const actions = field?.querySelector<HTMLElement>(".bsb-tm-color-actions");
+    const previewCard = field?.querySelector<HTMLElement>(".bsb-tm-color-preview-card");
+    const previewBadge = field?.querySelector<HTMLElement>(".bsb-tm-color-preview-badge");
+    const previewDescription = field?.querySelector<HTMLElement>(".bsb-tm-color-preview-description");
     expect(field).toBeTruthy();
     expect(swatch).toBeTruthy();
     expect(textInput).toBeTruthy();
     expect(field?.querySelector(".bsb-tm-title-pill-wrap")).toBeTruthy();
+    expect(previewCard?.children[0]).toBe(previewBadge);
+    expect(previewCard?.children[1]).toBe(previewDescription);
+    expect(previewDescription?.textContent).toContain("第三方商单");
     expect(actions?.hidden).toBe(true);
 
     const originalSwatch = swatch!;

@@ -89,30 +89,35 @@ describe("shared glass contexts", () => {
     expect(styles).toContain("@keyframes bsbNoticeOut");
   });
 
-  it("positions the title popover with composited transform instead of top-left will-change", () => {
+  it("keeps the title popover on the original top-left positioned scale transition", () => {
     expect(styles).toMatch(
-      /\.bsb-tm-title-popover \{[\s\S]*top: 0;[\s\S]*left: 0;[\s\S]*transform: translate3d\(var\(--bsb-title-popover-x, 0px\), var\(--bsb-title-popover-y, 0px\), 0\) scale\(0\.992\);/
+      /\.bsb-tm-title-popover \{[\s\S]*transform: scale\(0\.992\);[\s\S]*transition:[\s\S]*opacity 160ms ease,[\s\S]*transform 180ms ease;[\s\S]*will-change: transform, top, left;/
     );
     expect(styles).toMatch(
-      /\.bsb-tm-title-popover\.open \{[\s\S]*transform: translate3d\(var\(--bsb-title-popover-x, 0px\), var\(--bsb-title-popover-y, 0px\), 0\) scale\(1\);[\s\S]*will-change: transform, opacity;/
+      /\.bsb-tm-title-popover\.open \{[\s\S]*opacity: 1;[\s\S]*transform: scale\(1\);/
     );
-    expect(styles).not.toContain("will-change: transform, top, left;");
+    expect(styles).not.toContain("--bsb-title-popover-x");
   });
 
-  it("keeps thumbnail label animations away from persistent layout will-change hints", () => {
-    const labelBlock = styles.match(/\.sponsorThumbnailLabel \{[\s\S]*?\n\}/)?.[0] ?? "";
+  it("preserves thumbnail label glow and shape transitions instead of removing them", () => {
+    const labelBlock = Array.from(styles.matchAll(/\.sponsorThumbnailLabel \{[\s\S]*?\n\}/g))
+      .map((match) => match[0])
+      .find((block) => block.includes("--bsb-thumbnail-dot-size")) ?? "";
     const textStackBlock = styles.match(/\.sponsorThumbnailLabel \.bsb-tm-thumbnail-text-stack \{[\s\S]*?\n\}/)?.[0] ?? "";
-    expect(labelBlock).not.toContain("will-change: min-width");
-    expect(labelBlock).not.toContain("min-width 280ms");
-    expect(labelBlock).not.toContain("padding 280ms");
-    expect(textStackBlock).not.toContain("will-change: width");
-    expect(textStackBlock).not.toContain("transition: width");
+    expect(labelBlock).toContain("backdrop-filter: blur(22px) saturate(185%);");
+    expect(labelBlock).toContain("transform: translateZ(0);");
+    expect(labelBlock).toContain("will-change: min-width, padding, opacity;");
+    expect(labelBlock).toContain("min-width 280ms var(--bsb-ease-fluid)");
+    expect(labelBlock).toContain("padding 280ms var(--bsb-ease-fluid)");
+    expect(textStackBlock).toContain("transform: translateZ(0);");
+    expect(textStackBlock).toContain("will-change: width;");
+    expect(textStackBlock).toContain("transition: width 280ms var(--bsb-ease-fluid);");
   });
 
   it("keeps color editing previews inside the panel instead of a floating duplicate", () => {
     expect(styles).not.toContain(".bsb-tm-color-floating-preview");
     expect(styles).toMatch(
-      /\.bsb-tm-color-preview-card \{[\s\S]*display: flex;[\s\S]*align-items: center;[\s\S]*gap: 10px;/
+      /\.bsb-tm-color-preview-card \{[\s\S]*display: grid;[\s\S]*justify-items: start;[\s\S]*gap: 7px;/
     );
     expect(styles).toMatch(
       /\.bsb-tm-color-preview-card \.bsb-tm-inline-chip,[\s\S]*\.bsb-tm-color-preview-card \.bsb-tm-title-pill-wrap \{[\s\S]*margin-inline-start: 0;/
@@ -131,10 +136,9 @@ describe("shared glass contexts", () => {
     );
   });
 
-  it("defines motion and glass fallbacks for constrained rendering environments", () => {
-    expect(styles).toContain("@media (prefers-reduced-motion: reduce)");
-    expect(styles).toContain("transition-duration: 1ms !important;");
-    expect(styles).toContain("@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)))");
+  it("does not globally strip UI motion as a performance shortcut", () => {
+    expect(styles).not.toContain("transition-duration: 1ms !important;");
+    expect(styles).not.toContain("animation-duration: 1ms !important;");
   });
 
   it("removes the edge highlight treatment from default overlay thumbnail pills only", () => {

@@ -383,9 +383,9 @@ export const styles = `
 }
 
 .bsb-tm-color-preview-card {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  display: grid;
+  justify-items: start;
+  gap: 7px;
   min-width: 0;
 }
 
@@ -401,6 +401,7 @@ export const styles = `
 }
 
 .bsb-tm-color-preview-description {
+  display: block;
   min-width: 0;
   color: var(--bsb-text-secondary);
   font-size: 12px;
@@ -1029,8 +1030,6 @@ ${titleSurfaceFrostedGlass.overlay}
 
 .bsb-tm-title-popover {
   position: fixed;
-  top: 0;
-  left: 0;
   z-index: 2147483646;
   width: min(400px, calc(100vw - 32px));
   padding: 14px;
@@ -1047,19 +1046,18 @@ ${titleSurfaceFrostedGlass.overlay}
     inset 0 0 0 1px rgba(148, 163, 184, 0.08);
   backdrop-filter: blur(18px) saturate(150%);
   opacity: 0;
-  transform: translate3d(var(--bsb-title-popover-x, 0px), var(--bsb-title-popover-y, 0px), 0) scale(0.992);
-  transform-origin: top center;
+  transform: scale(0.992);
   pointer-events: none;
   transition:
     opacity 160ms ease,
     transform 180ms ease;
+  will-change: transform, top, left;
 }
 
 .bsb-tm-title-popover.open {
   opacity: 1;
-  transform: translate3d(var(--bsb-title-popover-x, 0px), var(--bsb-title-popover-y, 0px), 0) scale(1);
+  transform: scale(1);
   pointer-events: auto;
-  will-change: transform, opacity;
 }
 
 .bsb-tm-title-popover-copy {
@@ -1255,7 +1253,7 @@ ${titleSurfaceFrostedGlass.overlay}
     inset 0 -1px 0 rgba(15, 23, 42, 0.12),
     0 8px 18px rgba(15, 23, 42, 0.18),
     0 0 0 1px rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(10px) saturate(150%);
+  backdrop-filter: blur(22px) saturate(185%);
   font-size: 10px;
   font-weight: 650;
   letter-spacing: 0.01em;
@@ -1264,7 +1262,9 @@ ${titleSurfaceFrostedGlass.overlay}
   text-align: center;
   isolation: isolate;
   backface-visibility: hidden;
+  transform: translateZ(0);
   text-rendering: geometricPrecision;
+  will-change: min-width, padding, opacity;
   pointer-events: none;
   overflow: hidden;
   transition:
@@ -1272,7 +1272,9 @@ ${titleSurfaceFrostedGlass.overlay}
     background 220ms var(--bsb-ease-swift),
     opacity 160ms var(--bsb-ease-swift),
     border-color 220ms var(--bsb-ease-swift),
-    filter 220ms var(--bsb-ease-swift);
+    filter 220ms var(--bsb-ease-swift),
+    min-width 280ms var(--bsb-ease-fluid),
+    padding 280ms var(--bsb-ease-fluid);
 }
 
 .sponsorThumbnailLabel[data-transparent="true"][data-glass-context="overlay"] {
@@ -1496,6 +1498,9 @@ ${titleSurfaceFrostedGlass.overlay}
   width: var(--bsb-thumbnail-current-text-width);
   min-width: 0;
   height: 1em;
+  transform: translateZ(0);
+  will-change: width;
+  transition: width 280ms var(--bsb-ease-fluid);
 }
 
 .sponsorThumbnailLabel .bsb-tm-thumbnail-short-label {
@@ -2147,33 +2152,6 @@ ${inlineFeedbackStyles}
   }
 }
 
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .bsb-tm-panel-backdrop,
-  .bsb-tm-panel,
-  .bsb-tm-panel-header,
-  .bsb-tm-form-group,
-  .bsb-tm-notice,
-  .bsb-tm-title-popover,
-  .bsb-tm-video-header-bar,
-  .sponsorThumbnailLabel {
-    backdrop-filter: none !important;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .bsb-tm-panel *,
-  .bsb-tm-notice,
-  .bsb-tm-title-pill,
-  .bsb-tm-title-popover,
-  .sponsorThumbnailLabel,
-  .sponsorThumbnailLabel * ,
-  .bsb-tm-video-header-bar {
-    animation-duration: 1ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 1ms !important;
-    scroll-behavior: auto !important;
-  }
-}
 `;
 
 export const mbgaStyles = ``;
