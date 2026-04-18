@@ -62,11 +62,13 @@ describe("title badge", () => {
 
     const pill = document.querySelector<HTMLButtonElement>(".bsb-tm-title-pill");
     pill?.click();
+    expect(document.querySelector(".bsb-tm-title-pill-wrap")?.classList.contains("is-open")).toBe(true);
     pill?.click();
     await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
 
     const popover = document.querySelector<HTMLElement>(".bsb-tm-title-popover");
     expect(popover?.classList.contains("open")).toBe(false);
+    expect(document.querySelector(".bsb-tm-title-pill-wrap")?.classList.contains("is-open")).toBe(false);
     expect(pill?.getAttribute("aria-expanded")).toBe("false");
   });
 
