@@ -141,6 +141,18 @@ describe("shared glass contexts", () => {
     );
   });
 
+  it("aligns color cards with the panel card selection feedback", () => {
+    expect(styles).toMatch(
+      /\.bsb-tm-color-field \{[\s\S]*transition:[\s\S]*box-shadow 170ms var\(--bsb-ease-swift\),[\s\S]*border-color 170ms var\(--bsb-ease-swift\),[\s\S]*background 190ms var\(--bsb-ease-swift\),[\s\S]*transform 190ms var\(--bsb-ease-fluid\);/
+    );
+    expect(styles).toMatch(
+      /\.bsb-tm-color-field:hover,[\s\S]*\.bsb-tm-color-field:focus-within \{[\s\S]*border-color: rgba\(var\(--bsb-brand-blue-rgb\), 0\.22\);[\s\S]*0 10px 22px rgba\(15, 23, 42, 0\.055\),[\s\S]*transform: translateY\(-1px\);/
+    );
+    expect(styles).toMatch(
+      /\.bsb-tm-color-field\.compact:hover,[\s\S]*\.bsb-tm-color-field\.compact:focus-within \{[\s\S]*0 8px 18px rgba\(15, 23, 42, 0\.045\);/
+    );
+  });
+
   it("keeps color editing previews inside the panel instead of a floating duplicate", () => {
     expect(styles).not.toContain(".bsb-tm-color-floating-preview");
     expect(styles).toMatch(
