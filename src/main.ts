@@ -1,4 +1,4 @@
-import { gmAddStyle, gmRegisterMenuCommand } from "./platform/gm";
+import { gmAddStyle } from "./platform/gm";
 import { ensurePageBridge } from "./platform/page-bridge";
 import { ConfigStore, StatsStore } from "./core/config-store";
 import { PersistentCache } from "./core/cache";
@@ -8,6 +8,7 @@ import { ScriptController } from "./core/controller";
 import { DynamicSponsorController } from "./features/dynamic-filter";
 import { CommentSponsorController } from "./features/comment-filter";
 import { ThumbnailLabelController } from "./features/thumbnail-labels";
+import { registerBsbMenuCommands } from "./runtime/menu";
 import { mountMbga, mountMbgaUi } from "./features/mbga";
 import { createRuntimeLifecycle } from "./runtime/lifecycle";
 import { mbgaStyles, styles } from "./ui/styles";
@@ -92,12 +93,7 @@ async function bootstrap(): Promise<void> {
     }
   );
 
-  gmRegisterMenuCommand("打开 BSB 控制台", () => controller.openPanel());
-  gmRegisterMenuCommand("打开 BSB 帮助", () => controller.openHelp());
-  gmRegisterMenuCommand("切换 BSB 控制台", () => controller.togglePanel());
-  gmRegisterMenuCommand("清理 BSB 缓存", () => {
-    void controller.clearCache();
-  });
+  registerBsbMenuCommands(controller);
 
   await runtime.start();
 }

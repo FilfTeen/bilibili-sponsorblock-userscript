@@ -8823,6 +8823,16 @@ ${inlineSurfaceFrostedGlass.overlay}
     }
   };
 
+  // src/runtime/menu.ts
+  var BSB_MENU_LABELS = ["\u6253\u5F00 BSB \u63A7\u5236\u53F0", "\u6253\u5F00 BSB \u5E2E\u52A9", "\u6E05\u7406 BSB \u7F13\u5B58"];
+  function registerBsbMenuCommands(controller, registerMenuCommand = gmRegisterMenuCommand) {
+    registerMenuCommand(BSB_MENU_LABELS[0], () => controller.openPanel());
+    registerMenuCommand(BSB_MENU_LABELS[1], () => controller.openHelp());
+    registerMenuCommand(BSB_MENU_LABELS[2], () => {
+      void controller.clearCache();
+    });
+  }
+
   // src/features/mbga/core.ts
   var MBGA_MARKS = {
     urlCleaner: "__BSB_MBGA_URL_CLEANER__",
@@ -8986,6 +8996,21 @@ ${inlineSurfaceFrostedGlass.overlay}
       installGlobalValue(win, "webkitRTCDataChannel", StubDataChannel);
     } catch (_error) {
     }
+  }
+  function findHeadBilivideoDomain(doc) {
+    var _a, _b, _c;
+    const domainPattern = /up[\w-]+\.bilivideo\.com/u;
+    const attributeCandidates = doc.head.querySelectorAll("[src], [href], [content]");
+    for (const node of attributeCandidates) {
+      for (const attributeName of ["src", "href", "content"]) {
+        const value = node.getAttribute(attributeName);
+        const match = (_a = value == null ? void 0 : value.match(domainPattern)) == null ? void 0 : _a[0];
+        if (match) {
+          return match;
+        }
+      }
+    }
+    return (_c = (_b = doc.head.textContent) == null ? void 0 : _b.match(domainPattern)) == null ? void 0 : _c[0];
   }
   function completeBlockedXhr(xhr, win, url, decision) {
     var _a, _b;
@@ -9283,8 +9308,7 @@ ${inlineSurfaceFrostedGlass.overlay}
     if (isVideoPage(ctx.url)) {
       let cdnDomain;
       const replaceP2PUrl = (input) => {
-        var _a2;
-        cdnDomain || (cdnDomain = (_a2 = ctx.doc.head.innerHTML.match(/up[\w-]+\.bilivideo\.com/u)) == null ? void 0 : _a2[0]);
+        cdnDomain || (cdnDomain = findHeadBilivideoDomain(ctx.doc));
         try {
           const url = new URL(input);
           if (url.hostname.endsWith(".mcdn.bilivideo.cn")) {
@@ -9531,24 +9555,36 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
       }
       const item = ctx.doc.createElement("div");
       item.className = "bpx-player-ctrl-setting-fit-mode bui bui-switch";
-      item.innerHTML = '<input class="bui-switch-input" type="checkbox"><label class="bui-switch-label"><span class="bui-switch-name">\u88C1\u5207\u6A21\u5F0F</span><span class="bui-switch-body"><span class="bui-switch-dot"><span></span></span></span></label>';
+      const input = ctx.doc.createElement("input");
+      input.className = "bui-switch-input";
+      input.type = "checkbox";
+      const label = ctx.doc.createElement("label");
+      label.className = "bui-switch-label";
+      const name = ctx.doc.createElement("span");
+      name.className = "bui-switch-name";
+      name.textContent = "\u88C1\u5207\u6A21\u5F0F";
+      const body = ctx.doc.createElement("span");
+      body.className = "bui-switch-body";
+      const dot = ctx.doc.createElement("span");
+      dot.className = "bui-switch-dot";
+      dot.appendChild(ctx.doc.createElement("span"));
+      body.appendChild(dot);
+      label.append(name, body);
+      item.append(input, label);
       const moreLink = ctx.doc.querySelector(".bpx-player-ctrl-setting-more");
       if (moreLink instanceof HTMLElement) {
         parent.insertBefore(item, moreLink);
       } else {
         parent.appendChild(item);
       }
-      const input = item.querySelector("input");
-      if (input instanceof HTMLInputElement) {
-        input.addEventListener("change", (event) => {
-          const checked = event.currentTarget.checked;
-          if (checked) {
-            ctx.doc.body.setAttribute("video-fit", "");
-          } else {
-            ctx.doc.body.removeAttribute("video-fit");
-          }
-        });
-      }
+      input.addEventListener("change", (event) => {
+        const checked = event.currentTarget.checked;
+        if (checked) {
+          ctx.doc.body.setAttribute("video-fit", "");
+        } else {
+          ctx.doc.body.removeAttribute("video-fit");
+        }
+      });
     };
     const timer = win.setInterval(() => {
       if (ctx.doc.querySelector(".bpx-player-ctrl-setting-menu-left")) {
@@ -11990,12 +12026,7 @@ ${inlineFeedbackStyles}
           });
         }
       );
-      gmRegisterMenuCommand("\u6253\u5F00 BSB \u63A7\u5236\u53F0", () => controller.openPanel());
-      gmRegisterMenuCommand("\u6253\u5F00 BSB \u5E2E\u52A9", () => controller.openHelp());
-      gmRegisterMenuCommand("\u5207\u6362 BSB \u63A7\u5236\u53F0", () => controller.togglePanel());
-      gmRegisterMenuCommand("\u6E05\u7406 BSB \u7F13\u5B58", () => {
-        void controller.clearCache();
-      });
+      registerBsbMenuCommands(controller);
       yield runtime.start();
     });
   }
