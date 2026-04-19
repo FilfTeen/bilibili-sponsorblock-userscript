@@ -34,11 +34,11 @@ const repositoryUrl = getRepositoryUrl();
 const rawUserscriptUrl = getRawUserscriptUrl();
 
 const userscriptBanner = `// ==UserScript==
-// @name         Bilibili SponsorBlock Core
+// @name         Bilibili QoL Core
 // @namespace    ${repositoryUrl}
 // @version      ${version}
-// @description  Tampermonkey core script for skipping sponsor segments on Bilibili.
-// @author       FilfTeen
+// @description  Local-first quality-of-life toolkit for Bilibili: SponsorBlock segments, labels, comment/dynamic signals, MBGA cleanup, and low-intrusion UI.
+// @author       Hush_
 // @license      GPL-3.0-only
 // @match        https://www.bilibili.com/*
 // @match        https://search.bilibili.com/*

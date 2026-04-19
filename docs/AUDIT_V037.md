@@ -1,10 +1,13 @@
-# BSC v0.3.7 审计记录
+# Bilibili QoL Core v0.3.7 审计记录
 
 本记录基于 `codex/BSC_v0_3_7_final_tuning_and_improvement` 分支当前实现。审计范围包括菜单入口、功能蓝图、代码结构、安全边界、UI 一致性和测试链路。
 
 ## 结论摘要
 
 - Tampermonkey 菜单重复控制台入口已修复，状态：`fixed`。
+- 用户可见命名已统一为 Bilibili QoL Core，状态：`fixed`。
+- 上游投票 `429` 误判成功已修复，状态：`fixed`。
+- 紧凑顶栏原生冗余请求 guard 已采用窄白名单实现，状态：`fixed-with-safari-risk`。
 - 文档体系已从过期 v0.3.6 说明更新为 v0.3.7 蓝图索引，状态：`fixed`。
 - 运行时未发现 `eval`、`new Function`、字符串定时器或外部数据写入 HTML 的动态代码执行路径，状态：`false-positive`。
 - `@connect *` 仍是必要但宽泛的 Tampermonkey 权限，状态：`documented-risk`。
@@ -19,8 +22,42 @@
 - Status: `fixed`
 - Evidence: 旧实现同时注册 `打开 BSB 控制台` 和 `切换 BSB 控制台`，在 Tampermonkey 菜单中形成两个控制台入口。
 - Impact: 用户无法判断哪个入口是正确控制台入口，截图中已出现重复感知。
-- Fix: 抽出 `src/runtime/menu.ts`，仅注册 `打开 BSB 控制台`、`打开 BSB 帮助`、`清理 BSB 缓存`，保留 controller 的 `togglePanel()` 供站内入口使用。
+- Fix: 抽出 `src/runtime/menu.ts`，仅注册 `打开 QoL Core 控制台`、`打开 QoL Core 帮助`、`清理 QoL Core 缓存`，保留 controller 的 `togglePanel()` 供站内入口使用。
 - Verification: `test/menu.test.ts` 锁定菜单标签数量、顺序和回调。
+
+## A-010 用户可见命名漂移
+
+- Rule ID: DOC-NAME-001
+- Severity: Low
+- Location: `src/constants.ts`、`src/runtime/menu.ts`、`src/ui/panel.ts`、`README.md`、`docs/*`
+- Status: `fixed`
+- Evidence: 用户可见层同时出现 BSC、BSB、Bilibili SponsorBlock Core。
+- Impact: 用户无法判断项目、控制台和菜单是否是同一工具。
+- Fix: 用户可见名称统一为 Bilibili QoL Core；内部 `bsb_tm_*` 存储/CSS/事件前缀保留为兼容实现细节。
+- Verification: `test/banner.test.ts`、`test/menu.test.ts`。
+
+## A-011 上游投票状态处理偏移
+
+- Rule ID: UPSTREAM-VOTE-001
+- Severity: High
+- Location: `src/api/sponsorblock-client.ts`、`src/core/controller.ts`
+- Status: `fixed`
+- Evidence: 旧实现把 HTTP `429` 当作提交成功。
+- Impact: 用户会看到“反馈已提交”，且本地投票历史会锁定该 UUID，导致真实投票失败后无法自然重试。
+- Fix: `429` 作为限流/稍后重试错误处理，不写本地投票历史；请求补 `x-ext-version`；标题胶囊文案明确不可投票来源。
+- Verification: `test/sponsorblock-client.test.ts`、`test/controller.test.ts`、`test/title-badge.test.ts`。
+
+## A-012 原生冗余请求 guard
+
+- Rule ID: NET-GUARD-001
+- Severity: Medium
+- Location: `src/platform/native-request-guard.ts`、`src/main.ts`、`src/core/controller.ts`
+- Status: `fixed-with-safari-risk`
+- Evidence: 紧凑顶栏隐藏原生顶部栏后，原生顶部栏 badge 统计请求仍可能继续发起。
+- Impact: 多余请求会增加页面加载期噪音和潜在 UI 抖动。
+- Fix: document-start 安装轻量 guard，默认观察；只有紧凑顶栏已挂载且页面支持时，才阻断 `/x/msgfeed/unread`、`/x/web-interface/nav/stat` 等窄白名单请求。
+- Residual risk: Safari 主窗口还需确认 B 站当前实验流下这些请求确实只服务原生顶部栏 badge，且不影响头像、搜索、登录态或播放。
+- Verification: `test/native-request-guard.test.ts`。
 
 ## A-002 文档版本和能力描述漂移
 
@@ -105,7 +142,15 @@
 - Status: `needs-main-thread-decision`
 - Evidence: 本线程可运行自动化和 Safari 辅助校验，但未直接完成用户主窗口手动截图/录屏验收。
 - Impact: 菜单截图问题必须在 Safari 主窗口中重载脚本后复验，自动化无法完全替代。
-- Required acceptance: Tampermonkey 菜单只显示 `打开 BSB 控制台` 一个控制台入口；控制台、标题胶囊、评论标签、动态标签、紧凑顶栏、MBGA 不出现明显 UI 打架。
+- Required acceptance: Tampermonkey 菜单只显示 `打开 QoL Core 控制台` 一个控制台入口；控制台、标题胶囊、评论标签、动态标签、紧凑顶栏、MBGA 不出现明显 UI 打架。
+
+## 分支健康审计
+
+- `main` 与 `codex/v0.3.7-integration` 当前指向同一提交 `ed7ff31`，均为干净工作树。
+- `codex/BSC_v0_3_7_final_tuning_and_improvement` 是本轮活动分支，当前未合入 main 属预期状态。
+- `codex/b-video-recognition-upgrade`、`codex/bsc-v037_new_tag_transparency_effect`、`codex/v0.3.7-console-fix-main-sync` 显示为未 merged，但 `git cherry main` 标记为等价吸收。
+- `codex/main-docs-sidecar`、`codex/v0.3.7-player-overlay-audit-fix`、`codex/v0.3.7-transparency-audit-fix` 仍有未等价吸收提交，需要主线程决定是否补合入或归档。
+- `/Users/dwight/.codex/worktrees/c5ef/bilibili-sponsorblock-userscript` 存在未提交改动，涉及 `dist/bilibili-sponsorblock.user.js`、`src/ui/compact-header.ts`、`src/ui/styles.ts`、`test/compact-header.test.ts`。该现场不属于本轮可安全归因改动，未擅自提交或回退。
 
 ## 后续建议
 

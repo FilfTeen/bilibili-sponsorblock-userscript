@@ -17,7 +17,7 @@
    - `existing_logged_in_window`
    - `new_automation_window_logged_in`
    - `new_automation_window_guest`
-4. 确认本轮 BSC 配置，尤其是 `compactVideoHeader` 是开还是关。
+4. 确认本轮 QoL Core 配置，尤其是 `compactVideoHeader` 是开还是关。
 
 ## 每个样本的固定动作
 
@@ -57,16 +57,16 @@ output/safari-investigation/*.json
 
 ## 结论判定
 
-更像 BSC 需负责：
+更像 QoL Core 需负责：
 
 - 只在 `compactVideoHeader=on` 时出现，关闭后消失或明显减弱
-- 选中的节点属于原生头部/标题层，但暴露与 BSC 的隐藏或位移策略直接相关
-- `.bili-header__bar.mini-header` 在 BSC 开启后仍参与可选中文本链路
+- 选中的节点属于原生头部/标题层，但暴露与 QoL Core 的隐藏或位移策略直接相关
+- `.bili-header__bar.mini-header` 在 QoL Core 开启后仍参与可选中文本链路
 
 更像 B 站原生：
 
-- BSC 关闭后仍稳定出现
-- 原生节点在 BSC 开关前后几何和可选中性几乎不变
-- 现象主要随登录态、AB、原生结构变化，而不是随 BSC 紧凑顶栏变化
+- QoL Core 关闭后仍稳定出现
+- 原生节点在 QoL Core 开关前后几何和可选中性几乎不变
+- 现象主要随登录态、AB、原生结构变化，而不是随 QoL Core 紧凑顶栏变化
 
-如果结论是“原生层存在，但被 BSC 暴露或放大”，仍按 BSC 缺陷处理，因为用户面对的是最终行为，而不是责任切割。
+如果结论是“原生层存在，但被 QoL Core 暴露或放大”，仍按 QoL Core 缺陷处理，因为用户面对的是最终行为，而不是责任切割。

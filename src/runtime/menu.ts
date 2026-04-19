@@ -1,20 +1,20 @@
 import { gmRegisterMenuCommand } from "../platform/gm";
 
-export interface BsbMenuController {
+export interface QolCoreMenuController {
   openPanel(): void;
   openHelp(): void;
   clearCache(): void | Promise<void>;
 }
 
-export const BSB_MENU_LABELS = ["打开 BSB 控制台", "打开 BSB 帮助", "清理 BSB 缓存"] as const;
+export const QOL_CORE_MENU_LABELS = ["打开 QoL Core 控制台", "打开 QoL Core 帮助", "清理 QoL Core 缓存"] as const;
 
-export function registerBsbMenuCommands(
-  controller: BsbMenuController,
+export function registerQolCoreMenuCommands(
+  controller: QolCoreMenuController,
   registerMenuCommand: (label: string, handler: () => void) => void = gmRegisterMenuCommand
 ): void {
-  registerMenuCommand(BSB_MENU_LABELS[0], () => controller.openPanel());
-  registerMenuCommand(BSB_MENU_LABELS[1], () => controller.openHelp());
-  registerMenuCommand(BSB_MENU_LABELS[2], () => {
+  registerMenuCommand(QOL_CORE_MENU_LABELS[0], () => controller.openPanel());
+  registerMenuCommand(QOL_CORE_MENU_LABELS[1], () => controller.openHelp());
+  registerMenuCommand(QOL_CORE_MENU_LABELS[2], () => {
     void controller.clearCache();
   });
 }

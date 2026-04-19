@@ -5,6 +5,7 @@ import {
   CATEGORY_ORDER,
   CONTENT_FILTER_MODE_LABELS,
   MODE_LABELS,
+  AUTHOR_NAME,
   SCRIPT_NAME,
   THUMBNAIL_LABEL_MODE_LABELS
 } from "../constants";
@@ -320,7 +321,7 @@ export class SettingsPanel {
         this.createFieldGrid(
           [
             this.createCheckbox(
-              "启用 Bilibili SponsorBlock",
+              "启用 Bilibili QoL Core",
               "关闭后将停止片段请求、标题标签、缩略图标签和播放器增强。",
               this.config.enabled,
               async (checked) => {
@@ -562,7 +563,7 @@ export class SettingsPanel {
     this.transparencyForm.replaceChildren(
       this.createFormGroup(
         "视频主线标签",
-        "这两类标签属于 BSC 主线能力。透明模式会从高纯度胶囊改成更克制的 Liquid Glass 表现，默认保持关闭，确保升级后现有视觉不变。",
+        "这两类标签属于 QoL Core 主线能力。透明模式会从高纯度胶囊改成更克制的 Liquid Glass 表现，默认保持关闭，确保升级后现有视觉不变。",
         this.createFieldGrid([
           this.createCheckbox(
             "标题商业标签使用透明模式",
@@ -713,7 +714,7 @@ export class SettingsPanel {
       ),
       this.createFormGroup(
         "功能开关",
-        "所有改动均经过安全审计，旨在保证 BSB 核心功能不被干扰的前提下，最大限度释放本地算力。开启后请刷新页面以完全生效。",
+        "所有改动均经过安全审计，旨在保证 QoL Core 核心功能不被干扰的前提下，最大限度释放本地算力。开启后请刷新页面以完全生效。",
         this.createFieldGrid(mbgaFields)
       )
     );
@@ -727,7 +728,7 @@ export class SettingsPanel {
           {
             title: "标题前商业标签",
             value: "视频页",
-            description: "当整个视频被社区标记为赞助、自荐或独家访问等整视频标签时，会在标题前显示彩色胶囊。点击胶囊可打开“标记正确 / 标记有误”反馈。"
+            description: "当整个视频有社区 full 标签、整视频标签接口结果或本地推理结果时，会在标题前显示彩色胶囊；只有带真实 UUID 的社区 full 标签可提交上游反馈。"
           },
           {
             title: "缩略图顶部居中标签",
@@ -767,7 +768,7 @@ export class SettingsPanel {
       ]),
       this.createInfoBox(
         "致谢与免责声明",
-        "本脚本基于 GPL-3.0 的 BilibiliSponsorBlock 上游实现思路移植而来；评论区属地显示功能参考并适配了 mscststs 的 ISC 脚本「B站评论区开盒」。所有片段和整视频标签都来自社区提交与投票，评论属地则以 B 站评论 payload 自带信息为准，结果仅供参考。"
+        `Bilibili QoL Core 由 ${AUTHOR_NAME} 维护。本脚本基于 GPL-3.0 的 BilibiliSponsorBlock 上游实现思路移植而来；评论区属地显示功能参考并适配了 mscststs 的 ISC 脚本「B站评论区开盒」。所有片段和社区 full 标签来自上游社区记录，本地推理只作为辅助判断，结果仅供参考。`
       )
     );
   }

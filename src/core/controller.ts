@@ -13,6 +13,7 @@ import { VideoLabelClient } from "../api/video-label-client";
 import { normalizeSegments } from "./segment-filter";
 import { resolveWholeVideoLabels } from "./whole-video-label";
 import { requestPageSnapshot } from "../platform/page-bridge";
+import { configureNativeRequestGuard } from "../platform/native-request-guard";
 import { NoticeCenter } from "../ui/notice-center";
 import { SettingsPanel, type PanelTab } from "../ui/panel";
 import { PreviewBar } from "../ui/preview-bar";
@@ -1278,17 +1279,30 @@ export class ScriptController {
       placeholderVisible: this.currentConfig.compactHeaderPlaceholderVisible,
       searchPlaceholderEnabled: this.currentConfig.compactHeaderSearchPlaceholderEnabled
     });
+    const compactSupported = supportsCompactVideoHeader(window.location.href);
     const shouldCompact =
       this.started &&
       this.currentConfig.enabled &&
       this.currentConfig.compactVideoHeader &&
-      supportsCompactVideoHeader(window.location.href) &&
+      compactSupported &&
       !isCompactVideoHeaderSuppressed(document);
     if (shouldCompact) {
       this.compactHeader.mount();
+      configureNativeRequestGuard({
+        enabled: true,
+        supportedPage: true,
+        compactHeaderReady: true,
+        reason: "compact-header-mounted"
+      });
       return;
     }
     this.compactHeader.unmount();
+    configureNativeRequestGuard({
+      enabled: this.started && this.currentConfig.enabled && this.currentConfig.compactVideoHeader,
+      supportedPage: compactSupported,
+      compactHeaderReady: false,
+      reason: "compact-header-inactive"
+    });
   }
 
   private resolveFullVideoSegment(): SegmentRecord | null {
@@ -1445,6 +1459,9 @@ export class ScriptController {
   private formatVoteErrorMessage(statusCode: number, responseText: string): string {
     if (statusCode === 403) {
       return "服务端拒绝了这次反馈，稍后可再试一次。";
+    }
+    if (statusCode === 429) {
+      return "SponsorBlock 暂时限制了这次反馈请求，反馈未提交，请稍后再试。";
     }
     if (statusCode === -1) {
       return "请求没有送达 SponsorBlock 服务，请检查网络或 Tampermonkey 授权。";

@@ -167,6 +167,7 @@ describe("title badge", () => {
     const negative = buttons.find((button) => button.textContent?.includes("标记有误"));
     expect(positive?.disabled).toBe(true);
     expect(negative?.disabled).toBe(true);
+    expect(document.querySelector(".bsb-tm-title-popover-copy")?.textContent).toContain("整视频标签接口结果");
     expect(document.querySelector(".bsb-tm-title-popover-hint")?.textContent).toContain("没有可直接投票");
   });
 
@@ -198,6 +199,7 @@ describe("title badge", () => {
     const dismissButton = buttons.find((button) => button.textContent?.includes("忽略此视频"));
     expect(keepButton?.disabled).toBe(false);
     expect(dismissButton?.disabled).toBe(false);
+    expect(document.querySelector(".bsb-tm-title-popover-copy")?.textContent).toContain("本地推理标签");
 
     await dismissButton?.click();
     expect(onLocalDecision).toHaveBeenCalledWith(

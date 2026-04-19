@@ -8,11 +8,13 @@ import { ScriptController } from "./core/controller";
 import { DynamicSponsorController } from "./features/dynamic-filter";
 import { CommentSponsorController } from "./features/comment-filter";
 import { ThumbnailLabelController } from "./features/thumbnail-labels";
-import { registerBsbMenuCommands } from "./runtime/menu";
+import { registerQolCoreMenuCommands } from "./runtime/menu";
 import { mountMbga, mountMbgaUi } from "./features/mbga";
 import { createRuntimeLifecycle } from "./runtime/lifecycle";
+import { configureNativeRequestGuard, installNativeRequestGuardBridge } from "./platform/native-request-guard";
 import { mbgaStyles, styles } from "./ui/styles";
 import { debugLog, isSupportedLocation } from "./utils/dom";
+import { supportsCompactVideoHeader } from "./utils/page";
 import type { FetchResponse } from "./types";
 
 function isTopLevelWindow(): boolean {
@@ -51,6 +53,12 @@ async function bootstrap(): Promise<void> {
 
   // Handle MBGA features early
   const currentConfig = configStore.getSnapshot();
+  configureNativeRequestGuard({
+    enabled: currentConfig.enabled && currentConfig.compactVideoHeader,
+    supportedPage: supportsCompactVideoHeader(window.location.href),
+    compactHeaderReady: false,
+    reason: "config-loaded"
+  });
   mountMbga(currentConfig);
 
   if (currentConfig.mbgaEnabled && currentConfig.mbgaSimplifyUi) {
@@ -93,7 +101,7 @@ async function bootstrap(): Promise<void> {
     }
   );
 
-  registerBsbMenuCommands(controller);
+  registerQolCoreMenuCommands(controller);
 
   await runtime.start();
 }
@@ -105,6 +113,10 @@ function ready(): Promise<void> {
     });
   }
   return Promise.resolve();
+}
+
+if (isTopLevelWindow() && isSupportedLocation(window.location.href)) {
+  installNativeRequestGuardBridge();
 }
 
 void ready()

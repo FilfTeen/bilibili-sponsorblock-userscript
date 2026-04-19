@@ -1,4 +1,4 @@
-# BSC v0.3.7 工程蓝图
+# Bilibili QoL Core v0.3.7 工程蓝图
 
 本文件是后续开发、审计和派生线程接力的总索引。它描述当前真实能力、实现入口、数据边界、测试入口和验收重点。
 
@@ -11,17 +11,18 @@
 | 入口文件 | `src/main.ts` |
 | 构建入口 | `scripts/build.mjs` |
 | 产物 | `dist/bilibili-sponsorblock.user.js` |
-| 菜单入口 | `src/runtime/menu.ts` 注册 `打开 BSB 控制台`、`打开 BSB 帮助`、`清理 BSB 缓存` |
+| 菜单入口 | `src/runtime/menu.ts` 注册 `打开 QoL Core 控制台`、`打开 QoL Core 帮助`、`清理 QoL Core 缓存` |
 
 启动顺序：
 
-1. 检查 top-level window 和支持页面。
-2. 注入主样式和页面桥接。
-3. 加载配置、统计、缓存、本地标签、投票历史。
-4. 挂载 MBGA。
-5. 启动视频、评论、动态、缩略图控制器。
-6. 注册 Tampermonkey 菜单。
-7. 交给 lifecycle 管理 `pageshow/pagehide`。
+1. 在 document-start 安装页面桥接和原生请求 guard。
+2. 检查 top-level window 和支持页面。
+3. 注入主样式和页面桥接。
+4. 加载配置、统计、缓存、本地标签、投票历史。
+5. 挂载 MBGA。
+6. 启动视频、评论、动态、缩略图控制器。
+7. 注册 Tampermonkey 菜单。
+8. 交给 lifecycle 管理 `pageshow/pagehide`。
 
 ## 2. 功能能力索引
 
@@ -34,8 +35,8 @@
 | 评论属地 | 显示 payload 自带 IP 属地 | `src/features/comment-filter.ts`、`src/ui/inline-feedback.ts` | `test/comment-filter.test.ts`、`test/inline-feedback.test.ts` | 标签颜色、透明模式、无属地时不伪造 |
 | 动态识别 | 标记或折叠商业动态 | `src/features/dynamic-filter.ts` | `test/dynamic-filter.test.ts` | 首页/动态页/空间页普通动态不误伤 |
 | 本地推理 | 上游未命中时补充判断 | `src/utils/local-video-signal.ts`、`src/utils/local-learning.ts`、`src/core/local-label-store.ts` | `test/local-video-signal.test.ts`、`test/local-learning.test.ts`、`npm run evaluate:recognition` | 上游存在时短路，本地保留/忽略可持续 |
-| BSB 控制台 | 配置和维护入口 | `src/ui/panel.ts`、`src/ui/styles.ts` | `test/panel.test.ts`、`test/styles.test.ts` | 颜色编辑、二阶段确认、滚动不跳动 |
-| 紧凑顶栏 | 视频页搜索和账号入口 | `src/ui/compact-header.ts`、`src/utils/page.ts` | `test/compact-header.test.ts`、`test/page.test.ts` | 网页全屏隐藏，搜索框不被重建打断 |
+| QoL Core 控制台 | 配置和维护入口 | `src/ui/panel.ts`、`src/ui/styles.ts` | `test/panel.test.ts`、`test/styles.test.ts` | 颜色编辑、二阶段确认、滚动不跳动 |
+| 紧凑顶栏 | 视频页搜索和账号入口 | `src/ui/compact-header.ts`、`src/platform/native-request-guard.ts`、`src/utils/page.ts` | `test/compact-header.test.ts`、`test/native-request-guard.test.ts`、`test/page.test.ts` | 网页全屏隐藏，搜索框不被重建打断，请求 guard 不破坏登录态 |
 | 通知中心 | 低打扰提示和操作反馈 | `src/ui/notice-center.ts` | `test/notice-center.test.ts` | 出现/消失动画、播放器避让、无残留 |
 | MBGA | 生态净化和页面小修 | `src/features/mbga/core.ts` | `test/mbga.test.ts` | 播放/动态/专栏/直播页面无明显副作用 |
 
@@ -79,18 +80,15 @@
 - `bsb_tm_comment_feedback_v1`
 - `bsb_tm_vote_history_v1`
 
-存储策略：
-
-- 配置归一化由 `normalizeConfig()` 负责。
-- TTL 缓存有条目数和大小限制。
-- 评论反馈使用 token 和指纹减少重复提交。
-- 本地标签记录包含 category、source、confidence、updatedAt 和 reason。
+`bsb_tm_*` 是历史兼容前缀，不随用户可见名称迁移。
 
 ## 6. 网络与安全边界
 
 网络入口：
 
 - SponsorBlock 服务地址可配置，默认 `https://www.bsbsb.top`。
+- 上游 API 请求带 `x-ext-version`，不手动伪造 `Origin`。
+- 紧凑顶栏启用后，原生请求 guard 只阻断确认冗余的顶部栏 badge 请求，不阻断头像、搜索、登录态、播放、评论、动态和风控请求。
 - 评论作者资料接口用于辅助托评判断，失败时无感回退。
 - MBGA 可拦截部分页面网络能力。
 
@@ -134,5 +132,6 @@ npm run capture:bilibili
 - 高冲突文件：`src/core/controller.ts`、`src/core/config-store.ts`、`src/types.ts`、`src/ui/styles.ts`、`src/ui/panel.ts`。
 - 识别策略改动必须同步样本评估和误杀保护。
 - UI 改动必须避免接管原生布局。
+- 网络拦截必须先有请求归因和回退策略，不允许宽泛黑名单。
 - `dist` 只由构建产生，不应手工编辑。
 - 派生工作树产物先进入 integration，再统一回归和 Safari 验收。

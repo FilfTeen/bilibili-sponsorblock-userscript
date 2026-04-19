@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         Bilibili SponsorBlock Core
+// @name         Bilibili QoL Core
 // @namespace    https://github.com/FilfTeen/bilibili-sponsorblock-userscript
 // @version      0.3.7
-// @description  Tampermonkey core script for skipping sponsor segments on Bilibili.
-// @author       FilfTeen
+// @description  Local-first quality-of-life toolkit for Bilibili: SponsorBlock segments, labels, comment/dynamic signals, MBGA cleanup, and low-intrusion UI.
+// @author       Hush_
 // @license      GPL-3.0-only
 // @match        https://www.bilibili.com/*
 // @match        https://search.bilibili.com/*
@@ -210,7 +210,10 @@
   }
 
   // src/constants.ts
-  var SCRIPT_NAME = "Bilibili SponsorBlock Core";
+  var PRODUCT_NAME = "Bilibili QoL Core";
+  var SCRIPT_NAME = PRODUCT_NAME;
+  var AUTHOR_NAME = "Hush_";
+  var SCRIPT_VERSION = "0.3.7".trim().length > 0 ? "0.3.7" : "0.3.7";
   var CONFIG_STORAGE_KEY = "bsb_tm_config_v1";
   var STATS_STORAGE_KEY = "bsb_tm_stats_v1";
   var CACHE_STORAGE_KEY = "bsb_tm_cache_v1";
@@ -1471,12 +1474,18 @@
   }
 
   // src/core/user-id.ts
+  var USER_ID_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  var USER_ID_LENGTH = 36;
   function generateUserId() {
-    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-      return crypto.randomUUID();
+    const bytes = new Uint8Array(USER_ID_LENGTH);
+    if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+      crypto.getRandomValues(bytes);
+    } else {
+      for (let index = 0; index < bytes.length; index += 1) {
+        bytes[index] = Math.floor(Math.random() * 256);
+      }
     }
-    const random = Math.random().toString(36).slice(2);
-    return `bsb-${Date.now().toString(36)}-${random}`;
+    return Array.from(bytes, (byte) => USER_ID_ALPHABET[byte % USER_ID_ALPHABET.length]).join("");
   }
   function ensureUserId() {
     return __async(this, null, function* () {
@@ -1504,6 +1513,10 @@
     "exclusive_access"
   ]);
   var VALID_ACTION_TYPES = /* @__PURE__ */ new Set(["skip", "mute", "full", "poi"]);
+  var UPSTREAM_HEADERS = {
+    Accept: "application/json",
+    "x-ext-version": SCRIPT_VERSION
+  };
   function buildUrl(serverAddress, path) {
     return `${serverAddress.replace(/\/+$/u, "")}${path}`;
   }
@@ -1581,9 +1594,10 @@
           const response = yield gmXmlHttpRequest({
             method: "POST",
             url,
+            headers: UPSTREAM_HEADERS,
             timeout: REQUEST_TIMEOUT_MS
           });
-          if (response.ok || response.status === 429) {
+          if (response.ok) {
             return {
               successType: 1,
               statusCode: response.status,
@@ -1633,9 +1647,7 @@
             const response = yield gmXmlHttpRequest({
               method: "GET",
               url,
-              headers: {
-                Accept: "application/json"
-              },
+              headers: __spreadValues({}, UPSTREAM_HEADERS),
               timeout: REQUEST_TIMEOUT_MS
             });
             if (response.ok || response.status === 404 || response.status < 500 || index === attempts - 1) {
@@ -1666,6 +1678,10 @@
     "poi_highlight",
     "exclusive_access"
   ]);
+  var UPSTREAM_HEADERS2 = {
+    Accept: "application/json",
+    "x-ext-version": SCRIPT_VERSION
+  };
   function buildUrl2(serverAddress, path) {
     return `${serverAddress.replace(/\/+$/u, "")}${path}`;
   }
@@ -1716,9 +1732,7 @@
         const request = gmXmlHttpRequest({
           method: "GET",
           url,
-          headers: {
-            Accept: "application/json"
-          },
+          headers: __spreadValues({}, UPSTREAM_HEADERS2),
           timeout: REQUEST_TIMEOUT_MS
         }).finally(() => {
           this.inFlightRequests.delete(cacheKey);
@@ -1792,6 +1806,110 @@
   function resolveWholeVideoCategory(bvid, segments, labelCategory, config) {
     var _a, _b;
     return (_b = (_a = resolveWholeVideoLabels(bvid, segments, labelCategory, config)[0]) == null ? void 0 : _a.category) != null ? _b : null;
+  }
+
+  // src/platform/native-request-guard.ts
+  var GUARD_FLAG = "__BSB_NATIVE_REQUEST_GUARD__";
+  var CONFIG_EVENT = "bsb-tm:native-request-guard-config";
+  var REDUNDANT_TOPBAR_PATHS = ["/x/msgfeed/unread", "/x/web-interface/nav/stat"];
+  var bridgeInjected2 = false;
+  function buildNativeRequestGuardSource() {
+    return `
+(() => {
+  const flag = ${JSON.stringify(GUARD_FLAG)};
+  if (window[flag]) {
+    return;
+  }
+
+  const paths = ${JSON.stringify([...REDUNDANT_TOPBAR_PATHS])};
+  const state = {
+    enabled: false,
+    supportedPage: false,
+    compactHeaderReady: false,
+    reason: "initial",
+    records: []
+  };
+
+  function remember(url, action) {
+    state.records.push({ url: String(url), action, time: Date.now(), reason: state.reason });
+    if (state.records.length > 80) {
+      state.records.shift();
+    }
+  }
+
+  function shouldBlock(url) {
+    if (!state.enabled || !state.supportedPage || !state.compactHeaderReady) {
+      return false;
+    }
+    try {
+      const parsed = new URL(String(url), window.location.href);
+      return parsed.hostname === "api.bilibili.com" && paths.includes(parsed.pathname);
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  window[flag] = {
+    configure(next) {
+      state.enabled = Boolean(next && next.enabled);
+      state.supportedPage = Boolean(next && next.supportedPage);
+      state.compactHeaderReady = Boolean(next && next.compactHeaderReady);
+      state.reason = next && typeof next.reason === "string" ? next.reason : "runtime";
+    },
+    snapshot() {
+      return {
+        enabled: state.enabled,
+        supportedPage: state.supportedPage,
+        compactHeaderReady: state.compactHeaderReady,
+        reason: state.reason,
+        records: state.records.slice()
+      };
+    }
+  };
+
+  const originalFetch = window.fetch;
+  if (typeof originalFetch === "function") {
+    window.fetch = function(input, init) {
+      const url = typeof input === "string" ? input : input && typeof input.url === "string" ? input.url : "";
+      if (shouldBlock(url)) {
+        remember(url, "blocked-fetch");
+        return Promise.resolve(new Response("", { status: 204, statusText: "Blocked by Bilibili QoL Core" }));
+      }
+      remember(url, "observed-fetch");
+      return originalFetch.apply(this, arguments);
+    };
+  }
+
+  const originalOpen = window.XMLHttpRequest && window.XMLHttpRequest.prototype.open;
+  if (typeof originalOpen === "function") {
+    window.XMLHttpRequest.prototype.open = function(method, url) {
+      remember(url, shouldBlock(url) ? "would-block-xhr" : "observed-xhr");
+      return originalOpen.apply(this, arguments);
+    };
+  }
+
+  document.addEventListener(${JSON.stringify(CONFIG_EVENT)}, (event) => {
+    window[flag].configure(event.detail || {});
+  });
+})();`;
+  }
+  function installNativeRequestGuardBridge() {
+    if (bridgeInjected2) {
+      return;
+    }
+    const script = document.createElement("script");
+    script.id = "bsb-tm-native-request-guard";
+    script.textContent = buildNativeRequestGuardSource();
+    (document.head || document.documentElement).appendChild(script);
+    script.remove();
+    bridgeInjected2 = true;
+  }
+  function configureNativeRequestGuard(config) {
+    document.dispatchEvent(
+      new CustomEvent(CONFIG_EVENT, {
+        detail: config
+      })
+    );
   }
 
   // src/ui/icons.ts
@@ -2642,7 +2760,7 @@ ${inlineSurfaceFrostedGlass.overlay}
           this.createFieldGrid(
             [
               this.createCheckbox(
-                "\u542F\u7528 Bilibili SponsorBlock",
+                "\u542F\u7528 Bilibili QoL Core",
                 "\u5173\u95ED\u540E\u5C06\u505C\u6B62\u7247\u6BB5\u8BF7\u6C42\u3001\u6807\u9898\u6807\u7B7E\u3001\u7F29\u7565\u56FE\u6807\u7B7E\u548C\u64AD\u653E\u5668\u589E\u5F3A\u3002",
                 this.config.enabled,
                 (checked) => __async(this, null, function* () {
@@ -2873,7 +2991,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       this.transparencyForm.replaceChildren(
         this.createFormGroup(
           "\u89C6\u9891\u4E3B\u7EBF\u6807\u7B7E",
-          "\u8FD9\u4E24\u7C7B\u6807\u7B7E\u5C5E\u4E8E BSC \u4E3B\u7EBF\u80FD\u529B\u3002\u900F\u660E\u6A21\u5F0F\u4F1A\u4ECE\u9AD8\u7EAF\u5EA6\u80F6\u56CA\u6539\u6210\u66F4\u514B\u5236\u7684 Liquid Glass \u8868\u73B0\uFF0C\u9ED8\u8BA4\u4FDD\u6301\u5173\u95ED\uFF0C\u786E\u4FDD\u5347\u7EA7\u540E\u73B0\u6709\u89C6\u89C9\u4E0D\u53D8\u3002",
+          "\u8FD9\u4E24\u7C7B\u6807\u7B7E\u5C5E\u4E8E QoL Core \u4E3B\u7EBF\u80FD\u529B\u3002\u900F\u660E\u6A21\u5F0F\u4F1A\u4ECE\u9AD8\u7EAF\u5EA6\u80F6\u56CA\u6539\u6210\u66F4\u514B\u5236\u7684 Liquid Glass \u8868\u73B0\uFF0C\u9ED8\u8BA4\u4FDD\u6301\u5173\u95ED\uFF0C\u786E\u4FDD\u5347\u7EA7\u540E\u73B0\u6709\u89C6\u89C9\u4E0D\u53D8\u3002",
           this.createFieldGrid([
             this.createCheckbox(
               "\u6807\u9898\u5546\u4E1A\u6807\u7B7E\u4F7F\u7528\u900F\u660E\u6A21\u5F0F",
@@ -3015,7 +3133,7 @@ ${inlineSurfaceFrostedGlass.overlay}
         ),
         this.createFormGroup(
           "\u529F\u80FD\u5F00\u5173",
-          "\u6240\u6709\u6539\u52A8\u5747\u7ECF\u8FC7\u5B89\u5168\u5BA1\u8BA1\uFF0C\u65E8\u5728\u4FDD\u8BC1 BSB \u6838\u5FC3\u529F\u80FD\u4E0D\u88AB\u5E72\u6270\u7684\u524D\u63D0\u4E0B\uFF0C\u6700\u5927\u9650\u5EA6\u91CA\u653E\u672C\u5730\u7B97\u529B\u3002\u5F00\u542F\u540E\u8BF7\u5237\u65B0\u9875\u9762\u4EE5\u5B8C\u5168\u751F\u6548\u3002",
+          "\u6240\u6709\u6539\u52A8\u5747\u7ECF\u8FC7\u5B89\u5168\u5BA1\u8BA1\uFF0C\u65E8\u5728\u4FDD\u8BC1 QoL Core \u6838\u5FC3\u529F\u80FD\u4E0D\u88AB\u5E72\u6270\u7684\u524D\u63D0\u4E0B\uFF0C\u6700\u5927\u9650\u5EA6\u91CA\u653E\u672C\u5730\u7B97\u529B\u3002\u5F00\u542F\u540E\u8BF7\u5237\u65B0\u9875\u9762\u4EE5\u5B8C\u5168\u751F\u6548\u3002",
           this.createFieldGrid(mbgaFields)
         )
       );
@@ -3029,7 +3147,7 @@ ${inlineSurfaceFrostedGlass.overlay}
             {
               title: "\u6807\u9898\u524D\u5546\u4E1A\u6807\u7B7E",
               value: "\u89C6\u9891\u9875",
-              description: "\u5F53\u6574\u4E2A\u89C6\u9891\u88AB\u793E\u533A\u6807\u8BB0\u4E3A\u8D5E\u52A9\u3001\u81EA\u8350\u6216\u72EC\u5BB6\u8BBF\u95EE\u7B49\u6574\u89C6\u9891\u6807\u7B7E\u65F6\uFF0C\u4F1A\u5728\u6807\u9898\u524D\u663E\u793A\u5F69\u8272\u80F6\u56CA\u3002\u70B9\u51FB\u80F6\u56CA\u53EF\u6253\u5F00\u201C\u6807\u8BB0\u6B63\u786E / \u6807\u8BB0\u6709\u8BEF\u201D\u53CD\u9988\u3002"
+              description: "\u5F53\u6574\u4E2A\u89C6\u9891\u6709\u793E\u533A full \u6807\u7B7E\u3001\u6574\u89C6\u9891\u6807\u7B7E\u63A5\u53E3\u7ED3\u679C\u6216\u672C\u5730\u63A8\u7406\u7ED3\u679C\u65F6\uFF0C\u4F1A\u5728\u6807\u9898\u524D\u663E\u793A\u5F69\u8272\u80F6\u56CA\uFF1B\u53EA\u6709\u5E26\u771F\u5B9E UUID \u7684\u793E\u533A full \u6807\u7B7E\u53EF\u63D0\u4EA4\u4E0A\u6E38\u53CD\u9988\u3002"
             },
             {
               title: "\u7F29\u7565\u56FE\u9876\u90E8\u5C45\u4E2D\u6807\u7B7E",
@@ -3069,7 +3187,7 @@ ${inlineSurfaceFrostedGlass.overlay}
         ]),
         this.createInfoBox(
           "\u81F4\u8C22\u4E0E\u514D\u8D23\u58F0\u660E",
-          "\u672C\u811A\u672C\u57FA\u4E8E GPL-3.0 \u7684 BilibiliSponsorBlock \u4E0A\u6E38\u5B9E\u73B0\u601D\u8DEF\u79FB\u690D\u800C\u6765\uFF1B\u8BC4\u8BBA\u533A\u5C5E\u5730\u663E\u793A\u529F\u80FD\u53C2\u8003\u5E76\u9002\u914D\u4E86 mscststs \u7684 ISC \u811A\u672C\u300CB\u7AD9\u8BC4\u8BBA\u533A\u5F00\u76D2\u300D\u3002\u6240\u6709\u7247\u6BB5\u548C\u6574\u89C6\u9891\u6807\u7B7E\u90FD\u6765\u81EA\u793E\u533A\u63D0\u4EA4\u4E0E\u6295\u7968\uFF0C\u8BC4\u8BBA\u5C5E\u5730\u5219\u4EE5 B \u7AD9\u8BC4\u8BBA payload \u81EA\u5E26\u4FE1\u606F\u4E3A\u51C6\uFF0C\u7ED3\u679C\u4EC5\u4F9B\u53C2\u8003\u3002"
+          `Bilibili QoL Core \u7531 ${AUTHOR_NAME} \u7EF4\u62A4\u3002\u672C\u811A\u672C\u57FA\u4E8E GPL-3.0 \u7684 BilibiliSponsorBlock \u4E0A\u6E38\u5B9E\u73B0\u601D\u8DEF\u79FB\u690D\u800C\u6765\uFF1B\u8BC4\u8BBA\u533A\u5C5E\u5730\u663E\u793A\u529F\u80FD\u53C2\u8003\u5E76\u9002\u914D\u4E86 mscststs \u7684 ISC \u811A\u672C\u300CB\u7AD9\u8BC4\u8BBA\u533A\u5F00\u76D2\u300D\u3002\u6240\u6709\u7247\u6BB5\u548C\u793E\u533A full \u6807\u7B7E\u6765\u81EA\u4E0A\u6E38\u793E\u533A\u8BB0\u5F55\uFF0C\u672C\u5730\u63A8\u7406\u53EA\u4F5C\u4E3A\u8F85\u52A9\u5224\u65AD\uFF0C\u7ED3\u679C\u4EC5\u4F9B\u53C2\u8003\u3002`
         )
       );
     }
@@ -4077,8 +4195,8 @@ ${inlineSurfaceFrostedGlass.overlay}
 
   // src/ui/title-badge.ts
   var DEFAULT_COPY = "\u6574\u4E2A\u89C6\u9891\u90FD\u88AB\u793E\u533A\u6807\u8BB0\u4E3A\u8FD9\u4E00\u7C7B\u5185\u5BB9\u3002\u6807\u7B7E\u4EC5\u7528\u4E8E\u8F85\u52A9\u5224\u65AD\uFF0C\u4E0D\u5E94\u66FF\u4EE3\u4F60\u81EA\u5DF1\u7684\u89C2\u770B\u5224\u65AD\u3002";
-  var LABEL_ONLY_COPY = "\u8FD9\u4E2A\u6807\u7B7E\u6765\u81EA\u6574\u89C6\u9891\u6807\u7B7E\u7ED3\u679C\uFF0C\u4F46\u5F53\u524D\u6CA1\u6709\u53EF\u76F4\u63A5\u53CD\u9988\u7684\u6295\u7968\u8BB0\u5F55\u3002";
-  var LOCAL_SIGNAL_COPY = "\u8FD9\u4E2A\u6807\u7B7E\u6765\u81EA\u672C\u5730\u9875\u9762\u7EBF\u7D22\uFF0C\u800C\u4E0D\u662F SponsorBlock \u793E\u533A\u5DF2\u6536\u5F55\u7684\u6574\u89C6\u9891\u8BB0\u5F55\u3002";
+  var LABEL_ONLY_COPY = "\u8FD9\u4E2A\u6807\u7B7E\u6765\u81EA\u6574\u89C6\u9891\u6807\u7B7E\u63A5\u53E3\u7ED3\u679C\uFF1B\u8BE5\u63A5\u53E3\u53EA\u63D0\u4F9B\u5206\u7C7B\u6458\u8981\uFF0C\u6CA1\u6709\u53EF\u76F4\u63A5\u53CD\u9988\u7684\u6295\u7968 UUID\u3002";
+  var LOCAL_SIGNAL_COPY = "\u8FD9\u662F\u672C\u5730\u63A8\u7406\u6807\u7B7E\uFF0C\u6765\u81EA\u672C\u673A\u9875\u9762\u6216\u8BC4\u8BBA\u7EBF\u7D22\uFF0C\u4E0D\u4EE3\u8868 SponsorBlock \u793E\u533A\u5DF2\u6536\u5F55\u7684\u6574\u89C6\u9891\u8BB0\u5F55\u3002";
   var LOCKED_COPY = "\u8FD9\u6761\u6574\u89C6\u9891\u6807\u7B7E\u7684\u53CD\u9988\u5DF2\u5728\u672C\u673A\u63D0\u4EA4\u3002\u4E3A\u907F\u514D\u91CD\u590D\u6295\u7968\uFF0C\u5F53\u524D\u6309\u94AE\u5DF2\u9501\u5B9A\u3002";
   var LOCAL_LOCKED_COPY = "\u5DF2\u63D0\u4EA4\u3002\u672C\u5730\u5B66\u4E60\u4F1A\u5728\u540E\u7EED\u7EE7\u7EED\u4FDD\u7559\u6216\u5FFD\u7565\u6B64\u5224\u65AD\uFF1B\u8BE5\u64CD\u4F5C\u5BF9\u5F53\u524D\u89C6\u9891\u4E0D\u53EF\u91CD\u590D\u63D0\u4EA4\u3002";
   function resolveCopy(segment, votingAvailable) {
@@ -4264,7 +4382,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       this.upvoteButton.lastChild && (this.upvoteButton.lastChild.textContent = this.votingAvailable ? "\u6807\u8BB0\u6B63\u786E" : this.localActionsAvailable ? "\u4FDD\u7559\u672C\u5730\u6807\u7B7E" : "\u6807\u8BB0\u6B63\u786E");
       this.downvoteButton.lastChild && (this.downvoteButton.lastChild.textContent = this.votingAvailable ? "\u6807\u8BB0\u6709\u8BEF" : this.localActionsAvailable ? "\u5FFD\u7565\u6B64\u89C6\u9891" : "\u6807\u8BB0\u6709\u8BEF");
       this.feedbackHint.hidden = this.votingAvailable && !this.localActionsAvailable && !this.voteLocked;
-      this.feedbackHint.textContent = this.localActionsAvailable ? this.voteLocked ? LOCAL_LOCKED_COPY : "\u8FD9\u6761\u63D0\u793A\u6765\u81EA\u672C\u5730\u8BC4\u8BBA\u6216\u9875\u9762\u7EBF\u7D22\u3002\u4F60\u53EF\u4EE5\u4FDD\u7559\u5B83\uFF0C\u4E5F\u53EF\u4EE5\u5FFD\u7565\u5E76\u963B\u6B62\u5F53\u524D\u89C6\u9891\u7EE7\u7EED\u89E6\u53D1\u672C\u5730\u63D0\u793A\u3002\u63D0\u4EA4\u540E\u5F53\u524D\u89C6\u9891\u4E0D\u53EF\u91CD\u590D\u53CD\u9988\u3002" : this.voteLocked ? LOCKED_COPY : "\u8FD9\u6761\u6807\u7B7E\u76EE\u524D\u53EA\u6709\u6574\u89C6\u9891\u6807\u7B7E\u7ED3\u679C\uFF0C\u6CA1\u6709\u53EF\u76F4\u63A5\u6295\u7968\u7684 SponsorBlock UUID\u3002";
+      this.feedbackHint.textContent = this.localActionsAvailable ? this.voteLocked ? LOCAL_LOCKED_COPY : "\u8FD9\u6761\u63D0\u793A\u6765\u81EA\u672C\u5730\u8BC4\u8BBA\u6216\u9875\u9762\u7EBF\u7D22\u3002\u4F60\u53EF\u4EE5\u4FDD\u7559\u5B83\uFF0C\u4E5F\u53EF\u4EE5\u5FFD\u7565\u5E76\u963B\u6B62\u5F53\u524D\u89C6\u9891\u7EE7\u7EED\u89E6\u53D1\u672C\u5730\u63D0\u793A\u3002\u63D0\u4EA4\u540E\u5F53\u524D\u89C6\u9891\u4E0D\u53EF\u91CD\u590D\u53CD\u9988\u3002" : this.voteLocked ? LOCKED_COPY : "\u8FD9\u6761\u6807\u7B7E\u76EE\u524D\u53EA\u6709\u6574\u89C6\u9891\u6807\u7B7E\u63A5\u53E3\u7ED3\u679C\uFF0C\u6CA1\u6709\u53EF\u76F4\u63A5\u6295\u7968\u7684 SponsorBlock UUID\u3002";
       this.actions.classList.toggle("vote-unavailable", !this.votingAvailable);
       this.pillButton.setAttribute(
         "aria-label",
@@ -7716,12 +7834,25 @@ ${inlineSurfaceFrostedGlass.overlay}
         placeholderVisible: this.currentConfig.compactHeaderPlaceholderVisible,
         searchPlaceholderEnabled: this.currentConfig.compactHeaderSearchPlaceholderEnabled
       });
-      const shouldCompact = this.started && this.currentConfig.enabled && this.currentConfig.compactVideoHeader && supportsCompactVideoHeader(window.location.href) && !isCompactVideoHeaderSuppressed(document);
+      const compactSupported = supportsCompactVideoHeader(window.location.href);
+      const shouldCompact = this.started && this.currentConfig.enabled && this.currentConfig.compactVideoHeader && compactSupported && !isCompactVideoHeaderSuppressed(document);
       if (shouldCompact) {
         this.compactHeader.mount();
+        configureNativeRequestGuard({
+          enabled: true,
+          supportedPage: true,
+          compactHeaderReady: true,
+          reason: "compact-header-mounted"
+        });
         return;
       }
       this.compactHeader.unmount();
+      configureNativeRequestGuard({
+        enabled: this.started && this.currentConfig.enabled && this.currentConfig.compactVideoHeader,
+        supportedPage: compactSupported,
+        compactHeaderReady: false,
+        reason: "compact-header-inactive"
+      });
     }
     resolveFullVideoSegment() {
       return this.currentTitleLabel;
@@ -7865,6 +7996,9 @@ ${inlineSurfaceFrostedGlass.overlay}
     formatVoteErrorMessage(statusCode, responseText) {
       if (statusCode === 403) {
         return "\u670D\u52A1\u7AEF\u62D2\u7EDD\u4E86\u8FD9\u6B21\u53CD\u9988\uFF0C\u7A0D\u540E\u53EF\u518D\u8BD5\u4E00\u6B21\u3002";
+      }
+      if (statusCode === 429) {
+        return "SponsorBlock \u6682\u65F6\u9650\u5236\u4E86\u8FD9\u6B21\u53CD\u9988\u8BF7\u6C42\uFF0C\u53CD\u9988\u672A\u63D0\u4EA4\uFF0C\u8BF7\u7A0D\u540E\u518D\u8BD5\u3002";
       }
       if (statusCode === -1) {
         return "\u8BF7\u6C42\u6CA1\u6709\u9001\u8FBE SponsorBlock \u670D\u52A1\uFF0C\u8BF7\u68C0\u67E5\u7F51\u7EDC\u6216 Tampermonkey \u6388\u6743\u3002";
@@ -8824,11 +8958,11 @@ ${inlineSurfaceFrostedGlass.overlay}
   };
 
   // src/runtime/menu.ts
-  var BSB_MENU_LABELS = ["\u6253\u5F00 BSB \u63A7\u5236\u53F0", "\u6253\u5F00 BSB \u5E2E\u52A9", "\u6E05\u7406 BSB \u7F13\u5B58"];
-  function registerBsbMenuCommands(controller, registerMenuCommand = gmRegisterMenuCommand) {
-    registerMenuCommand(BSB_MENU_LABELS[0], () => controller.openPanel());
-    registerMenuCommand(BSB_MENU_LABELS[1], () => controller.openHelp());
-    registerMenuCommand(BSB_MENU_LABELS[2], () => {
+  var QOL_CORE_MENU_LABELS = ["\u6253\u5F00 QoL Core \u63A7\u5236\u53F0", "\u6253\u5F00 QoL Core \u5E2E\u52A9", "\u6E05\u7406 QoL Core \u7F13\u5B58"];
+  function registerQolCoreMenuCommands(controller, registerMenuCommand = gmRegisterMenuCommand) {
+    registerMenuCommand(QOL_CORE_MENU_LABELS[0], () => controller.openPanel());
+    registerMenuCommand(QOL_CORE_MENU_LABELS[1], () => controller.openHelp());
+    registerMenuCommand(QOL_CORE_MENU_LABELS[2], () => {
       void controller.clearCache();
     });
   }
@@ -11987,6 +12121,12 @@ ${inlineFeedbackStyles}
       const voteHistoryStore = new VoteHistoryStore();
       yield Promise.all([configStore.load(), statsStore.load(), localVideoLabelStore.load(), voteHistoryStore.load()]);
       const currentConfig = configStore.getSnapshot();
+      configureNativeRequestGuard({
+        enabled: currentConfig.enabled && currentConfig.compactVideoHeader,
+        supportedPage: supportsCompactVideoHeader(window.location.href),
+        compactHeaderReady: false,
+        reason: "config-loaded"
+      });
       mountMbga(currentConfig);
       if (currentConfig.mbgaEnabled && currentConfig.mbgaSimplifyUi) {
         gmAddStyle(mbgaStyles);
@@ -12026,7 +12166,7 @@ ${inlineFeedbackStyles}
           });
         }
       );
-      registerBsbMenuCommands(controller);
+      registerQolCoreMenuCommands(controller);
       yield runtime.start();
     });
   }
@@ -12037,6 +12177,9 @@ ${inlineFeedbackStyles}
       });
     }
     return Promise.resolve();
+  }
+  if (isTopLevelWindow() && isSupportedLocation(window.location.href)) {
+    installNativeRequestGuardBridge();
   }
   void ready().then(() => bootstrap()).catch((error) => {
     debugLog("Bootstrap failed", error);
