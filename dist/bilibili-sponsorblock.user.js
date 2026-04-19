@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         Bilibili SponsorBlock Core
+// @name         Bilibili QoL Core
 // @namespace    https://github.com/FilfTeen/bilibili-sponsorblock-userscript
 // @version      0.3.7
-// @description  Tampermonkey core script for skipping sponsor segments on Bilibili.
-// @author       FilfTeen
+// @description  Local-first quality-of-life toolkit for Bilibili: SponsorBlock segments, labels, comment/dynamic signals, MBGA cleanup, and low-intrusion UI.
+// @author       Hush_
 // @license      GPL-3.0-only
 // @match        https://www.bilibili.com/*
 // @match        https://search.bilibili.com/*
@@ -210,7 +210,10 @@
   }
 
   // src/constants.ts
-  var SCRIPT_NAME = "Bilibili SponsorBlock Core";
+  var PRODUCT_NAME = "Bilibili QoL Core";
+  var SCRIPT_NAME = PRODUCT_NAME;
+  var AUTHOR_NAME = "Hush_";
+  var SCRIPT_VERSION = "0.3.7".trim().length > 0 ? "0.3.7" : "0.3.7";
   var CONFIG_STORAGE_KEY = "bsb_tm_config_v1";
   var STATS_STORAGE_KEY = "bsb_tm_stats_v1";
   var CACHE_STORAGE_KEY = "bsb_tm_cache_v1";
@@ -1471,12 +1474,18 @@
   }
 
   // src/core/user-id.ts
+  var USER_ID_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  var USER_ID_LENGTH = 36;
   function generateUserId() {
-    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-      return crypto.randomUUID();
+    const bytes = new Uint8Array(USER_ID_LENGTH);
+    if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+      crypto.getRandomValues(bytes);
+    } else {
+      for (let index = 0; index < bytes.length; index += 1) {
+        bytes[index] = Math.floor(Math.random() * 256);
+      }
     }
-    const random = Math.random().toString(36).slice(2);
-    return `bsb-${Date.now().toString(36)}-${random}`;
+    return Array.from(bytes, (byte) => USER_ID_ALPHABET[byte % USER_ID_ALPHABET.length]).join("");
   }
   function ensureUserId() {
     return __async(this, null, function* () {
@@ -1504,6 +1513,10 @@
     "exclusive_access"
   ]);
   var VALID_ACTION_TYPES = /* @__PURE__ */ new Set(["skip", "mute", "full", "poi"]);
+  var UPSTREAM_HEADERS = {
+    Accept: "application/json",
+    "x-ext-version": SCRIPT_VERSION
+  };
   function buildUrl(serverAddress, path) {
     return `${serverAddress.replace(/\/+$/u, "")}${path}`;
   }
@@ -1581,9 +1594,10 @@
           const response = yield gmXmlHttpRequest({
             method: "POST",
             url,
+            headers: UPSTREAM_HEADERS,
             timeout: REQUEST_TIMEOUT_MS
           });
-          if (response.ok || response.status === 429) {
+          if (response.ok) {
             return {
               successType: 1,
               statusCode: response.status,
@@ -1633,9 +1647,7 @@
             const response = yield gmXmlHttpRequest({
               method: "GET",
               url,
-              headers: {
-                Accept: "application/json"
-              },
+              headers: __spreadValues({}, UPSTREAM_HEADERS),
               timeout: REQUEST_TIMEOUT_MS
             });
             if (response.ok || response.status === 404 || response.status < 500 || index === attempts - 1) {
@@ -1666,6 +1678,10 @@
     "poi_highlight",
     "exclusive_access"
   ]);
+  var UPSTREAM_HEADERS2 = {
+    Accept: "application/json",
+    "x-ext-version": SCRIPT_VERSION
+  };
   function buildUrl2(serverAddress, path) {
     return `${serverAddress.replace(/\/+$/u, "")}${path}`;
   }
@@ -1716,9 +1732,7 @@
         const request = gmXmlHttpRequest({
           method: "GET",
           url,
-          headers: {
-            Accept: "application/json"
-          },
+          headers: __spreadValues({}, UPSTREAM_HEADERS2),
           timeout: REQUEST_TIMEOUT_MS
         }).finally(() => {
           this.inFlightRequests.delete(cacheKey);
@@ -1792,6 +1806,110 @@
   function resolveWholeVideoCategory(bvid, segments, labelCategory, config) {
     var _a, _b;
     return (_b = (_a = resolveWholeVideoLabels(bvid, segments, labelCategory, config)[0]) == null ? void 0 : _a.category) != null ? _b : null;
+  }
+
+  // src/platform/native-request-guard.ts
+  var GUARD_FLAG = "__BSB_NATIVE_REQUEST_GUARD__";
+  var CONFIG_EVENT = "bsb-tm:native-request-guard-config";
+  var REDUNDANT_TOPBAR_PATHS = ["/x/msgfeed/unread", "/x/web-interface/nav/stat"];
+  var bridgeInjected2 = false;
+  function buildNativeRequestGuardSource() {
+    return `
+(() => {
+  const flag = ${JSON.stringify(GUARD_FLAG)};
+  if (window[flag]) {
+    return;
+  }
+
+  const paths = ${JSON.stringify([...REDUNDANT_TOPBAR_PATHS])};
+  const state = {
+    enabled: false,
+    supportedPage: false,
+    compactHeaderReady: false,
+    reason: "initial",
+    records: []
+  };
+
+  function remember(url, action) {
+    state.records.push({ url: String(url), action, time: Date.now(), reason: state.reason });
+    if (state.records.length > 80) {
+      state.records.shift();
+    }
+  }
+
+  function shouldBlock(url) {
+    if (!state.enabled || !state.supportedPage || !state.compactHeaderReady) {
+      return false;
+    }
+    try {
+      const parsed = new URL(String(url), window.location.href);
+      return parsed.hostname === "api.bilibili.com" && paths.includes(parsed.pathname);
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  window[flag] = {
+    configure(next) {
+      state.enabled = Boolean(next && next.enabled);
+      state.supportedPage = Boolean(next && next.supportedPage);
+      state.compactHeaderReady = Boolean(next && next.compactHeaderReady);
+      state.reason = next && typeof next.reason === "string" ? next.reason : "runtime";
+    },
+    snapshot() {
+      return {
+        enabled: state.enabled,
+        supportedPage: state.supportedPage,
+        compactHeaderReady: state.compactHeaderReady,
+        reason: state.reason,
+        records: state.records.slice()
+      };
+    }
+  };
+
+  const originalFetch = window.fetch;
+  if (typeof originalFetch === "function") {
+    window.fetch = function(input, init) {
+      const url = typeof input === "string" ? input : input && typeof input.url === "string" ? input.url : "";
+      if (shouldBlock(url)) {
+        remember(url, "blocked-fetch");
+        return Promise.resolve(new Response("", { status: 204, statusText: "Blocked by Bilibili QoL Core" }));
+      }
+      remember(url, "observed-fetch");
+      return originalFetch.apply(this, arguments);
+    };
+  }
+
+  const originalOpen = window.XMLHttpRequest && window.XMLHttpRequest.prototype.open;
+  if (typeof originalOpen === "function") {
+    window.XMLHttpRequest.prototype.open = function(method, url) {
+      remember(url, shouldBlock(url) ? "would-block-xhr" : "observed-xhr");
+      return originalOpen.apply(this, arguments);
+    };
+  }
+
+  document.addEventListener(${JSON.stringify(CONFIG_EVENT)}, (event) => {
+    window[flag].configure(event.detail || {});
+  });
+})();`;
+  }
+  function installNativeRequestGuardBridge() {
+    if (bridgeInjected2) {
+      return;
+    }
+    const script = document.createElement("script");
+    script.id = "bsb-tm-native-request-guard";
+    script.textContent = buildNativeRequestGuardSource();
+    (document.head || document.documentElement).appendChild(script);
+    script.remove();
+    bridgeInjected2 = true;
+  }
+  function configureNativeRequestGuard(config) {
+    document.dispatchEvent(
+      new CustomEvent(CONFIG_EVENT, {
+        detail: config
+      })
+    );
   }
 
   // src/ui/icons.ts
@@ -1928,6 +2046,9 @@
       this.root.classList.toggle("is-floating", parent === document.documentElement);
     }
     setHost(host) {
+      if (this.host && this.host !== host) {
+        this.host.classList.remove("bsb-tm-player-host");
+      }
       this.host = host;
       if (host) {
         host.classList.add("bsb-tm-player-host");
@@ -2023,6 +2144,372 @@
       }
     }
   };
+
+  // src/ui/surface-frosted-glass.ts
+  function createSurfaceFrostedGlassMaterial(options) {
+    const { accentExpression, textVariable } = options;
+    const textAssignment = textVariable ? `  ${textVariable}: #0f172a;
+` : "";
+    return {
+      base: `${textAssignment}  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, ${accentExpression} 7%, rgba(255, 255, 255, 0.18)),
+    color-mix(in srgb, ${accentExpression} 10%, rgba(255, 255, 255, 0.04))
+  );
+  border: 1px solid color-mix(in srgb, ${accentExpression} 16%, rgba(255, 255, 255, 0.12));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 -1px 0 color-mix(in srgb, ${accentExpression} 8%, rgba(15, 23, 42, 0.05)),
+    0 5px 12px rgba(15, 23, 42, 0.04),
+    0 10px 20px rgba(15, 23, 42, 0.018);
+  backdrop-filter: none;`,
+      overlay: `  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 18% 8%, color-mix(in srgb, ${accentExpression} 22%, rgba(255, 255, 255, 0.26)) 0%, transparent 36%),
+    radial-gradient(circle at 78% 120%, color-mix(in srgb, ${accentExpression} 14%, rgba(15, 23, 42, 0.1)) 0%, transparent 46%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.035) 34%, transparent 62%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, ${accentExpression} 14%, rgba(255, 255, 255, 0.28)),
+      color-mix(in srgb, ${accentExpression} 22%, rgba(231, 238, 245, 0.12))
+    ),
+    linear-gradient(112deg, transparent 14%, rgba(255, 255, 255, 0.14) 24%, rgba(255, 255, 255, 0.03) 32%, transparent 42%);
+  opacity: 0.82;
+  backdrop-filter: blur(7px) saturate(148%) brightness(1.04);
+  mix-blend-mode: screen;`
+    };
+  }
+
+  // src/ui/inline-feedback.ts
+  var INLINE_STYLE_ATTR = "data-bsb-inline-feedback-style";
+  var DEFAULT_TONE_ACCENTS = {
+    danger: "#ff6b66",
+    warning: "#ffd56a",
+    success: "#4ade80",
+    info: "#60a5fa"
+  };
+  var inlineSurfaceFrostedGlass = createSurfaceFrostedGlassMaterial({
+    accentExpression: "var(--bsb-inline-accent)",
+    textVariable: "--bsb-inline-text"
+  });
+  var inlineFeedbackStyles = `
+.bsb-tm-inline-chip,
+.bsb-tm-inline-toggle {
+  font-family: "SF Pro Text", "PingFang SC", sans-serif;
+  font-kerning: normal;
+  font-feature-settings: "kern" 1;
+  font-synthesis-weight: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+.bsb-tm-inline-chip {
+  --bsb-inline-accent: #ff6b6b;
+  --bsb-inline-surface: rgba(45, 55, 72, 0.94);
+  --bsb-inline-surface-strong: rgba(29, 37, 52, 0.98);
+  --bsb-inline-text: #f8fafc;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  max-width: min(100%, 24rem);
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background:
+    radial-gradient(circle at 20% 18%, rgba(255, 255, 255, 0.18), transparent 38%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.09), transparent 52%),
+    linear-gradient(180deg, var(--bsb-inline-surface), var(--bsb-inline-surface-strong));
+  color: var(--bsb-inline-text);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 -1px 0 rgba(15, 23, 42, 0.22),
+    0 10px 20px rgba(15, 23, 42, 0.16);
+  backdrop-filter: blur(16px) saturate(155%);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  line-height: 1.1;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bsb-tm-inline-chip[data-appearance="glass"] {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.bsb-tm-inline-chip[data-appearance="glass"][data-glass-context="surface"] {
+${inlineSurfaceFrostedGlass.base}
+}
+
+.bsb-tm-inline-chip[data-appearance="glass"][data-glass-context="surface"]::after {
+${inlineSurfaceFrostedGlass.overlay}
+  z-index: 0;
+}
+
+.bsb-tm-inline-chip::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  flex: none;
+  background: var(--bsb-inline-accent);
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.14),
+    0 0 14px color-mix(in srgb, var(--bsb-inline-accent) 72%, transparent);
+  position: relative;
+  z-index: 1;
+}
+
+.bsb-tm-inline-chip[data-appearance="glass"][data-glass-context="surface"]::before {
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.24),
+    0 0 10px color-mix(in srgb, var(--bsb-inline-accent) 38%, transparent);
+}
+
+.bsb-tm-inline-chip__label {
+  position: relative;
+  z-index: 1;
+}
+
+.bsb-tm-inline-chip--inline,
+.bsb-tm-inline-toggle--inline {
+  margin-inline-start: 8px;
+}
+
+.bsb-tm-inline-chip--stack,
+.bsb-tm-inline-toggle--stack {
+  margin-top: 8px;
+}
+
+.bsb-tm-inline-chip[data-tone="danger"] {
+  --bsb-inline-accent: #ff6b66;
+  --bsb-inline-surface: rgba(130, 41, 41, 0.94);
+  --bsb-inline-surface-strong: rgba(104, 28, 28, 0.98);
+}
+
+.bsb-tm-inline-chip[data-tone="warning"] {
+  --bsb-inline-accent: #ffd56a;
+  --bsb-inline-surface: rgba(109, 74, 20, 0.94);
+  --bsb-inline-surface-strong: rgba(82, 53, 13, 0.98);
+}
+
+.bsb-tm-inline-chip[data-tone="success"] {
+  --bsb-inline-accent: #4ade80;
+  --bsb-inline-surface: rgba(25, 101, 73, 0.94);
+  --bsb-inline-surface-strong: rgba(18, 76, 55, 0.98);
+}
+
+.bsb-tm-inline-chip[data-tone="info"] {
+  --bsb-inline-accent: #60a5fa;
+  --bsb-inline-surface: rgba(30, 88, 153, 0.94);
+  --bsb-inline-surface-strong: rgba(21, 66, 118, 0.98);
+}
+
+.bsb-tm-inline-toggle {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  min-height: 30px;
+  padding: 8px 13px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(245, 248, 252, 0.78)),
+    rgba(247, 250, 252, 0.84);
+  color: #0f172a;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.84),
+    0 8px 18px rgba(15, 23, 42, 0.08);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.1;
+  letter-spacing: 0.01em;
+  text-align: center;
+  white-space: nowrap;
+  word-break: keep-all;
+  overflow-wrap: normal;
+  cursor: pointer;
+  transition:
+    box-shadow 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    background 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-color 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    color 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.bsb-tm-inline-toggle[data-state="hidden"] {
+  border-color: rgba(59, 130, 246, 0.2);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(247, 250, 252, 0.84)),
+    rgba(59, 130, 246, 0.08);
+}
+
+.bsb-tm-inline-toggle[data-state="shown"] {
+  border-color: rgba(239, 68, 68, 0.22);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(252, 246, 246, 0.86)),
+    rgba(239, 68, 68, 0.08);
+}
+
+.bsb-tm-inline-toggle:hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 12px 22px rgba(15, 23, 42, 0.1);
+  transform: translateY(-1px);
+}
+
+.bsb-tm-inline-toggle:active {
+  transform: scale(0.985);
+}
+
+.bsb-tm-inline-toggle:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 3px rgba(0, 174, 236, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.bsb-tm-inline-toggle:disabled {
+  cursor: default;
+  opacity: 0.72;
+  transform: none;
+}
+
+.bsb-tm-inline-toggle:disabled:hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.84),
+    0 8px 18px rgba(15, 23, 42, 0.08);
+  transform: none;
+}
+
+.bsb-tm-inline-feedback-menu {
+  --bsb-inline-feedback-menu-accent: #60a5fa;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-inline-start: 8px;
+  padding: 2px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  vertical-align: middle;
+  white-space: nowrap;
+  isolation: isolate;
+  transition:
+    background 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-color 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.bsb-tm-inline-feedback-menu[data-open="true"] {
+  background:
+    radial-gradient(circle at 16% 10%, color-mix(in srgb, var(--bsb-inline-feedback-menu-accent) 16%, rgba(255, 255, 255, 0.34)), transparent 44%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.68), rgba(244, 248, 255, 0.42));
+  border-color: color-mix(in srgb, var(--bsb-inline-feedback-menu-accent) 16%, rgba(148, 163, 184, 0.22));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 8px 18px rgba(15, 23, 42, 0.08);
+}
+
+.bsb-tm-inline-feedback-menu[data-disabled="true"] {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(245, 248, 252, 0.48)),
+    rgba(148, 163, 184, 0.08);
+  border-color: rgba(148, 163, 184, 0.2);
+}
+
+.bsb-tm-inline-feedback-menu .bsb-tm-inline-toggle {
+  min-height: 24px;
+  padding: 5px 9px;
+  font-size: 11px;
+}
+
+.bsb-tm-inline-feedback-menu .bsb-tm-inline-toggle--inline {
+  margin-inline-start: 0;
+}
+
+.bsb-tm-inline-feedback-menu__choices {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-inline-size: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transform: translateX(-6px) scale(0.96);
+  transform-origin: left center;
+  clip-path: inset(0 100% 0 0 round 999px);
+  transition:
+    max-inline-size 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 180ms ease,
+    transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    clip-path 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.bsb-tm-inline-feedback-menu[data-open="true"] .bsb-tm-inline-feedback-menu__choices {
+  max-inline-size: 96px;
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0) scale(1);
+  clip-path: inset(0 0 0 0 round 999px);
+}
+`;
+  function ensureInlineFeedbackStyles(root) {
+    if (root.querySelector(`style[${INLINE_STYLE_ATTR}]`)) {
+      return;
+    }
+    const style = document.createElement("style");
+    style.setAttribute(INLINE_STYLE_ATTR, "true");
+    style.textContent = inlineFeedbackStyles;
+    root.prepend(style);
+  }
+  function createInlineBadge(attrName, text, tone, layout, customColor, appearance = "solid") {
+    const badge = document.createElement("div");
+    const label = document.createElement("span");
+    const accent = customColor != null ? customColor : DEFAULT_TONE_ACCENTS[tone];
+    badge.className = `bsb-tm-inline-chip bsb-tm-inline-chip--${layout}`;
+    badge.setAttribute(attrName, "true");
+    badge.dataset.tone = tone;
+    badge.dataset.appearance = appearance;
+    badge.dataset.glassVariant = resolveTransparentGlassVariant(accent);
+    if (appearance === "glass") {
+      badge.dataset.glassContext = "surface";
+    }
+    badge.title = text;
+    label.className = "bsb-tm-inline-chip__label";
+    label.textContent = text;
+    badge.append(label);
+    if (customColor) {
+      badge.style.setProperty("--bsb-inline-accent", customColor);
+      badge.style.setProperty("--bsb-inline-surface", `color-mix(in srgb, ${customColor} 20%, rgba(45, 55, 72, 0.94))`);
+      badge.style.setProperty("--bsb-inline-surface-strong", `color-mix(in srgb, ${customColor} 28%, rgba(29, 37, 52, 0.98))`);
+    }
+    return badge;
+  }
+  function createInlineToggle(attrName, onClick, layout) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `bsb-tm-inline-toggle bsb-tm-inline-toggle--${layout}`;
+    button.setAttribute(attrName, "true");
+    button.addEventListener("click", onClick);
+    return button;
+  }
+  function setInlineToggleState(button, state, labels) {
+    button.dataset.state = state;
+    button.setAttribute("aria-pressed", String(state === "shown"));
+    button.textContent = state === "shown" ? labels.shown : labels.hidden;
+  }
 
   // src/ui/panel.ts
   var TAB_LABELS = {
@@ -2273,7 +2760,7 @@
           this.createFieldGrid(
             [
               this.createCheckbox(
-                "\u542F\u7528 Bilibili SponsorBlock",
+                "\u542F\u7528 Bilibili QoL Core",
                 "\u5173\u95ED\u540E\u5C06\u505C\u6B62\u7247\u6BB5\u8BF7\u6C42\u3001\u6807\u9898\u6807\u7B7E\u3001\u7F29\u7565\u56FE\u6807\u7B7E\u548C\u64AD\u653E\u5668\u589E\u5F3A\u3002",
                 this.config.enabled,
                 (checked) => __async(this, null, function* () {
@@ -2504,7 +2991,7 @@
       this.transparencyForm.replaceChildren(
         this.createFormGroup(
           "\u89C6\u9891\u4E3B\u7EBF\u6807\u7B7E",
-          "\u8FD9\u4E24\u7C7B\u6807\u7B7E\u5C5E\u4E8E BSC \u4E3B\u7EBF\u80FD\u529B\u3002\u900F\u660E\u6A21\u5F0F\u4F1A\u4ECE\u9AD8\u7EAF\u5EA6\u80F6\u56CA\u6539\u6210\u66F4\u514B\u5236\u7684 Liquid Glass \u8868\u73B0\uFF0C\u9ED8\u8BA4\u4FDD\u6301\u5173\u95ED\uFF0C\u786E\u4FDD\u5347\u7EA7\u540E\u73B0\u6709\u89C6\u89C9\u4E0D\u53D8\u3002",
+          "\u8FD9\u4E24\u7C7B\u6807\u7B7E\u5C5E\u4E8E QoL Core \u4E3B\u7EBF\u80FD\u529B\u3002\u900F\u660E\u6A21\u5F0F\u4F1A\u4ECE\u9AD8\u7EAF\u5EA6\u80F6\u56CA\u6539\u6210\u66F4\u514B\u5236\u7684 Liquid Glass \u8868\u73B0\uFF0C\u9ED8\u8BA4\u4FDD\u6301\u5173\u95ED\uFF0C\u786E\u4FDD\u5347\u7EA7\u540E\u73B0\u6709\u89C6\u89C9\u4E0D\u53D8\u3002",
           this.createFieldGrid([
             this.createCheckbox(
               "\u6807\u9898\u5546\u4E1A\u6807\u7B7E\u4F7F\u7528\u900F\u660E\u6A21\u5F0F",
@@ -2646,7 +3133,7 @@
         ),
         this.createFormGroup(
           "\u529F\u80FD\u5F00\u5173",
-          "\u6240\u6709\u6539\u52A8\u5747\u7ECF\u8FC7\u5B89\u5168\u5BA1\u8BA1\uFF0C\u65E8\u5728\u4FDD\u8BC1 BSB \u6838\u5FC3\u529F\u80FD\u4E0D\u88AB\u5E72\u6270\u7684\u524D\u63D0\u4E0B\uFF0C\u6700\u5927\u9650\u5EA6\u91CA\u653E\u672C\u5730\u7B97\u529B\u3002\u5F00\u542F\u540E\u8BF7\u5237\u65B0\u9875\u9762\u4EE5\u5B8C\u5168\u751F\u6548\u3002",
+          "\u6240\u6709\u6539\u52A8\u5747\u7ECF\u8FC7\u5B89\u5168\u5BA1\u8BA1\uFF0C\u65E8\u5728\u4FDD\u8BC1 QoL Core \u6838\u5FC3\u529F\u80FD\u4E0D\u88AB\u5E72\u6270\u7684\u524D\u63D0\u4E0B\uFF0C\u6700\u5927\u9650\u5EA6\u91CA\u653E\u672C\u5730\u7B97\u529B\u3002\u5F00\u542F\u540E\u8BF7\u5237\u65B0\u9875\u9762\u4EE5\u5B8C\u5168\u751F\u6548\u3002",
           this.createFieldGrid(mbgaFields)
         )
       );
@@ -2660,7 +3147,7 @@
             {
               title: "\u6807\u9898\u524D\u5546\u4E1A\u6807\u7B7E",
               value: "\u89C6\u9891\u9875",
-              description: "\u5F53\u6574\u4E2A\u89C6\u9891\u88AB\u793E\u533A\u6807\u8BB0\u4E3A\u8D5E\u52A9\u3001\u81EA\u8350\u6216\u72EC\u5BB6\u8BBF\u95EE\u7B49\u6574\u89C6\u9891\u6807\u7B7E\u65F6\uFF0C\u4F1A\u5728\u6807\u9898\u524D\u663E\u793A\u5F69\u8272\u80F6\u56CA\u3002\u70B9\u51FB\u80F6\u56CA\u53EF\u6253\u5F00\u201C\u6807\u8BB0\u6B63\u786E / \u6807\u8BB0\u6709\u8BEF\u201D\u53CD\u9988\u3002"
+              description: "\u5F53\u6574\u4E2A\u89C6\u9891\u6709\u793E\u533A full \u6807\u7B7E\u3001\u6574\u89C6\u9891\u6807\u7B7E\u63A5\u53E3\u7ED3\u679C\u6216\u672C\u5730\u63A8\u7406\u7ED3\u679C\u65F6\uFF0C\u4F1A\u5728\u6807\u9898\u524D\u663E\u793A\u5F69\u8272\u80F6\u56CA\uFF1B\u53EA\u6709\u5E26\u771F\u5B9E UUID \u7684\u793E\u533A full \u6807\u7B7E\u53EF\u63D0\u4EA4\u4E0A\u6E38\u53CD\u9988\u3002"
             },
             {
               title: "\u7F29\u7565\u56FE\u9876\u90E8\u5C45\u4E2D\u6807\u7B7E",
@@ -2700,7 +3187,7 @@
         ]),
         this.createInfoBox(
           "\u81F4\u8C22\u4E0E\u514D\u8D23\u58F0\u660E",
-          "\u672C\u811A\u672C\u57FA\u4E8E GPL-3.0 \u7684 BilibiliSponsorBlock \u4E0A\u6E38\u5B9E\u73B0\u601D\u8DEF\u79FB\u690D\u800C\u6765\uFF1B\u8BC4\u8BBA\u533A\u5C5E\u5730\u663E\u793A\u529F\u80FD\u53C2\u8003\u5E76\u9002\u914D\u4E86 mscststs \u7684 ISC \u811A\u672C\u300CB\u7AD9\u8BC4\u8BBA\u533A\u5F00\u76D2\u300D\u3002\u6240\u6709\u7247\u6BB5\u548C\u6574\u89C6\u9891\u6807\u7B7E\u90FD\u6765\u81EA\u793E\u533A\u63D0\u4EA4\u4E0E\u6295\u7968\uFF0C\u8BC4\u8BBA\u5C5E\u5730\u5219\u4EE5 B \u7AD9\u8BC4\u8BBA payload \u81EA\u5E26\u4FE1\u606F\u4E3A\u51C6\uFF0C\u7ED3\u679C\u4EC5\u4F9B\u53C2\u8003\u3002"
+          `Bilibili QoL Core \u7531 ${AUTHOR_NAME} \u7EF4\u62A4\u3002\u672C\u811A\u672C\u57FA\u4E8E GPL-3.0 \u7684 BilibiliSponsorBlock \u4E0A\u6E38\u5B9E\u73B0\u601D\u8DEF\u79FB\u690D\u800C\u6765\uFF1B\u8BC4\u8BBA\u533A\u5C5E\u5730\u663E\u793A\u529F\u80FD\u53C2\u8003\u5E76\u9002\u914D\u4E86 mscststs \u7684 ISC \u811A\u672C\u300CB\u7AD9\u8BC4\u8BBA\u533A\u5F00\u76D2\u300D\u3002\u6240\u6709\u7247\u6BB5\u548C\u793E\u533A full \u6807\u7B7E\u6765\u81EA\u4E0A\u6E38\u793E\u533A\u8BB0\u5F55\uFF0C\u672C\u5730\u63A8\u7406\u53EA\u4F5C\u4E3A\u8F85\u52A9\u5224\u65AD\uFF0C\u7ED3\u679C\u4EC5\u4F9B\u53C2\u8003\u3002`
         )
       );
     }
@@ -2870,81 +3357,181 @@
       return grid;
     }
     createColorInput(category, value) {
-      const field = document.createElement("label");
-      field.className = "bsb-tm-color-field";
-      const preview = document.createElement("span");
-      preview.className = "bsb-tm-color-preview";
-      preview.style.setProperty("--bsb-color-preview", value);
-      preview.textContent = CATEGORY_LABELS[category];
-      const controls = document.createElement("div");
-      controls.className = "bsb-tm-color-controls";
-      const swatch = document.createElement("input");
-      swatch.type = "color";
-      swatch.value = value;
-      swatch.setAttribute("aria-label", `${CATEGORY_LABELS[category]}\u989C\u8272`);
-      const textInput = document.createElement("input");
-      textInput.type = "text";
-      textInput.value = value;
-      textInput.spellcheck = false;
-      const commit = (nextValue) => __async(this, null, function* () {
-        var _a;
-        const normalized = (_a = normalizeHexColor(nextValue)) != null ? _a : CATEGORY_COLORS[category];
-        swatch.value = normalized;
-        textInput.value = normalized;
-        preview.style.setProperty("--bsb-color-preview", normalized);
-        yield this.callbacks.onPatchConfig({
-          categoryColorOverrides: __spreadProps(__spreadValues({}, this.config.categoryColorOverrides), {
-            [category]: normalized
-          })
-        });
+      return this.createDraftColorInput({
+        label: CATEGORY_LABELS[category],
+        value,
+        fallbackValue: CATEGORY_COLORS[category],
+        preview: {
+          kind: "category",
+          category,
+          description: CATEGORY_DESCRIPTIONS[category]
+        },
+        onCommit: (normalized) => __async(this, null, function* () {
+          yield this.callbacks.onPatchConfig({
+            categoryColorOverrides: __spreadProps(__spreadValues({}, this.config.categoryColorOverrides), {
+              [category]: normalized
+            })
+          });
+        })
       });
-      swatch.addEventListener("input", () => __async(this, null, function* () {
-        yield commit(swatch.value);
-      }));
-      textInput.addEventListener("change", () => __async(this, null, function* () {
-        yield commit(textInput.value);
-      }));
-      controls.append(swatch, textInput);
-      field.append(preview, controls);
-      return field;
     }
     createCustomColorInput(labelText, helpText, value, onCommit) {
-      const wrapper = document.createElement("label");
+      const isLocation = labelText.includes("IP");
+      const wrapper = document.createElement("div");
       wrapper.className = "bsb-tm-field stacked";
       wrapper.append(this.createInputLabel(labelText, helpText));
-      const colorField = document.createElement("div");
-      colorField.className = "bsb-tm-color-field";
-      colorField.style.padding = "0";
-      colorField.style.border = "none";
-      colorField.style.background = "transparent";
-      colorField.style.boxShadow = "none";
+      wrapper.append(this.createDraftColorInput({
+        label: isLocation ? "IP \u5C5E\u5730" : "\u8BC4\u8BBA\u5E7F\u544A",
+        value,
+        fallbackValue: value,
+        preview: {
+          kind: "inline",
+          text: isLocation ? "IP \u5C5E\u5730" : "\u8BC4\u8BBA\u5E7F\u544A",
+          tone: isLocation ? "info" : "danger",
+          appearance: (isLocation ? this.config.labelTransparency.commentLocation : this.config.labelTransparency.commentBadge) ? "glass" : "solid",
+          description: isLocation ? "\u8BC4\u8BBA\u533A IP \u5C5E\u5730\u6807\u7B7E\uFF0C\u7528\u4E8E\u663E\u793A\u8BC4\u8BBA payload \u81EA\u5E26\u5C5E\u5730\u4FE1\u606F\u3002" : "\u8BC4\u8BBA\u5E7F\u544A\u6807\u7B7E\uFF0C\u7528\u4E8E\u6807\u51FA\u5E7F\u544A\u3001\u5E26\u8D27\u6216\u53EF\u7591\u4FC3\u9500\u8BC4\u8BBA\u3002"
+        },
+        onCommit
+      }, true));
+      return wrapper;
+    }
+    createDraftColorInput(options, compact = false) {
+      var _a, _b;
+      let savedValue = (_b = (_a = normalizeHexColor(options.value)) != null ? _a : normalizeHexColor(options.fallbackValue)) != null ? _b : "#60a5fa";
+      const field = document.createElement("div");
+      field.className = "bsb-tm-color-field";
+      field.dataset.colorEditor = "true";
+      field.dataset.colorDirty = "false";
+      if (compact) {
+        field.classList.add("compact");
+      }
+      const preview = document.createElement("div");
+      preview.className = "bsb-tm-color-preview-card";
+      const previewBadgeSlot = document.createElement("span");
+      previewBadgeSlot.className = "bsb-tm-color-preview-badge";
+      const previewDescription = document.createElement("small");
+      previewDescription.className = "bsb-tm-color-preview-description";
+      previewDescription.textContent = options.preview.description;
+      preview.append(previewBadgeSlot, previewDescription);
+      const editorRow = document.createElement("div");
+      editorRow.className = "bsb-tm-color-editor-row";
       const controls = document.createElement("div");
       controls.className = "bsb-tm-color-controls";
-      controls.style.width = "100%";
       const swatch = document.createElement("input");
       swatch.type = "color";
-      swatch.value = value;
+      swatch.value = savedValue;
+      swatch.setAttribute("aria-label", `${options.label}\u989C\u8272`);
       const textInput = document.createElement("input");
       textInput.type = "text";
-      textInput.value = value;
+      textInput.value = savedValue;
       textInput.spellcheck = false;
-      const commit = (nextValue) => __async(this, null, function* () {
-        var _a;
-        const normalized = (_a = normalizeHexColor(nextValue)) != null ? _a : value;
-        swatch.value = normalized;
-        textInput.value = normalized;
-        yield onCommit(normalized);
+      textInput.setAttribute("aria-label", `${options.label}\u989C\u8272\u503C`);
+      const actions = document.createElement("div");
+      actions.className = "bsb-tm-color-actions";
+      actions.hidden = true;
+      const applyButton = document.createElement("button");
+      applyButton.type = "button";
+      applyButton.className = "bsb-tm-color-action primary";
+      applyButton.textContent = "\u5E94\u7528";
+      const cancelButton = document.createElement("button");
+      cancelButton.type = "button";
+      cancelButton.className = "bsb-tm-color-action secondary";
+      cancelButton.textContent = "\u53D6\u6D88";
+      let draftValue = savedValue;
+      let isCommitting = false;
+      const renderPreview = (nextValue) => {
+        previewBadgeSlot.replaceChildren(this.createColorPreviewBadge(options.preview, nextValue));
+      };
+      const updatePreview = (nextValue, previewOptions) => {
+        draftValue = nextValue;
+        swatch.value = nextValue;
+        if ((previewOptions == null ? void 0 : previewOptions.syncText) !== false) {
+          textInput.value = nextValue;
+        }
+        renderPreview(nextValue);
+      };
+      const updateButtons = () => {
+        const isDirty = draftValue !== savedValue;
+        const isValid = normalizeHexColor(textInput.value) !== null;
+        field.dataset.colorDirty = String(isDirty);
+        actions.hidden = !isDirty;
+        applyButton.disabled = isCommitting || !isDirty || !isValid;
+        cancelButton.disabled = isCommitting || !isDirty;
+      };
+      const resetDraft = () => {
+        updatePreview(savedValue);
+        updateButtons();
+      };
+      const commitDraft = () => __async(this, null, function* () {
+        const normalized = normalizeHexColor(textInput.value);
+        if (!normalized || normalized === savedValue || isCommitting) {
+          updateButtons();
+          return;
+        }
+        isCommitting = true;
+        updateButtons();
+        try {
+          yield options.onCommit(normalized);
+          savedValue = normalized;
+          updatePreview(savedValue);
+        } finally {
+          isCommitting = false;
+          updateButtons();
+        }
       });
-      swatch.addEventListener("input", () => __async(this, null, function* () {
-        return commit(swatch.value);
-      }));
-      textInput.addEventListener("change", () => __async(this, null, function* () {
-        return commit(textInput.value);
-      }));
+      swatch.addEventListener("input", () => {
+        var _a2;
+        updatePreview((_a2 = normalizeHexColor(swatch.value)) != null ? _a2 : savedValue);
+        updateButtons();
+      });
+      swatch.addEventListener("focus", () => {
+        renderPreview(draftValue);
+      });
+      swatch.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          event.stopPropagation();
+          void commitDraft();
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          resetDraft();
+        }
+      });
+      textInput.addEventListener("input", () => {
+        const normalized = normalizeHexColor(textInput.value);
+        if (normalized) {
+          updatePreview(normalized, { syncText: false });
+        }
+        updateButtons();
+      });
+      textInput.addEventListener("focus", () => {
+        renderPreview(draftValue);
+      });
+      textInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          event.stopPropagation();
+          void commitDraft();
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          resetDraft();
+        }
+      });
+      applyButton.addEventListener("click", () => {
+        void commitDraft();
+      });
+      cancelButton.addEventListener("click", resetDraft);
+      renderPreview(savedValue);
+      updateButtons();
+      actions.append(applyButton, cancelButton);
       controls.append(swatch, textInput);
-      colorField.append(controls);
-      wrapper.append(colorField);
-      return wrapper;
+      editorRow.append(controls, actions);
+      field.append(preview, editorRow);
+      return field;
     }
     createResetButton(compact) {
       const button = document.createElement("button");
@@ -3205,6 +3792,43 @@
       body.textContent = bodyText;
       box.append(title, body);
       return box;
+    }
+    createColorPreviewBadge(spec, color) {
+      const normalized = normalizeHexColor(color);
+      if (!normalized) {
+        const fallback = document.createElement("span");
+        fallback.className = "bsb-tm-color-preview-invalid";
+        fallback.textContent = "\u989C\u8272\u683C\u5F0F\u65E0\u6548";
+        return fallback;
+      }
+      if (spec.kind === "inline") {
+        return createInlineBadge("data-bsb-color-preview-inline", spec.text, spec.tone, "inline", normalized, spec.appearance);
+      }
+      const overrides = { [spec.category]: normalized };
+      const style = resolveCategoryStyle(spec.category, overrides);
+      const wrap = document.createElement("span");
+      const pill = document.createElement("span");
+      const label = document.createElement("span");
+      const glassVariant = this.config.labelTransparency.titleBadge ? style.transparentVariant : "dark";
+      wrap.className = "bsb-tm-title-pill-wrap bsb-tm-color-preview-title-wrap";
+      wrap.dataset.category = spec.category;
+      wrap.dataset.transparent = String(this.config.labelTransparency.titleBadge);
+      wrap.dataset.glassContext = "surface";
+      wrap.dataset.glassVariant = glassVariant;
+      wrap.style.setProperty("--bsb-category-accent", style.accent);
+      wrap.style.setProperty("--bsb-category-accent-strong", style.accentStrong);
+      wrap.style.setProperty("--bsb-category-display-accent", style.transparentDisplayAccent);
+      wrap.style.setProperty("--bsb-category-contrast", this.config.labelTransparency.titleBadge ? "#0f172a" : style.contrast);
+      wrap.style.setProperty("--bsb-category-soft-surface", style.softSurface);
+      wrap.style.setProperty("--bsb-category-soft-border", style.softBorder);
+      wrap.style.setProperty("--bsb-category-glass-surface", style.glassSurface);
+      wrap.style.setProperty("--bsb-category-glass-border", style.glassBorder);
+      pill.className = "bsb-tm-title-pill bsb-tm-color-preview-title-pill";
+      label.className = "bsb-tm-title-pill-label";
+      label.textContent = CATEGORY_LABELS[spec.category];
+      pill.append(createSponsorShieldIcon(), label);
+      wrap.append(pill);
+      return wrap;
     }
     attachViewportListeners() {
       var _a, _b;
@@ -3571,8 +4195,8 @@
 
   // src/ui/title-badge.ts
   var DEFAULT_COPY = "\u6574\u4E2A\u89C6\u9891\u90FD\u88AB\u793E\u533A\u6807\u8BB0\u4E3A\u8FD9\u4E00\u7C7B\u5185\u5BB9\u3002\u6807\u7B7E\u4EC5\u7528\u4E8E\u8F85\u52A9\u5224\u65AD\uFF0C\u4E0D\u5E94\u66FF\u4EE3\u4F60\u81EA\u5DF1\u7684\u89C2\u770B\u5224\u65AD\u3002";
-  var LABEL_ONLY_COPY = "\u8FD9\u4E2A\u6807\u7B7E\u6765\u81EA\u6574\u89C6\u9891\u6807\u7B7E\u7ED3\u679C\uFF0C\u4F46\u5F53\u524D\u6CA1\u6709\u53EF\u76F4\u63A5\u53CD\u9988\u7684\u6295\u7968\u8BB0\u5F55\u3002";
-  var LOCAL_SIGNAL_COPY = "\u8FD9\u4E2A\u6807\u7B7E\u6765\u81EA\u672C\u5730\u9875\u9762\u7EBF\u7D22\uFF0C\u800C\u4E0D\u662F SponsorBlock \u793E\u533A\u5DF2\u6536\u5F55\u7684\u6574\u89C6\u9891\u8BB0\u5F55\u3002";
+  var LABEL_ONLY_COPY = "\u8FD9\u4E2A\u6807\u7B7E\u6765\u81EA\u6574\u89C6\u9891\u6807\u7B7E\u63A5\u53E3\u7ED3\u679C\uFF1B\u8BE5\u63A5\u53E3\u53EA\u63D0\u4F9B\u5206\u7C7B\u6458\u8981\uFF0C\u6CA1\u6709\u53EF\u76F4\u63A5\u53CD\u9988\u7684\u6295\u7968 UUID\u3002";
+  var LOCAL_SIGNAL_COPY = "\u8FD9\u662F\u672C\u5730\u63A8\u7406\u6807\u7B7E\uFF0C\u6765\u81EA\u672C\u673A\u9875\u9762\u6216\u8BC4\u8BBA\u7EBF\u7D22\uFF0C\u4E0D\u4EE3\u8868 SponsorBlock \u793E\u533A\u5DF2\u6536\u5F55\u7684\u6574\u89C6\u9891\u8BB0\u5F55\u3002";
   var LOCKED_COPY = "\u8FD9\u6761\u6574\u89C6\u9891\u6807\u7B7E\u7684\u53CD\u9988\u5DF2\u5728\u672C\u673A\u63D0\u4EA4\u3002\u4E3A\u907F\u514D\u91CD\u590D\u6295\u7968\uFF0C\u5F53\u524D\u6309\u94AE\u5DF2\u9501\u5B9A\u3002";
   var LOCAL_LOCKED_COPY = "\u5DF2\u63D0\u4EA4\u3002\u672C\u5730\u5B66\u4E60\u4F1A\u5728\u540E\u7EED\u7EE7\u7EED\u4FDD\u7559\u6216\u5FFD\u7565\u6B64\u5224\u65AD\uFF1B\u8BE5\u64CD\u4F5C\u5BF9\u5F53\u524D\u89C6\u9891\u4E0D\u53EF\u91CD\u590D\u63D0\u4EA4\u3002";
   function resolveCopy(segment, votingAvailable) {
@@ -3602,6 +4226,7 @@
       __publicField(this, "currentSegment", null);
       __publicField(this, "mountedHost", null);
       __publicField(this, "isOpen", false);
+      __publicField(this, "openFrame", null);
       __publicField(this, "closeTimer", null);
       __publicField(this, "positionFrame", null);
       __publicField(this, "categoryColorOverrides", {});
@@ -3714,6 +4339,10 @@
         window.cancelAnimationFrame(this.positionFrame);
         this.positionFrame = null;
       }
+      if (this.openFrame !== null) {
+        window.cancelAnimationFrame(this.openFrame);
+        this.openFrame = null;
+      }
       const host = this.root.parentElement;
       this.root.remove();
       cleanupVideoTitleAccessoryHost(host);
@@ -3753,7 +4382,7 @@
       this.upvoteButton.lastChild && (this.upvoteButton.lastChild.textContent = this.votingAvailable ? "\u6807\u8BB0\u6B63\u786E" : this.localActionsAvailable ? "\u4FDD\u7559\u672C\u5730\u6807\u7B7E" : "\u6807\u8BB0\u6B63\u786E");
       this.downvoteButton.lastChild && (this.downvoteButton.lastChild.textContent = this.votingAvailable ? "\u6807\u8BB0\u6709\u8BEF" : this.localActionsAvailable ? "\u5FFD\u7565\u6B64\u89C6\u9891" : "\u6807\u8BB0\u6709\u8BEF");
       this.feedbackHint.hidden = this.votingAvailable && !this.localActionsAvailable && !this.voteLocked;
-      this.feedbackHint.textContent = this.localActionsAvailable ? this.voteLocked ? LOCAL_LOCKED_COPY : "\u8FD9\u6761\u63D0\u793A\u6765\u81EA\u672C\u5730\u8BC4\u8BBA\u6216\u9875\u9762\u7EBF\u7D22\u3002\u4F60\u53EF\u4EE5\u4FDD\u7559\u5B83\uFF0C\u4E5F\u53EF\u4EE5\u5FFD\u7565\u5E76\u963B\u6B62\u5F53\u524D\u89C6\u9891\u7EE7\u7EED\u89E6\u53D1\u672C\u5730\u63D0\u793A\u3002\u63D0\u4EA4\u540E\u5F53\u524D\u89C6\u9891\u4E0D\u53EF\u91CD\u590D\u53CD\u9988\u3002" : this.voteLocked ? LOCKED_COPY : "\u8FD9\u6761\u6807\u7B7E\u76EE\u524D\u53EA\u6709\u6574\u89C6\u9891\u6807\u7B7E\u7ED3\u679C\uFF0C\u6CA1\u6709\u53EF\u76F4\u63A5\u6295\u7968\u7684 SponsorBlock UUID\u3002";
+      this.feedbackHint.textContent = this.localActionsAvailable ? this.voteLocked ? LOCAL_LOCKED_COPY : "\u8FD9\u6761\u63D0\u793A\u6765\u81EA\u672C\u5730\u8BC4\u8BBA\u6216\u9875\u9762\u7EBF\u7D22\u3002\u4F60\u53EF\u4EE5\u4FDD\u7559\u5B83\uFF0C\u4E5F\u53EF\u4EE5\u5FFD\u7565\u5E76\u963B\u6B62\u5F53\u524D\u89C6\u9891\u7EE7\u7EED\u89E6\u53D1\u672C\u5730\u63D0\u793A\u3002\u63D0\u4EA4\u540E\u5F53\u524D\u89C6\u9891\u4E0D\u53EF\u91CD\u590D\u53CD\u9988\u3002" : this.voteLocked ? LOCKED_COPY : "\u8FD9\u6761\u6807\u7B7E\u76EE\u524D\u53EA\u6709\u6574\u89C6\u9891\u6807\u7B7E\u63A5\u53E3\u7ED3\u679C\uFF0C\u6CA1\u6709\u53EF\u76F4\u63A5\u6295\u7968\u7684 SponsorBlock UUID\u3002";
       this.actions.classList.toggle("vote-unavailable", !this.votingAvailable);
       this.pillButton.setAttribute(
         "aria-label",
@@ -3793,13 +4422,24 @@
       this.pillButton.setAttribute("aria-expanded", "true");
       this.popover.hidden = false;
       this.schedulePopoverPosition();
-      requestAnimationFrame(() => {
+      if (this.openFrame !== null) {
+        window.cancelAnimationFrame(this.openFrame);
+      }
+      this.openFrame = window.requestAnimationFrame(() => {
+        this.openFrame = null;
+        if (!this.isOpen || this.popover.hidden) {
+          return;
+        }
         this.popover.classList.add("open");
       });
       this.attachPopoverListeners();
     }
     closePopover() {
       this.isOpen = false;
+      if (this.openFrame !== null) {
+        window.cancelAnimationFrame(this.openFrame);
+        this.openFrame = null;
+      }
       this.pillButton.setAttribute("aria-expanded", "false");
       this.popover.classList.remove("open");
       this.detachPopoverListeners();
@@ -4069,13 +4709,14 @@
       avatarSrc: null
     };
   }
-  function createSearchForm(seed, options) {
+  function createSearchForm(seed, getOptions) {
     const form = document.createElement("form");
     form.className = "bsb-tm-video-header-fallback-search";
     const input = document.createElement("input");
     input.type = "search";
-    input.placeholder = resolveDisplayedPlaceholder(seed, options.placeholderVisible);
+    input.placeholder = resolveDisplayedPlaceholder(seed, getOptions().placeholderVisible);
     input.value = seed.value;
+    input.dataset.bsbSeedValue = seed.value;
     input.autocomplete = "off";
     input.spellcheck = false;
     input.setAttribute("aria-label", "\u641C\u7D22 B \u7AD9\u5185\u5BB9");
@@ -4091,7 +4732,7 @@
           placeholder: input.placeholder,
           value: input.value
         },
-        options
+        getOptions()
       );
       if (!keyword) {
         return;
@@ -4180,11 +4821,36 @@
         this.lastResolvedProfileSeed = authoritativeProfileSeed;
       }
       const profileSeed = (_b = authoritativeProfileSeed != null ? authoritativeProfileSeed : this.lastResolvedProfileSeed) != null ? _b : resolvedProfileSeed;
-      this.searchSlot.replaceChildren(createSearchForm(searchSeed, this.options));
-      this.profileSlot.replaceChildren(createProfileLink(profileSeed));
+      this.syncSearchForm(searchSeed);
+      this.syncProfileLink(profileSeed);
       this.syncProfileObserver(profileSeed);
       void this.ensureRemoteProfileSeed();
       this.scheduleRetry();
+    }
+    syncSearchForm(seed) {
+      var _a;
+      const existingForm = this.searchSlot.querySelector(".bsb-tm-video-header-fallback-search");
+      const existingInput = existingForm == null ? void 0 : existingForm.querySelector("input[type='search']");
+      if (!existingForm || !existingInput) {
+        this.searchSlot.replaceChildren(createSearchForm(seed, () => this.options));
+        return;
+      }
+      const seedValue = (_a = existingInput.dataset.bsbSeedValue) != null ? _a : "";
+      const hasUserDraft = document.activeElement === existingInput || existingInput.value !== seedValue;
+      existingInput.placeholder = resolveDisplayedPlaceholder(seed, this.options.placeholderVisible);
+      if (!hasUserDraft) {
+        existingInput.value = seed.value;
+        existingInput.dataset.bsbSeedValue = seed.value;
+      }
+    }
+    syncProfileLink(seed) {
+      const existingLink = this.profileSlot.querySelector(".bsb-tm-video-header-profile-link");
+      const existingAvatar = existingLink == null ? void 0 : existingLink.querySelector(".bsb-tm-video-header-avatar");
+      const existingAvatarSrc = normalizeAvatarUrl(existingAvatar == null ? void 0 : existingAvatar.getAttribute("src"));
+      if (existingLink && existingLink.href === seed.href && existingLink.getAttribute("aria-label") === seed.label && existingAvatarSrc === normalizeAvatarUrl(seed.avatarSrc)) {
+        return;
+      }
+      this.profileSlot.replaceChildren(createProfileLink(seed));
     }
     unmount() {
       var _a;
@@ -4438,372 +5104,6 @@
       listeners.delete(listener);
       maybeStop();
     };
-  }
-
-  // src/ui/surface-frosted-glass.ts
-  function createSurfaceFrostedGlassMaterial(options) {
-    const { accentExpression, textVariable } = options;
-    const textAssignment = textVariable ? `  ${textVariable}: #0f172a;
-` : "";
-    return {
-      base: `${textAssignment}  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, ${accentExpression} 7%, rgba(255, 255, 255, 0.18)),
-    color-mix(in srgb, ${accentExpression} 10%, rgba(255, 255, 255, 0.04))
-  );
-  border: 1px solid color-mix(in srgb, ${accentExpression} 16%, rgba(255, 255, 255, 0.12));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.16),
-    inset 0 -1px 0 color-mix(in srgb, ${accentExpression} 8%, rgba(15, 23, 42, 0.05)),
-    0 5px 12px rgba(15, 23, 42, 0.04),
-    0 10px 20px rgba(15, 23, 42, 0.018);
-  backdrop-filter: none;`,
-      overlay: `  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  background:
-    radial-gradient(circle at 18% 8%, color-mix(in srgb, ${accentExpression} 22%, rgba(255, 255, 255, 0.26)) 0%, transparent 36%),
-    radial-gradient(circle at 78% 120%, color-mix(in srgb, ${accentExpression} 14%, rgba(15, 23, 42, 0.1)) 0%, transparent 46%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.035) 34%, transparent 62%),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, ${accentExpression} 14%, rgba(255, 255, 255, 0.28)),
-      color-mix(in srgb, ${accentExpression} 22%, rgba(231, 238, 245, 0.12))
-    ),
-    linear-gradient(112deg, transparent 14%, rgba(255, 255, 255, 0.14) 24%, rgba(255, 255, 255, 0.03) 32%, transparent 42%);
-  opacity: 0.82;
-  backdrop-filter: blur(7px) saturate(148%) brightness(1.04);
-  mix-blend-mode: screen;`
-    };
-  }
-
-  // src/ui/inline-feedback.ts
-  var INLINE_STYLE_ATTR = "data-bsb-inline-feedback-style";
-  var DEFAULT_TONE_ACCENTS = {
-    danger: "#ff6b66",
-    warning: "#ffd56a",
-    success: "#4ade80",
-    info: "#60a5fa"
-  };
-  var inlineSurfaceFrostedGlass = createSurfaceFrostedGlassMaterial({
-    accentExpression: "var(--bsb-inline-accent)",
-    textVariable: "--bsb-inline-text"
-  });
-  var inlineFeedbackStyles = `
-.bsb-tm-inline-chip,
-.bsb-tm-inline-toggle {
-  font-family: "SF Pro Text", "PingFang SC", sans-serif;
-  font-kerning: normal;
-  font-feature-settings: "kern" 1;
-  font-synthesis-weight: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-}
-
-.bsb-tm-inline-chip {
-  --bsb-inline-accent: #ff6b6b;
-  --bsb-inline-surface: rgba(45, 55, 72, 0.94);
-  --bsb-inline-surface-strong: rgba(29, 37, 52, 0.98);
-  --bsb-inline-text: #f8fafc;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 24px;
-  max-width: min(100%, 24rem);
-  padding: 0 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background:
-    radial-gradient(circle at 20% 18%, rgba(255, 255, 255, 0.18), transparent 38%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.09), transparent 52%),
-    linear-gradient(180deg, var(--bsb-inline-surface), var(--bsb-inline-surface-strong));
-  color: var(--bsb-inline-text);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.14),
-    inset 0 -1px 0 rgba(15, 23, 42, 0.22),
-    0 10px 20px rgba(15, 23, 42, 0.16);
-  backdrop-filter: blur(16px) saturate(155%);
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.01em;
-  line-height: 1.1;
-  text-align: center;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.bsb-tm-inline-chip[data-appearance="glass"] {
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
-}
-
-.bsb-tm-inline-chip[data-appearance="glass"][data-glass-context="surface"] {
-${inlineSurfaceFrostedGlass.base}
-}
-
-.bsb-tm-inline-chip[data-appearance="glass"][data-glass-context="surface"]::after {
-${inlineSurfaceFrostedGlass.overlay}
-  z-index: 0;
-}
-
-.bsb-tm-inline-chip::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  flex: none;
-  background: var(--bsb-inline-accent);
-  box-shadow:
-    0 0 0 2px rgba(255, 255, 255, 0.14),
-    0 0 14px color-mix(in srgb, var(--bsb-inline-accent) 72%, transparent);
-  position: relative;
-  z-index: 1;
-}
-
-.bsb-tm-inline-chip[data-appearance="glass"][data-glass-context="surface"]::before {
-  box-shadow:
-    0 0 0 2px rgba(255, 255, 255, 0.24),
-    0 0 10px color-mix(in srgb, var(--bsb-inline-accent) 38%, transparent);
-}
-
-.bsb-tm-inline-chip__label {
-  position: relative;
-  z-index: 1;
-}
-
-.bsb-tm-inline-chip--inline,
-.bsb-tm-inline-toggle--inline {
-  margin-inline-start: 8px;
-}
-
-.bsb-tm-inline-chip--stack,
-.bsb-tm-inline-toggle--stack {
-  margin-top: 8px;
-}
-
-.bsb-tm-inline-chip[data-tone="danger"] {
-  --bsb-inline-accent: #ff6b66;
-  --bsb-inline-surface: rgba(130, 41, 41, 0.94);
-  --bsb-inline-surface-strong: rgba(104, 28, 28, 0.98);
-}
-
-.bsb-tm-inline-chip[data-tone="warning"] {
-  --bsb-inline-accent: #ffd56a;
-  --bsb-inline-surface: rgba(109, 74, 20, 0.94);
-  --bsb-inline-surface-strong: rgba(82, 53, 13, 0.98);
-}
-
-.bsb-tm-inline-chip[data-tone="success"] {
-  --bsb-inline-accent: #4ade80;
-  --bsb-inline-surface: rgba(25, 101, 73, 0.94);
-  --bsb-inline-surface-strong: rgba(18, 76, 55, 0.98);
-}
-
-.bsb-tm-inline-chip[data-tone="info"] {
-  --bsb-inline-accent: #60a5fa;
-  --bsb-inline-surface: rgba(30, 88, 153, 0.94);
-  --bsb-inline-surface-strong: rgba(21, 66, 118, 0.98);
-}
-
-.bsb-tm-inline-toggle {
-  appearance: none;
-  -webkit-appearance: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  min-height: 30px;
-  padding: 8px 13px;
-  border-radius: 999px;
-  border: 1px solid rgba(148, 163, 184, 0.26);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(245, 248, 252, 0.78)),
-    rgba(247, 250, 252, 0.84);
-  color: #0f172a;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.84),
-    0 8px 18px rgba(15, 23, 42, 0.08);
-  font-size: 12px;
-  font-weight: 650;
-  line-height: 1.1;
-  letter-spacing: 0.01em;
-  text-align: center;
-  white-space: nowrap;
-  word-break: keep-all;
-  overflow-wrap: normal;
-  cursor: pointer;
-  transition:
-    box-shadow 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    background 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    border-color 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
-    color 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.bsb-tm-inline-toggle[data-state="hidden"] {
-  border-color: rgba(59, 130, 246, 0.2);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(247, 250, 252, 0.84)),
-    rgba(59, 130, 246, 0.08);
-}
-
-.bsb-tm-inline-toggle[data-state="shown"] {
-  border-color: rgba(239, 68, 68, 0.22);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(252, 246, 246, 0.86)),
-    rgba(239, 68, 68, 0.08);
-}
-
-.bsb-tm-inline-toggle:hover {
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    0 12px 22px rgba(15, 23, 42, 0.1);
-  transform: translateY(-1px);
-}
-
-.bsb-tm-inline-toggle:active {
-  transform: scale(0.985);
-}
-
-.bsb-tm-inline-toggle:focus-visible {
-  outline: none;
-  box-shadow:
-    0 0 0 3px rgba(0, 174, 236, 0.18),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9);
-}
-
-.bsb-tm-inline-toggle:disabled {
-  cursor: default;
-  opacity: 0.72;
-  transform: none;
-}
-
-.bsb-tm-inline-toggle:disabled:hover {
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.84),
-    0 8px 18px rgba(15, 23, 42, 0.08);
-  transform: none;
-}
-
-.bsb-tm-inline-feedback-menu {
-  --bsb-inline-feedback-menu-accent: #60a5fa;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  margin-inline-start: 8px;
-  padding: 2px;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  vertical-align: middle;
-  white-space: nowrap;
-  isolation: isolate;
-  transition:
-    background 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    border-color 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    box-shadow 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.bsb-tm-inline-feedback-menu[data-open="true"] {
-  background:
-    radial-gradient(circle at 16% 10%, color-mix(in srgb, var(--bsb-inline-feedback-menu-accent) 16%, rgba(255, 255, 255, 0.34)), transparent 44%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.68), rgba(244, 248, 255, 0.42));
-  border-color: color-mix(in srgb, var(--bsb-inline-feedback-menu-accent) 16%, rgba(148, 163, 184, 0.22));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.72),
-    0 8px 18px rgba(15, 23, 42, 0.08);
-}
-
-.bsb-tm-inline-feedback-menu[data-disabled="true"] {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(245, 248, 252, 0.48)),
-    rgba(148, 163, 184, 0.08);
-  border-color: rgba(148, 163, 184, 0.2);
-}
-
-.bsb-tm-inline-feedback-menu .bsb-tm-inline-toggle {
-  min-height: 24px;
-  padding: 5px 9px;
-  font-size: 11px;
-}
-
-.bsb-tm-inline-feedback-menu .bsb-tm-inline-toggle--inline {
-  margin-inline-start: 0;
-}
-
-.bsb-tm-inline-feedback-menu__choices {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  max-inline-size: 0;
-  opacity: 0;
-  overflow: hidden;
-  pointer-events: none;
-  transform: translateX(-6px) scale(0.96);
-  transform-origin: left center;
-  clip-path: inset(0 100% 0 0 round 999px);
-  transition:
-    max-inline-size 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    opacity 180ms ease,
-    transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
-    clip-path 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.bsb-tm-inline-feedback-menu[data-open="true"] .bsb-tm-inline-feedback-menu__choices {
-  max-inline-size: 96px;
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateX(0) scale(1);
-  clip-path: inset(0 0 0 0 round 999px);
-}
-`;
-  function ensureInlineFeedbackStyles(root) {
-    if (root.querySelector(`style[${INLINE_STYLE_ATTR}]`)) {
-      return;
-    }
-    const style = document.createElement("style");
-    style.setAttribute(INLINE_STYLE_ATTR, "true");
-    style.textContent = inlineFeedbackStyles;
-    root.prepend(style);
-  }
-  function createInlineBadge(attrName, text, tone, layout, customColor, appearance = "solid") {
-    const badge = document.createElement("div");
-    const label = document.createElement("span");
-    const accent = customColor != null ? customColor : DEFAULT_TONE_ACCENTS[tone];
-    badge.className = `bsb-tm-inline-chip bsb-tm-inline-chip--${layout}`;
-    badge.setAttribute(attrName, "true");
-    badge.dataset.tone = tone;
-    badge.dataset.appearance = appearance;
-    badge.dataset.glassVariant = resolveTransparentGlassVariant(accent);
-    if (appearance === "glass") {
-      badge.dataset.glassContext = "surface";
-    }
-    badge.title = text;
-    label.className = "bsb-tm-inline-chip__label";
-    label.textContent = text;
-    badge.append(label);
-    if (customColor) {
-      badge.style.setProperty("--bsb-inline-accent", customColor);
-      badge.style.setProperty("--bsb-inline-surface", `color-mix(in srgb, ${customColor} 20%, rgba(45, 55, 72, 0.94))`);
-      badge.style.setProperty("--bsb-inline-surface-strong", `color-mix(in srgb, ${customColor} 28%, rgba(29, 37, 52, 0.98))`);
-    }
-    return badge;
-  }
-  function createInlineToggle(attrName, onClick, layout) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = `bsb-tm-inline-toggle bsb-tm-inline-toggle--${layout}`;
-    button.setAttribute(attrName, "true");
-    button.addEventListener("click", onClick);
-    return button;
-  }
-  function setInlineToggleState(button, state, labels) {
-    button.dataset.state = state;
-    button.setAttribute("aria-pressed", String(state === "shown"));
-    button.textContent = state === "shown" ? labels.shown : labels.hidden;
   }
 
   // src/features/comment-filter.ts
@@ -7534,12 +7834,25 @@ ${inlineSurfaceFrostedGlass.overlay}
         placeholderVisible: this.currentConfig.compactHeaderPlaceholderVisible,
         searchPlaceholderEnabled: this.currentConfig.compactHeaderSearchPlaceholderEnabled
       });
-      const shouldCompact = this.started && this.currentConfig.enabled && this.currentConfig.compactVideoHeader && supportsCompactVideoHeader(window.location.href) && !isCompactVideoHeaderSuppressed(document);
+      const compactSupported = supportsCompactVideoHeader(window.location.href);
+      const shouldCompact = this.started && this.currentConfig.enabled && this.currentConfig.compactVideoHeader && compactSupported && !isCompactVideoHeaderSuppressed(document);
       if (shouldCompact) {
         this.compactHeader.mount();
+        configureNativeRequestGuard({
+          enabled: true,
+          supportedPage: true,
+          compactHeaderReady: true,
+          reason: "compact-header-mounted"
+        });
         return;
       }
       this.compactHeader.unmount();
+      configureNativeRequestGuard({
+        enabled: this.started && this.currentConfig.enabled && this.currentConfig.compactVideoHeader,
+        supportedPage: compactSupported,
+        compactHeaderReady: false,
+        reason: "compact-header-inactive"
+      });
     }
     resolveFullVideoSegment() {
       return this.currentTitleLabel;
@@ -7683,6 +7996,9 @@ ${inlineSurfaceFrostedGlass.overlay}
     formatVoteErrorMessage(statusCode, responseText) {
       if (statusCode === 403) {
         return "\u670D\u52A1\u7AEF\u62D2\u7EDD\u4E86\u8FD9\u6B21\u53CD\u9988\uFF0C\u7A0D\u540E\u53EF\u518D\u8BD5\u4E00\u6B21\u3002";
+      }
+      if (statusCode === 429) {
+        return "SponsorBlock \u6682\u65F6\u9650\u5236\u4E86\u8FD9\u6B21\u53CD\u9988\u8BF7\u6C42\uFF0C\u53CD\u9988\u672A\u63D0\u4EA4\uFF0C\u8BF7\u7A0D\u540E\u518D\u8BD5\u3002";
       }
       if (statusCode === -1) {
         return "\u8BF7\u6C42\u6CA1\u6709\u9001\u8FBE SponsorBlock \u670D\u52A1\uFF0C\u8BF7\u68C0\u67E5\u7F51\u7EDC\u6216 Tampermonkey \u6388\u6743\u3002";
@@ -8641,6 +8957,16 @@ ${inlineSurfaceFrostedGlass.overlay}
     }
   };
 
+  // src/runtime/menu.ts
+  var QOL_CORE_MENU_LABELS = ["\u6253\u5F00 QoL Core \u63A7\u5236\u53F0", "\u6253\u5F00 QoL Core \u5E2E\u52A9", "\u6E05\u7406 QoL Core \u7F13\u5B58"];
+  function registerQolCoreMenuCommands(controller, registerMenuCommand = gmRegisterMenuCommand) {
+    registerMenuCommand(QOL_CORE_MENU_LABELS[0], () => controller.openPanel());
+    registerMenuCommand(QOL_CORE_MENU_LABELS[1], () => controller.openHelp());
+    registerMenuCommand(QOL_CORE_MENU_LABELS[2], () => {
+      void controller.clearCache();
+    });
+  }
+
   // src/features/mbga/core.ts
   var MBGA_MARKS = {
     urlCleaner: "__BSB_MBGA_URL_CLEANER__",
@@ -8804,6 +9130,21 @@ ${inlineSurfaceFrostedGlass.overlay}
       installGlobalValue(win, "webkitRTCDataChannel", StubDataChannel);
     } catch (_error) {
     }
+  }
+  function findHeadBilivideoDomain(doc) {
+    var _a, _b, _c;
+    const domainPattern = /up[\w-]+\.bilivideo\.com/u;
+    const attributeCandidates = doc.head.querySelectorAll("[src], [href], [content]");
+    for (const node of attributeCandidates) {
+      for (const attributeName of ["src", "href", "content"]) {
+        const value = node.getAttribute(attributeName);
+        const match = (_a = value == null ? void 0 : value.match(domainPattern)) == null ? void 0 : _a[0];
+        if (match) {
+          return match;
+        }
+      }
+    }
+    return (_c = (_b = doc.head.textContent) == null ? void 0 : _b.match(domainPattern)) == null ? void 0 : _c[0];
   }
   function completeBlockedXhr(xhr, win, url, decision) {
     var _a, _b;
@@ -9101,8 +9442,7 @@ ${inlineSurfaceFrostedGlass.overlay}
     if (isVideoPage(ctx.url)) {
       let cdnDomain;
       const replaceP2PUrl = (input) => {
-        var _a2;
-        cdnDomain || (cdnDomain = (_a2 = ctx.doc.head.innerHTML.match(/up[\w-]+\.bilivideo\.com/u)) == null ? void 0 : _a2[0]);
+        cdnDomain || (cdnDomain = findHeadBilivideoDomain(ctx.doc));
         try {
           const url = new URL(input);
           if (url.hostname.endsWith(".mcdn.bilivideo.cn")) {
@@ -9349,24 +9689,36 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
       }
       const item = ctx.doc.createElement("div");
       item.className = "bpx-player-ctrl-setting-fit-mode bui bui-switch";
-      item.innerHTML = '<input class="bui-switch-input" type="checkbox"><label class="bui-switch-label"><span class="bui-switch-name">\u88C1\u5207\u6A21\u5F0F</span><span class="bui-switch-body"><span class="bui-switch-dot"><span></span></span></span></label>';
+      const input = ctx.doc.createElement("input");
+      input.className = "bui-switch-input";
+      input.type = "checkbox";
+      const label = ctx.doc.createElement("label");
+      label.className = "bui-switch-label";
+      const name = ctx.doc.createElement("span");
+      name.className = "bui-switch-name";
+      name.textContent = "\u88C1\u5207\u6A21\u5F0F";
+      const body = ctx.doc.createElement("span");
+      body.className = "bui-switch-body";
+      const dot = ctx.doc.createElement("span");
+      dot.className = "bui-switch-dot";
+      dot.appendChild(ctx.doc.createElement("span"));
+      body.appendChild(dot);
+      label.append(name, body);
+      item.append(input, label);
       const moreLink = ctx.doc.querySelector(".bpx-player-ctrl-setting-more");
       if (moreLink instanceof HTMLElement) {
         parent.insertBefore(item, moreLink);
       } else {
         parent.appendChild(item);
       }
-      const input = item.querySelector("input");
-      if (input instanceof HTMLInputElement) {
-        input.addEventListener("change", (event) => {
-          const checked = event.currentTarget.checked;
-          if (checked) {
-            ctx.doc.body.setAttribute("video-fit", "");
-          } else {
-            ctx.doc.body.removeAttribute("video-fit");
-          }
-        });
-      }
+      input.addEventListener("change", (event) => {
+        const checked = event.currentTarget.checked;
+        if (checked) {
+          ctx.doc.body.setAttribute("video-fit", "");
+        } else {
+          ctx.doc.body.removeAttribute("video-fit");
+        }
+      });
     };
     const timer = win.setInterval(() => {
       if (ctx.doc.querySelector(".bpx-player-ctrl-setting-menu-left")) {
@@ -9708,14 +10060,14 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
   cursor: pointer;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.74),
-    0 10px 24px rgba(15, 23, 42, 0.06),
+    0 8px 18px rgba(15, 23, 42, 0.045),
     inset 0 0 0 1px rgba(255, 255, 255, 0.28);
   transition:
-    background 220ms var(--bsb-ease-swift),
-    box-shadow 220ms var(--bsb-ease-swift),
-    border-color 220ms var(--bsb-ease-swift),
-    color 220ms var(--bsb-ease-swift),
-    transform 260ms var(--bsb-ease-spring);
+    background 190ms var(--bsb-ease-swift),
+    box-shadow 170ms var(--bsb-ease-swift),
+    border-color 170ms var(--bsb-ease-swift),
+    color 170ms var(--bsb-ease-swift),
+    transform 230ms var(--bsb-ease-spring);
 }
 
 .bsb-tm-tab-title {
@@ -9740,7 +10092,7 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.88),
     inset 0 0 0 1px rgba(var(--bsb-brand-blue-rgb), 0.1),
-    0 12px 24px rgba(15, 23, 42, 0.08),
+    0 10px 22px rgba(15, 23, 42, 0.065),
     0 0 0 1px rgba(var(--bsb-brand-blue-rgb), 0.06);
 }
 
@@ -9860,14 +10212,14 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
   border: 1px solid rgba(255, 255, 255, 0.72);
   box-shadow:
     var(--bsb-glass-inner),
-    0 18px 38px rgba(15, 23, 42, 0.08),
+    0 16px 34px rgba(15, 23, 42, 0.07),
     inset 0 0 0 1px rgba(148, 163, 184, 0.12);
   backdrop-filter: blur(14px) saturate(140%);
   transition:
-    box-shadow 220ms var(--bsb-ease-swift),
-    border-color 220ms var(--bsb-ease-swift),
-    background 220ms var(--bsb-ease-swift),
-    transform 220ms var(--bsb-ease-fluid);
+    box-shadow 180ms var(--bsb-ease-swift),
+    border-color 180ms var(--bsb-ease-swift),
+    background 200ms var(--bsb-ease-swift),
+    transform 200ms var(--bsb-ease-fluid);
 }
 
 .bsb-tm-form-group-header {
@@ -9889,8 +10241,8 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
 
 .bsb-tm-color-field {
   display: grid;
-  gap: 10px;
-  padding: 14px 16px;
+  gap: 9px;
+  padding: 12px 14px;
   border-radius: 16px;
   border: 1px solid var(--bsb-border-soft);
   background:
@@ -9899,40 +10251,157 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
   box-shadow:
     var(--bsb-glass-inner),
     inset 0 0 0 1px rgba(148, 163, 184, 0.08);
+  transition:
+    box-shadow 170ms var(--bsb-ease-swift),
+    border-color 170ms var(--bsb-ease-swift),
+    background 190ms var(--bsb-ease-swift),
+    transform 190ms var(--bsb-ease-fluid);
 }
 
-.bsb-tm-color-preview {
+.bsb-tm-color-field.compact {
+  padding: 10px 12px;
+  border-color: rgba(148, 163, 184, 0.16);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.66), rgba(247, 250, 252, 0.42)),
+    rgba(255, 255, 255, 0.32);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.38);
+}
+
+.bsb-tm-color-field:hover,
+.bsb-tm-color-field:focus-within {
+  border-color: rgba(var(--bsb-brand-blue-rgb), 0.22);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(244, 248, 252, 0.72)),
+    rgba(248, 250, 252, 0.74);
+  box-shadow:
+    var(--bsb-glass-inner),
+    0 10px 22px rgba(15, 23, 42, 0.055),
+    inset 0 0 0 1px rgba(var(--bsb-brand-blue-rgb), 0.06);
+  transform: translateY(-1px);
+}
+
+.bsb-tm-color-field.compact:hover,
+.bsb-tm-color-field.compact:focus-within {
+  border-color: rgba(var(--bsb-brand-blue-rgb), 0.2);
+  box-shadow:
+    inset 0 0 0 1px rgba(var(--bsb-brand-blue-rgb), 0.08),
+    0 8px 18px rgba(15, 23, 42, 0.045);
+}
+
+.bsb-tm-color-field:hover .bsb-tm-color-controls input:not(:focus),
+.bsb-tm-color-field:focus-within .bsb-tm-color-controls input:not(:focus) {
+  border-color: rgba(var(--bsb-brand-blue-rgb), 0.22);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 250, 253, 0.86)),
+    rgba(255, 255, 255, 0.84);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 8px 18px rgba(15, 23, 42, 0.055);
+}
+
+.bsb-tm-color-field.compact:hover .bsb-tm-color-controls input:not(:focus),
+.bsb-tm-color-field.compact:focus-within .bsb-tm-color-controls input:not(:focus) {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    0 6px 14px rgba(15, 23, 42, 0.045);
+}
+
+.bsb-tm-color-preview-card {
+  display: grid;
+  justify-items: start;
+  gap: 7px;
+  min-width: 0;
+}
+
+.bsb-tm-color-preview-badge {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  width: fit-content;
-  border-radius: 999px;
-  padding: 5px 10px;
-  color: var(--bsb-text-primary);
-  font-size: 12px;
-  font-weight: 600;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  background: rgba(255, 255, 255, 0.96);
+  flex: none;
 }
 
-.bsb-tm-color-preview::before {
-  content: "";
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--bsb-color-preview, #0f172a);
+.bsb-tm-color-preview-card .bsb-tm-inline-chip,
+.bsb-tm-color-preview-card .bsb-tm-title-pill-wrap {
+  margin-inline-start: 0;
+}
+
+.bsb-tm-color-preview-description {
+  display: block;
+  min-width: 0;
+  color: var(--bsb-text-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.bsb-tm-color-preview-title-pill {
+  min-height: 24px;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+.bsb-tm-color-preview-invalid {
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.bsb-tm-color-editor-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
 }
 
 .bsb-tm-color-controls {
   display: grid;
-  grid-template-columns: 46px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.bsb-tm-color-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.bsb-tm-color-actions[hidden] {
+  display: none !important;
+}
+
+.bsb-tm-color-action {
+  appearance: none;
+  -webkit-appearance: none;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(245, 248, 252, 0.76)),
+    rgba(255, 255, 255, 0.62);
+  color: var(--bsb-text-primary);
+  font: 650 12px/1 var(--bsb-font-ui);
+  cursor: pointer;
+  transition:
+    background 160ms var(--bsb-ease-swift),
+    border-color 160ms var(--bsb-ease-swift),
+    color 160ms var(--bsb-ease-swift),
+    opacity 160ms var(--bsb-ease-swift);
+}
+
+.bsb-tm-color-action.primary {
+  border-color: rgba(var(--bsb-brand-blue-rgb), 0.26);
+  background: rgba(var(--bsb-brand-blue-rgb), 0.1);
+  color: #0369a1;
+}
+
+.bsb-tm-color-action:disabled {
+  cursor: default;
+  opacity: 0.46;
 }
 
 .bsb-tm-color-controls input[type="color"] {
-  width: 46px;
-  min-width: 46px;
-  height: 38px;
+  width: 42px;
+  min-width: 42px;
+  height: 34px;
   padding: 4px;
 }
 
@@ -9961,13 +10430,13 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
   border: 1px solid rgba(255, 255, 255, 0.7);
   box-shadow:
     var(--bsb-glass-inner),
-    0 12px 24px rgba(15, 23, 42, 0.05),
+    0 10px 22px rgba(15, 23, 42, 0.045),
     inset 0 0 0 1px rgba(148, 163, 184, 0.08);
   transition:
-    box-shadow 220ms var(--bsb-ease-swift),
-    border-color 220ms var(--bsb-ease-swift),
-    background 220ms var(--bsb-ease-swift),
-    transform 220ms var(--bsb-ease-fluid);
+    box-shadow 170ms var(--bsb-ease-swift),
+    border-color 170ms var(--bsb-ease-swift),
+    background 190ms var(--bsb-ease-swift),
+    transform 190ms var(--bsb-ease-fluid);
 }
 
 .bsb-tm-summary-line {
@@ -10411,13 +10880,13 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
   white-space: nowrap;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.14),
-    0 6px 12px rgba(15, 23, 42, 0.06);
+    0 5px 10px rgba(15, 23, 42, 0.045);
   transition:
-    box-shadow 220ms var(--bsb-ease-swift),
-    filter 220ms var(--bsb-ease-swift),
-    background 220ms var(--bsb-ease-swift),
-    border-color 220ms var(--bsb-ease-swift),
-    transform 220ms var(--bsb-ease-fluid);
+    box-shadow 180ms var(--bsb-ease-swift),
+    filter 180ms var(--bsb-ease-swift),
+    background 200ms var(--bsb-ease-swift),
+    border-color 180ms var(--bsb-ease-swift),
+    transform 200ms var(--bsb-ease-fluid);
 }
 
 .bsb-tm-title-pill-label {
@@ -10446,22 +10915,30 @@ ${titleSurfaceFrostedGlass.overlay}
   z-index: 2;
 }
 
+.bsb-tm-title-pill-wrap[data-transparent="true"][data-glass-context="surface"] .bsb-tm-title-pill {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 -1px 0 color-mix(in srgb, var(--bsb-category-accent, #2f9e72) 7%, rgba(15, 23, 42, 0.035)),
+    0 4px 10px rgba(15, 23, 42, 0.03),
+    0 8px 16px rgba(15, 23, 42, 0.012);
+}
+
 .bsb-tm-title-pill:hover,
 .bsb-tm-title-pill[aria-expanded="true"] {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    0 10px 20px rgba(15, 23, 42, 0.12),
+    0 8px 16px rgba(15, 23, 42, 0.085),
     0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 .bsb-tm-title-pill-wrap[data-transparent="true"][data-glass-context="surface"] .bsb-tm-title-pill:hover,
 .bsb-tm-title-pill-wrap[data-transparent="true"][data-glass-context="surface"] .bsb-tm-title-pill[aria-expanded="true"] {
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.28),
-    inset 0 -1px 0 color-mix(in srgb, var(--bsb-category-accent, #2f9e72) 12%, rgba(15, 23, 42, 0.06)),
-    0 8px 18px rgba(15, 23, 42, 0.06),
-    0 16px 28px rgba(15, 23, 42, 0.03);
-  filter: saturate(1.04) brightness(1.02);
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    inset 0 -1px 0 color-mix(in srgb, var(--bsb-category-accent, #2f9e72) 9%, rgba(15, 23, 42, 0.045)),
+    0 6px 14px rgba(15, 23, 42, 0.04),
+    0 11px 20px rgba(15, 23, 42, 0.018);
+  filter: saturate(1.025) brightness(1.01);
 }
 
 .bsb-tm-title-pill svg,
@@ -11173,7 +11650,7 @@ ${titleSurfaceFrostedGlass.overlay}
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.28);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.8),
-    0 14px 30px rgba(15, 23, 42, 0.09);
+    0 10px 22px rgba(15, 23, 42, 0.065);
   transform: translateY(-1px);
 }
 
@@ -11182,7 +11659,7 @@ ${titleSurfaceFrostedGlass.overlay}
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.22);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.82),
-    0 14px 28px rgba(15, 23, 42, 0.08),
+    0 10px 22px rgba(15, 23, 42, 0.06),
     inset 0 0 0 1px rgba(var(--bsb-brand-blue-rgb), 0.06);
   transform: translateY(-1px);
 }
@@ -11237,7 +11714,7 @@ ${titleSurfaceFrostedGlass.overlay}
   border-color: rgba(255, 255, 255, 0.82);
   box-shadow:
     var(--bsb-glass-inner),
-    0 24px 50px rgba(15, 23, 42, 0.12),
+    0 18px 38px rgba(15, 23, 42, 0.095),
     inset 0 0 0 1px rgba(var(--bsb-brand-blue-rgb), 0.08);
 }
 
@@ -11252,7 +11729,7 @@ ${titleSurfaceFrostedGlass.overlay}
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.3);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.84),
-    0 16px 34px rgba(15, 23, 42, 0.08),
+    0 12px 26px rgba(15, 23, 42, 0.065),
     0 0 0 3px rgba(var(--bsb-brand-blue-rgb), 0.08);
 }
 
@@ -11606,6 +12083,7 @@ ${inlineFeedbackStyles}
     height: 30px;
   }
 }
+
 `;
   var mbgaStyles = ``;
 
@@ -11643,6 +12121,12 @@ ${inlineFeedbackStyles}
       const voteHistoryStore = new VoteHistoryStore();
       yield Promise.all([configStore.load(), statsStore.load(), localVideoLabelStore.load(), voteHistoryStore.load()]);
       const currentConfig = configStore.getSnapshot();
+      configureNativeRequestGuard({
+        enabled: currentConfig.enabled && currentConfig.compactVideoHeader,
+        supportedPage: supportsCompactVideoHeader(window.location.href),
+        compactHeaderReady: false,
+        reason: "config-loaded"
+      });
       mountMbga(currentConfig);
       if (currentConfig.mbgaEnabled && currentConfig.mbgaSimplifyUi) {
         gmAddStyle(mbgaStyles);
@@ -11682,12 +12166,7 @@ ${inlineFeedbackStyles}
           });
         }
       );
-      gmRegisterMenuCommand("\u6253\u5F00 BSB \u63A7\u5236\u53F0", () => controller.openPanel());
-      gmRegisterMenuCommand("\u6253\u5F00 BSB \u5E2E\u52A9", () => controller.openHelp());
-      gmRegisterMenuCommand("\u5207\u6362 BSB \u63A7\u5236\u53F0", () => controller.togglePanel());
-      gmRegisterMenuCommand("\u6E05\u7406 BSB \u7F13\u5B58", () => {
-        void controller.clearCache();
-      });
+      registerQolCoreMenuCommands(controller);
       yield runtime.start();
     });
   }
@@ -11698,6 +12177,9 @@ ${inlineFeedbackStyles}
       });
     }
     return Promise.resolve();
+  }
+  if (isTopLevelWindow() && isSupportedLocation(window.location.href)) {
+    installNativeRequestGuardBridge();
   }
   void ready().then(() => bootstrap()).catch((error) => {
     debugLog("Bootstrap failed", error);

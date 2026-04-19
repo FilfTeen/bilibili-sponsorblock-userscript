@@ -108,7 +108,47 @@ describe("sponsorblock client", () => {
     expect(gmRequest).toHaveBeenCalledWith(
       expect.objectContaining({
         method: "POST",
-        url: expect.stringContaining("/api/voteOnSponsorTime?UUID=segment-1&userID=user-123&type=0")
+        url: expect.stringContaining("/api/voteOnSponsorTime?UUID=segment-1&userID=user-123&type=0"),
+        headers: expect.objectContaining({
+          "x-ext-version": expect.any(String)
+        })
+      })
+    );
+  });
+
+  it("does not treat upstream rate limiting as a successful vote", async () => {
+    vi.stubGlobal("GM_getValue", vi.fn(async () => "user-123"));
+    vi.stubGlobal("GM_setValue", vi.fn());
+    vi.stubGlobal("GM_xmlhttpRequest", (options: { onload?: (response: { status: number; responseText: string }) => void }) => {
+      options.onload?.({ status: 429, responseText: "rate limited" });
+    });
+
+    const { client } = createClient();
+    const response = await client.vote("segment-1", 1, DEFAULT_CONFIG as StoredConfig);
+
+    expect(response.successType).toBe(-1);
+    expect(response.statusCode).toBe(429);
+    expect(response.responseText).toBe("rate limited");
+  });
+
+  it("sends the upstream extension version header on segment reads", async () => {
+    const gmRequest = vi.fn((options: { onload?: (response: { status: number; responseText: string }) => void }) => {
+      options.onload?.({
+        status: 404,
+        responseText: ""
+      });
+    });
+    vi.stubGlobal("GM_xmlhttpRequest", gmRequest);
+
+    const { client } = createClient();
+    await client.getSegments(video, DEFAULT_CONFIG as StoredConfig);
+
+    expect(gmRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Accept: "application/json",
+          "x-ext-version": expect.any(String)
+        })
       })
     );
   });

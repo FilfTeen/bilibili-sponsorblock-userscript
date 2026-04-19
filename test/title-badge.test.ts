@@ -46,6 +46,30 @@ describe("title badge", () => {
     expect(document.querySelector(".bsb-tm-title-pill-wrap")?.getAttribute("data-category")).toBe("exclusive_access");
   });
 
+  it("does not reopen the popover from a stale animation frame after immediate close", async () => {
+    document.body.innerHTML = `
+      <div class="video-info-container">
+        <h1>测试视频</h1>
+      </div>
+    `;
+
+    const badge = new TitleBadge({
+      onVote: vi.fn(async () => "submitted" as const),
+      onLocalDecision: vi.fn(async () => {}),
+      onOpenSettings: vi.fn()
+    });
+    badge.setSegment(fullSegment);
+
+    const pill = document.querySelector<HTMLButtonElement>(".bsb-tm-title-pill");
+    pill?.click();
+    pill?.click();
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+
+    const popover = document.querySelector<HTMLElement>(".bsb-tm-title-popover");
+    expect(popover?.classList.contains("open")).toBe(false);
+    expect(pill?.getAttribute("aria-expanded")).toBe("false");
+  });
+
   it("mounts inside the title without rewriting the title parent layout", () => {
     document.body.innerHTML = `
       <div class="video-info-container">
@@ -143,6 +167,7 @@ describe("title badge", () => {
     const negative = buttons.find((button) => button.textContent?.includes("标记有误"));
     expect(positive?.disabled).toBe(true);
     expect(negative?.disabled).toBe(true);
+    expect(document.querySelector(".bsb-tm-title-popover-copy")?.textContent).toContain("整视频标签接口结果");
     expect(document.querySelector(".bsb-tm-title-popover-hint")?.textContent).toContain("没有可直接投票");
   });
 
@@ -174,6 +199,7 @@ describe("title badge", () => {
     const dismissButton = buttons.find((button) => button.textContent?.includes("忽略此视频"));
     expect(keepButton?.disabled).toBe(false);
     expect(dismissButton?.disabled).toBe(false);
+    expect(document.querySelector(".bsb-tm-title-popover-copy")?.textContent).toContain("本地推理标签");
 
     await dismissButton?.click();
     expect(onLocalDecision).toHaveBeenCalledWith(

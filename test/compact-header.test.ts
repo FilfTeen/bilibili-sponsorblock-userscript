@@ -103,6 +103,32 @@ describe("compact video header", () => {
     header.destroy();
   });
 
+  it("keeps the compact search input stable during retry sync while the user is editing", () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = `
+      <div class="bili-header__bar mini-header">
+        <input class="nav-search-input" type="search" placeholder="搜索 B 站内容" value="">
+      </div>
+    `;
+
+    const header = new CompactVideoHeader();
+    header.mount();
+
+    const inputBefore = document.querySelector<HTMLInputElement>(".bsb-tm-video-header-fallback-search input");
+    expect(inputBefore).toBeTruthy();
+    inputBefore!.focus();
+    inputBefore!.value = "用户正在输入";
+
+    vi.advanceTimersByTime(400);
+
+    const inputAfter = document.querySelector<HTMLInputElement>(".bsb-tm-video-header-fallback-search input");
+    expect(inputAfter).toBe(inputBefore);
+    expect(inputAfter?.value).toBe("用户正在输入");
+    expect(document.activeElement).toBe(inputBefore);
+    header.destroy();
+    vi.useRealTimers();
+  });
+
   it("searches with an advertising placeholder when enabled and the input is empty", () => {
     document.body.innerHTML = `
       <div class="bili-header__bar mini-header">

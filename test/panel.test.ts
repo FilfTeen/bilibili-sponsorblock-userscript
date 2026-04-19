@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { CATEGORY_LABELS } from "../src/constants";
 import { cloneDefaultConfig } from "../src/core/config-store";
 import { SettingsPanel } from "../src/ui/panel";
 import { styles } from "../src/ui/styles";
@@ -275,5 +276,184 @@ describe("settings panel", () => {
     expect(firstCard?.children[0]?.className).toContain("bsb-tm-feature-title");
     expect(firstCard?.children[1]?.className).toContain("bsb-tm-feature-value");
     expect(firstCard?.children[2]?.className).toContain("bsb-tm-section-description");
+  });
+
+  it("previews category colors while dragging and only saves after explicit apply", async () => {
+    const onPatchConfig = vi.fn(async () => {});
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig,
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const field = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-color-field[data-color-editor='true']")).find(
+      (candidate) => candidate.textContent?.includes(CATEGORY_LABELS.sponsor)
+    );
+    const swatch = field?.querySelector<HTMLInputElement>("input[type='color']");
+    const textInput = field?.querySelector<HTMLInputElement>("input[type='text']");
+    const applyButton = field?.querySelector<HTMLButtonElement>(".bsb-tm-color-action.primary");
+    const actions = field?.querySelector<HTMLElement>(".bsb-tm-color-actions");
+    const previewCard = field?.querySelector<HTMLElement>(".bsb-tm-color-preview-card");
+    const previewBadge = field?.querySelector<HTMLElement>(".bsb-tm-color-preview-badge");
+    const previewDescription = field?.querySelector<HTMLElement>(".bsb-tm-color-preview-description");
+    expect(field).toBeTruthy();
+    expect(swatch).toBeTruthy();
+    expect(textInput).toBeTruthy();
+    expect(field?.querySelector(".bsb-tm-title-pill-wrap")).toBeTruthy();
+    expect(previewCard?.children[0]).toBe(previewBadge);
+    expect(previewCard?.children[1]).toBe(previewDescription);
+    expect(previewDescription?.textContent).toContain("第三方商单");
+    expect(actions?.hidden).toBe(true);
+
+    const originalSwatch = swatch!;
+    originalSwatch.value = "#123456";
+    originalSwatch.dispatchEvent(new Event("input", { bubbles: true }));
+
+    expect(onPatchConfig).not.toHaveBeenCalled();
+    expect(document.querySelector<HTMLInputElement>("input[type='color']")).toBe(originalSwatch);
+    expect(textInput?.value).toBe("#123456");
+    expect(field?.querySelector<HTMLElement>(".bsb-tm-title-pill-wrap")?.style.getPropertyValue("--bsb-category-accent")).toBe("#123456");
+    expect(document.querySelector(".bsb-tm-color-floating-preview")).toBeNull();
+    expect(actions?.hidden).toBe(false);
+
+    applyButton?.click();
+    await Promise.resolve();
+
+    expect(onPatchConfig).toHaveBeenCalledTimes(1);
+    expect(onPatchConfig).toHaveBeenCalledWith(expect.objectContaining({
+      categoryColorOverrides: expect.objectContaining({
+        sponsor: "#123456"
+      })
+    }));
+  });
+
+  it("cancels a draft color without persisting it", () => {
+    const onPatchConfig = vi.fn(async () => {});
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig,
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const field = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-color-field[data-color-editor='true']")).find(
+      (candidate) => candidate.textContent?.includes(CATEGORY_LABELS.sponsor)
+    );
+    const swatch = field?.querySelector<HTMLInputElement>("input[type='color']");
+    const textInput = field?.querySelector<HTMLInputElement>("input[type='text']");
+    const actions = field?.querySelector<HTMLElement>(".bsb-tm-color-actions");
+    const cancelButton = field?.querySelector<HTMLButtonElement>(".bsb-tm-color-action.secondary");
+    const originalValue = swatch?.value;
+    expect(actions?.hidden).toBe(true);
+
+    swatch!.value = "#654321";
+    swatch!.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(actions?.hidden).toBe(false);
+    cancelButton?.click();
+
+    expect(onPatchConfig).not.toHaveBeenCalled();
+    expect(swatch?.value).toBe(originalValue);
+    expect(textInput?.value).toBe(originalValue);
+    expect(field?.dataset.colorDirty).toBe("false");
+    expect(actions?.hidden).toBe(true);
+  });
+
+  it("uses Escape to cancel draft colors without closing the panel", () => {
+    const onPatchConfig = vi.fn(async () => {});
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig,
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const backdrop = document.querySelector<HTMLElement>(".bsb-tm-panel-backdrop");
+    const field = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-color-field[data-color-editor='true']")).find(
+      (candidate) => candidate.textContent?.includes(CATEGORY_LABELS.sponsor)
+    );
+    const swatch = field?.querySelector<HTMLInputElement>("input[type='color']");
+    const textInput = field?.querySelector<HTMLInputElement>("input[type='text']");
+    const actions = field?.querySelector<HTMLElement>(".bsb-tm-color-actions");
+    const originalValue = swatch?.value;
+
+    swatch!.value = "#654321";
+    swatch!.dispatchEvent(new Event("input", { bubbles: true }));
+    textInput!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+
+    expect(backdrop?.hidden).toBe(false);
+    expect(onPatchConfig).not.toHaveBeenCalled();
+    expect(swatch?.value).toBe(originalValue);
+    expect(textInput?.value).toBe(originalValue);
+    expect(actions?.hidden).toBe(true);
+  });
+
+  it("does not rewrite text color input while the user is typing a valid short hex", () => {
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig: vi.fn(async () => {}),
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const field = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-color-field[data-color-editor='true']")).find(
+      (candidate) => candidate.textContent?.includes(CATEGORY_LABELS.sponsor)
+    );
+    const textInput = field?.querySelector<HTMLInputElement>("input[type='text']");
+    const swatch = field?.querySelector<HTMLInputElement>("input[type='color']");
+
+    textInput!.value = "#123";
+    textInput!.dispatchEvent(new Event("input", { bubbles: true }));
+
+    expect(textInput?.value).toBe("#123");
+    expect(swatch?.value).toBe("#112233");
+  });
+
+  it("uses real inline comment badge previews with transparency state", () => {
+    const config = {
+      ...cloneDefaultConfig(),
+      labelTransparency: {
+        ...cloneDefaultConfig().labelTransparency,
+        commentLocation: true,
+        commentBadge: true
+      }
+    };
+    const panel = new SettingsPanel(config, { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig: vi.fn(async () => {}),
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("filters");
+
+    const locationWrapper = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-field.stacked")).find(
+      (candidate) => candidate.textContent?.includes("IP 属地标签颜色")
+    );
+    const adWrapper = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-field.stacked")).find(
+      (candidate) => candidate.textContent?.includes("评论广告标签颜色")
+    );
+    const locationPreview = locationWrapper?.querySelector<HTMLElement>(".bsb-tm-color-preview-badge .bsb-tm-inline-chip");
+    const adPreview = adWrapper?.querySelector<HTMLElement>(".bsb-tm-color-preview-badge .bsb-tm-inline-chip");
+
+    expect(locationPreview?.dataset.appearance).toBe("glass");
+    expect(locationPreview?.textContent).toContain("IP 属地");
+    expect(locationPreview?.getAttribute("data-bsb-color-preview-inline")).toBe("true");
+    expect(adPreview?.dataset.appearance).toBe("glass");
+    expect(adPreview?.textContent).toContain("评论广告");
+    expect(adPreview?.getAttribute("data-bsb-color-preview-inline")).toBe("true");
   });
 });
