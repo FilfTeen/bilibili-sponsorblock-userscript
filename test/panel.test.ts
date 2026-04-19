@@ -82,6 +82,26 @@ describe("settings panel", () => {
     expect(visibleSections[0]?.dataset.section).toBe("behavior");
   });
 
+  it("does not keep pointer focus on tab buttons after switching tabs", () => {
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig: vi.fn(async () => {}),
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.open("overview");
+    const behaviorTab = document.querySelector<HTMLButtonElement>("[data-tab='behavior']");
+    expect(behaviorTab).toBeTruthy();
+
+    behaviorTab!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    behaviorTab!.click();
+
+    expect(document.activeElement).not.toBe(behaviorTab);
+    expect(behaviorTab?.dataset.pointerFocus).toBeUndefined();
+    expect(document.querySelector<HTMLElement>("[data-section='behavior']")?.hidden).toBe(false);
+  });
+
   it("renders a dedicated transparency tab with all tag toggles defaulting to off", () => {
     const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
       onPatchConfig: vi.fn(async () => {}),
@@ -227,6 +247,29 @@ describe("settings panel", () => {
 
     expect(document.querySelector<HTMLElement>("[data-section='behavior']")?.hidden).toBe(false);
     expect(content?.scrollTop).toBe(188);
+  });
+
+  it("restores the active tab scroll position after closing and reopening the panel", () => {
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig: vi.fn(async () => {}),
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const content = document.querySelector<HTMLElement>(".bsb-tm-panel-content");
+    expect(content).toBeTruthy();
+    content!.scrollTop = 244;
+
+    panel.close("user");
+    content!.scrollTop = 0;
+    panel.open();
+
+    expect(document.querySelector<HTMLElement>("[data-section='behavior']")?.hidden).toBe(false);
+    expect(content?.scrollTop).toBe(244);
   });
 
   it("reverts a checkbox when persisting the change fails", async () => {
@@ -385,6 +428,32 @@ describe("settings panel", () => {
     expect(onPatchConfig).toHaveBeenCalledWith({ thumbnailLabelMode: "off" });
     expect(nextSelect).toBe(select);
     expect(document.activeElement).not.toBe(select);
+  });
+
+  it("suppresses pointer-origin focus styling on select cards without hiding keyboard focus", () => {
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig: vi.fn(async () => {}),
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const field = Array.from(document.querySelectorAll<HTMLLabelElement>(".bsb-tm-field.stacked")).find((candidate) =>
+      candidate.textContent?.includes("首页 / 列表卡片标签")
+    );
+    const select = field?.querySelector<HTMLSelectElement>("select");
+    expect(field).toBeTruthy();
+    expect(select).toBeTruthy();
+
+    select!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    select!.focus();
+    expect(field?.dataset.pointerFocus).toBe("true");
+
+    select!.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+    expect(field?.dataset.pointerFocus).toBeUndefined();
   });
 
   it("renders overview feature cards in title-chip-copy order", () => {

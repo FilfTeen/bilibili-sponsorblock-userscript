@@ -2837,10 +2837,12 @@ ${inlineSurfaceFrostedGlass.overlay}
       return this.activeTab;
     }
     open(tab = this.activeTab) {
+      var _a;
+      const wasHidden = this.backdrop.hidden;
       this.mount();
       this.attachViewportListeners();
       this.syncViewportMetrics();
-      this.setActiveTab(tab);
+      this.setActiveTab(tab, { preserveScroll: true, scrollTop: (_a = this.contentScrollByTab[tab]) != null ? _a : 0, skipRemember: wasHidden });
       this.backdrop.hidden = false;
       document.documentElement.classList.add("bsb-tm-panel-open");
       document.addEventListener("keydown", this.handleKeydown);
@@ -2848,6 +2850,9 @@ ${inlineSurfaceFrostedGlass.overlay}
     close(reason = "user") {
       var _a, _b;
       const wasOpen = !this.backdrop.hidden;
+      if (wasOpen) {
+        this.rememberActiveScroll();
+      }
       this.backdrop.hidden = true;
       this.detachViewportListeners();
       document.documentElement.classList.remove("bsb-tm-panel-open");
@@ -3092,6 +3097,7 @@ ${inlineSurfaceFrostedGlass.overlay}
         select.addEventListener("pointerdown", () => {
           pointerDrivenSelection = true;
         });
+        this.bindPointerFocusSuppression(row, select);
         select.addEventListener("change", () => __async(this, null, function* () {
           const finishInlineUpdate = this.beginInlineControlUpdate();
           try {
@@ -3422,7 +3428,9 @@ ${inlineSurfaceFrostedGlass.overlay}
     }
     setActiveTab(tab, options) {
       var _a, _b;
-      this.rememberActiveScroll();
+      if (!(options == null ? void 0 : options.skipRemember)) {
+        this.rememberActiveScroll();
+      }
       this.activeTab = tab;
       for (const button of this.nav.querySelectorAll("[data-tab]")) {
         const active = button.dataset.tab === tab;
@@ -3456,11 +3464,48 @@ ${inlineSurfaceFrostedGlass.overlay}
       description.className = "bsb-tm-tab-description";
       description.textContent = TAB_DESCRIPTIONS[tab];
       button.append(title, description);
+      let pointerDrivenActivation = false;
+      button.addEventListener("pointerdown", () => {
+        pointerDrivenActivation = true;
+        button.dataset.pointerFocus = "true";
+      });
+      button.addEventListener("keydown", () => {
+        pointerDrivenActivation = false;
+        delete button.dataset.pointerFocus;
+      });
+      button.addEventListener("blur", () => {
+        pointerDrivenActivation = false;
+        delete button.dataset.pointerFocus;
+      });
       button.addEventListener("click", () => {
         var _a;
         this.setActiveTab(tab, { preserveScroll: true, scrollTop: (_a = this.contentScrollByTab[tab]) != null ? _a : 0 });
+        if (pointerDrivenActivation) {
+          button.blur();
+          pointerDrivenActivation = false;
+          delete button.dataset.pointerFocus;
+        }
       });
       return button;
+    }
+    bindPointerFocusSuppression(container, control) {
+      const group = container.closest(".bsb-tm-form-group");
+      const markPointerFocus = () => {
+        container.dataset.pointerFocus = "true";
+        if (group) {
+          group.dataset.pointerFocus = "true";
+        }
+      };
+      const clearPointerFocus = () => {
+        delete container.dataset.pointerFocus;
+        if (group) {
+          delete group.dataset.pointerFocus;
+        }
+      };
+      control.addEventListener("pointerdown", markPointerFocus);
+      control.addEventListener("mousedown", markPointerFocus);
+      control.addEventListener("keydown", clearPointerFocus);
+      control.addEventListener("blur", clearPointerFocus);
     }
     createCheckbox(labelText, helpText, checked, onChange, needsRefresh = false) {
       const label = document.createElement("label");
@@ -3485,6 +3530,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       input.className = "bsb-tm-switch";
       input.setAttribute("role", "switch");
       input.checked = checked;
+      this.bindPointerFocusSuppression(label, input);
       let saving = false;
       let savingChecked = checked;
       input.addEventListener("change", () => __async(this, null, function* () {
@@ -3580,6 +3626,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       select.addEventListener("pointerdown", () => {
         pointerDrivenSelection = true;
       });
+      this.bindPointerFocusSuppression(wrapper, select);
       select.addEventListener("change", () => __async(this, null, function* () {
         const finishInlineUpdate = this.beginInlineControlUpdate();
         try {
@@ -11975,7 +12022,7 @@ ${titleSurfaceFrostedGlass.overlay}
 }
 
 .bsb-tm-form-group:hover,
-.bsb-tm-form-group:focus-within {
+.bsb-tm-form-group:not([data-pointer-focus="true"]):focus-within {
   border-color: rgba(255, 255, 255, 0.82);
   box-shadow:
     var(--bsb-glass-inner),
@@ -11988,8 +12035,8 @@ ${titleSurfaceFrostedGlass.overlay}
   transform: translateY(-1px);
 }
 
-.bsb-tm-field:focus-within,
-.bsb-tm-category-row:focus-within,
+.bsb-tm-field:not([data-pointer-focus="true"]):focus-within,
+.bsb-tm-category-row:not([data-pointer-focus="true"]):focus-within,
 .bsb-tm-link-card:focus-visible {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.3);
   box-shadow:

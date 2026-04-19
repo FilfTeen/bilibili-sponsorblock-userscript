@@ -137,7 +137,7 @@ describe("shared glass contexts", () => {
       /\.bsb-tm-summary-line,[\s\S]*\.bsb-tm-link-card \{[\s\S]*0 10px 22px rgba\(15, 23, 42, 0\.045\),[\s\S]*box-shadow 170ms var\(--bsb-ease-swift\),/
     );
     expect(styles).toMatch(
-      /\.bsb-tm-form-group:hover,[\s\S]*\.bsb-tm-form-group:focus-within \{[\s\S]*0 18px 38px rgba\(15, 23, 42, 0\.095\),/
+      /\.bsb-tm-form-group:hover,[\s\S]*\.bsb-tm-form-group:not\(\[data-pointer-focus="true"\]\):focus-within \{[\s\S]*0 18px 38px rgba\(15, 23, 42, 0\.095\),/
     );
   });
 
@@ -157,6 +157,13 @@ describe("shared glass contexts", () => {
     expect(styles).toMatch(
       /\.bsb-tm-color-field\.compact:hover \.bsb-tm-color-controls input:not\(:focus\),[\s\S]*\.bsb-tm-color-field\.compact:focus-within \.bsb-tm-color-controls input:not\(:focus\) \{[\s\S]*0 6px 14px rgba\(15, 23, 42, 0\.045\);/
     );
+  });
+
+  it("does not keep pointer-origin focus as a persistent selected card state", () => {
+    expect(styles).toMatch(
+      /\.bsb-tm-field:not\(\[data-pointer-focus="true"\]\):focus-within,[\s\S]*\.bsb-tm-category-row:not\(\[data-pointer-focus="true"\]\):focus-within,[\s\S]*\.bsb-tm-link-card:focus-visible \{/
+    );
+    expect(styles).not.toContain(".bsb-tm-field:focus-within,\n.bsb-tm-category-row:focus-within");
   });
 
   it("uses a custom stable switch surface instead of Safari native checkbox painting", () => {

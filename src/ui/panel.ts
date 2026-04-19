@@ -178,10 +178,11 @@ export class SettingsPanel {
   }
 
   open(tab: PanelTab = this.activeTab): void {
+    const wasHidden = this.backdrop.hidden;
     this.mount();
     this.attachViewportListeners();
     this.syncViewportMetrics();
-    this.setActiveTab(tab);
+    this.setActiveTab(tab, { preserveScroll: true, scrollTop: this.contentScrollByTab[tab] ?? 0, skipRemember: wasHidden });
     this.backdrop.hidden = false;
     document.documentElement.classList.add("bsb-tm-panel-open");
     document.addEventListener("keydown", this.handleKeydown);
@@ -189,6 +190,9 @@ export class SettingsPanel {
 
   close(reason: PanelCloseReason = "user"): void {
     const wasOpen = !this.backdrop.hidden;
+    if (wasOpen) {
+      this.rememberActiveScroll();
+    }
     this.backdrop.hidden = true;
     this.detachViewportListeners();
     document.documentElement.classList.remove("bsb-tm-panel-open");
@@ -444,6 +448,7 @@ export class SettingsPanel {
       select.addEventListener("pointerdown", () => {
         pointerDrivenSelection = true;
       });
+      this.bindPointerFocusSuppression(row, select);
       select.addEventListener("change", async () => {
         const finishInlineUpdate = this.beginInlineControlUpdate();
         try {
@@ -790,8 +795,10 @@ export class SettingsPanel {
     );
   }
 
-  private setActiveTab(tab: PanelTab, options?: { preserveScroll?: boolean; scrollTop?: number }): void {
-    this.rememberActiveScroll();
+  private setActiveTab(tab: PanelTab, options?: { preserveScroll?: boolean; scrollTop?: number; skipRemember?: boolean }): void {
+    if (!options?.skipRemember) {
+      this.rememberActiveScroll();
+    }
     this.activeTab = tab;
     for (const button of this.nav.querySelectorAll<HTMLButtonElement>("[data-tab]")) {
       const active = button.dataset.tab === tab;
@@ -830,10 +837,48 @@ export class SettingsPanel {
     description.textContent = TAB_DESCRIPTIONS[tab];
 
     button.append(title, description);
+    let pointerDrivenActivation = false;
+    button.addEventListener("pointerdown", () => {
+      pointerDrivenActivation = true;
+      button.dataset.pointerFocus = "true";
+    });
+    button.addEventListener("keydown", () => {
+      pointerDrivenActivation = false;
+      delete button.dataset.pointerFocus;
+    });
+    button.addEventListener("blur", () => {
+      pointerDrivenActivation = false;
+      delete button.dataset.pointerFocus;
+    });
     button.addEventListener("click", () => {
       this.setActiveTab(tab, { preserveScroll: true, scrollTop: this.contentScrollByTab[tab] ?? 0 });
+      if (pointerDrivenActivation) {
+        button.blur();
+        pointerDrivenActivation = false;
+        delete button.dataset.pointerFocus;
+      }
     });
     return button;
+  }
+
+  private bindPointerFocusSuppression(container: HTMLElement, control: HTMLElement): void {
+    const group = container.closest<HTMLElement>(".bsb-tm-form-group");
+    const markPointerFocus = () => {
+      container.dataset.pointerFocus = "true";
+      if (group) {
+        group.dataset.pointerFocus = "true";
+      }
+    };
+    const clearPointerFocus = () => {
+      delete container.dataset.pointerFocus;
+      if (group) {
+        delete group.dataset.pointerFocus;
+      }
+    };
+    control.addEventListener("pointerdown", markPointerFocus);
+    control.addEventListener("mousedown", markPointerFocus);
+    control.addEventListener("keydown", clearPointerFocus);
+    control.addEventListener("blur", clearPointerFocus);
   }
 
   private createCheckbox(
@@ -870,6 +915,7 @@ export class SettingsPanel {
     input.className = "bsb-tm-switch";
     input.setAttribute("role", "switch");
     input.checked = checked;
+    this.bindPointerFocusSuppression(label, input);
     let saving = false;
     let savingChecked = checked;
     input.addEventListener("change", async () => {
@@ -988,6 +1034,7 @@ export class SettingsPanel {
     select.addEventListener("pointerdown", () => {
       pointerDrivenSelection = true;
     });
+    this.bindPointerFocusSuppression(wrapper, select);
     select.addEventListener("change", async () => {
       const finishInlineUpdate = this.beginInlineControlUpdate();
       try {
