@@ -259,6 +259,134 @@ describe("settings panel", () => {
     expect(field?.dataset.controlState).toBe("on");
   });
 
+  it("does not replace an active checkbox after a successful config save", async () => {
+    const baseConfig = cloneDefaultConfig();
+    let panel: SettingsPanel;
+    const onPatchConfig = vi.fn(async (patch: Partial<ReturnType<typeof cloneDefaultConfig>>) => {
+      panel.updateConfig({
+        ...baseConfig,
+        ...patch
+      });
+    });
+    panel = new SettingsPanel(baseConfig, { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig,
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const field = Array.from(document.querySelectorAll<HTMLLabelElement>(".bsb-tm-field-toggle")).find((candidate) =>
+      candidate.textContent?.includes("启用紧凑视频顶部栏")
+    );
+    const checkbox = field?.querySelector<HTMLInputElement>("input[type='checkbox']");
+
+    expect(checkbox?.checked).toBe(true);
+    checkbox!.checked = false;
+    checkbox!.dispatchEvent(new Event("change"));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const nextField = Array.from(document.querySelectorAll<HTMLLabelElement>(".bsb-tm-field-toggle")).find((candidate) =>
+      candidate.textContent?.includes("启用紧凑视频顶部栏")
+    );
+    const nextCheckbox = nextField?.querySelector<HTMLInputElement>("input[type='checkbox']");
+
+    expect(onPatchConfig).toHaveBeenCalledWith({ compactVideoHeader: false });
+    expect(nextCheckbox).toBe(checkbox);
+    expect(nextField).toBe(field);
+    expect(nextCheckbox?.checked).toBe(false);
+    expect(nextField?.dataset.controlState).toBe("off");
+  });
+
+  it("keeps checkbox focus while an async save is pending", async () => {
+    let resolveSave: () => void = () => {};
+    const onPatchConfig = vi.fn(() => new Promise<void>((resolve) => {
+      resolveSave = resolve;
+    }));
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig,
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const field = Array.from(document.querySelectorAll<HTMLLabelElement>(".bsb-tm-field-toggle")).find((candidate) =>
+      candidate.textContent?.includes("启用紧凑视频顶部栏")
+    );
+    const checkbox = field?.querySelector<HTMLInputElement>("input[type='checkbox']");
+
+    checkbox!.focus();
+    checkbox!.checked = false;
+    checkbox!.dispatchEvent(new Event("change"));
+    await Promise.resolve();
+
+    expect(onPatchConfig).toHaveBeenCalledWith({ compactVideoHeader: false });
+    expect(checkbox?.disabled).toBe(false);
+    expect(checkbox?.getAttribute("aria-busy")).toBe("true");
+    expect(field?.dataset.controlSaving).toBe("true");
+    expect(document.activeElement).toBe(checkbox);
+
+    checkbox!.checked = true;
+    checkbox!.dispatchEvent(new Event("change"));
+    await Promise.resolve();
+    expect(checkbox?.checked).toBe(false);
+
+    resolveSave();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(checkbox?.getAttribute("aria-busy")).toBeNull();
+    expect(field?.dataset.controlSaving).toBeUndefined();
+  });
+
+  it("does not replay select-card focus styling after a pointer selection save", async () => {
+    const baseConfig = cloneDefaultConfig();
+    let panel: SettingsPanel;
+    const onPatchConfig = vi.fn(async (patch: Partial<ReturnType<typeof cloneDefaultConfig>>) => {
+      panel.updateConfig({
+        ...baseConfig,
+        ...patch
+      });
+    });
+    panel = new SettingsPanel(baseConfig, { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig,
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const field = Array.from(document.querySelectorAll<HTMLLabelElement>(".bsb-tm-field.stacked")).find((candidate) =>
+      candidate.textContent?.includes("首页 / 列表卡片标签")
+    );
+    const select = field?.querySelector<HTMLSelectElement>("select");
+
+    expect(select).toBeTruthy();
+    select!.focus();
+    select!.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    select!.value = "off";
+    select!.dispatchEvent(new Event("change", { bubbles: true }));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const nextField = Array.from(document.querySelectorAll<HTMLLabelElement>(".bsb-tm-field.stacked")).find((candidate) =>
+      candidate.textContent?.includes("首页 / 列表卡片标签")
+    );
+    const nextSelect = nextField?.querySelector<HTMLSelectElement>("select");
+
+    expect(onPatchConfig).toHaveBeenCalledWith({ thumbnailLabelMode: "off" });
+    expect(nextSelect).toBe(select);
+    expect(document.activeElement).not.toBe(select);
+  });
+
   it("renders overview feature cards in title-chip-copy order", () => {
     const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
       onPatchConfig: vi.fn(async () => {}),

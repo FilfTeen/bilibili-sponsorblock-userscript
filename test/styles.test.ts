@@ -159,6 +159,26 @@ describe("shared glass contexts", () => {
     );
   });
 
+  it("uses a custom stable switch surface instead of Safari native checkbox painting", () => {
+    const switchBlock = styles.match(/\.bsb-tm-panel input\.bsb-tm-switch \{[\s\S]*?\n\}/)?.[0] ?? "";
+    const checkmarkBlock = styles.match(/\.bsb-tm-panel input\.bsb-tm-switch::before \{[\s\S]*?\n\}/)?.[0] ?? "";
+    const checkedCheckmarkBlock =
+      styles.match(/\.bsb-tm-panel input\.bsb-tm-switch:checked::before \{[\s\S]*?\n\}/)?.[0] ?? "";
+
+    expect(switchBlock).toContain("appearance: none;");
+    expect(switchBlock).toContain("-webkit-appearance: none;");
+    expect(switchBlock).not.toContain("-webkit-appearance: checkbox;");
+    expect(switchBlock).not.toContain("appearance: auto;");
+    expect(switchBlock).toContain("contain: paint;");
+    expect(switchBlock).toContain("inline-size: 28px;");
+    expect(switchBlock).toContain("block-size: 28px;");
+    expect(switchBlock).toContain("box-shadow 170ms var(--bsb-ease-swift)");
+    expect(checkmarkBlock).toContain('content: "";');
+    expect(checkmarkBlock).toContain("opacity: 0;");
+    expect(checkmarkBlock).toContain("border-width: 0 2px 2px 0;");
+    expect(checkedCheckmarkBlock).toContain("opacity: 1;");
+  });
+
   it("keeps color editing previews inside the panel instead of a floating duplicate", () => {
     expect(styles).not.toContain(".bsb-tm-color-floating-preview");
     expect(styles).toMatch(

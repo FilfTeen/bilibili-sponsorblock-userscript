@@ -96,6 +96,7 @@ export class SettingsPanel {
   };
   private readonly activeFeedbacks = new Map<string, string>(); // id -> originalText
   private readonly pendingConfirmations = new Set<string>(); // id
+  private inlineControlUpdateDepth = 0;
   private readonly handleKeydown = (event: KeyboardEvent) => {
     if (event.key === "Escape" && !this.backdrop.hidden) {
       this.close("user");
@@ -203,9 +204,12 @@ export class SettingsPanel {
   }
 
   updateConfig(config: StoredConfig): void {
-    this.rememberActiveScroll();
     this.config = config;
     this.filterValidationMessage = null;
+    if (this.inlineControlUpdateDepth > 0 && !this.backdrop.hidden) {
+      return;
+    }
+    this.rememberActiveScroll();
     this.render(true);
   }
 
@@ -436,8 +440,21 @@ export class SettingsPanel {
         option.selected = this.config.categoryModes[category] === mode;
         select.appendChild(option);
       }
+      let pointerDrivenSelection = false;
+      select.addEventListener("pointerdown", () => {
+        pointerDrivenSelection = true;
+      });
       select.addEventListener("change", async () => {
-        await this.callbacks.onCategoryModeChange(category, select.value as CategoryMode);
+        const finishInlineUpdate = this.beginInlineControlUpdate();
+        try {
+          await this.callbacks.onCategoryModeChange(category, select.value as CategoryMode);
+          if (pointerDrivenSelection) {
+            select.blur();
+          }
+        } finally {
+          pointerDrivenSelection = false;
+          finishInlineUpdate();
+        }
       });
 
       row.append(copy, select);
@@ -790,6 +807,13 @@ export class SettingsPanel {
     this.content.scrollTop = options?.preserveScroll ? (options.scrollTop ?? this.contentScrollByTab[tab] ?? 0) : 0;
   }
 
+  private beginInlineControlUpdate(): () => void {
+    this.inlineControlUpdateDepth += 1;
+    return () => {
+      this.inlineControlUpdateDepth = Math.max(0, this.inlineControlUpdateDepth - 1);
+    };
+  }
+
   private createTabButton(tab: PanelTab): HTMLButtonElement {
     const button = document.createElement("button");
     button.type = "button";
@@ -846,18 +870,32 @@ export class SettingsPanel {
     input.className = "bsb-tm-switch";
     input.setAttribute("role", "switch");
     input.checked = checked;
+    let saving = false;
+    let savingChecked = checked;
     input.addEventListener("change", async () => {
+      if (saving) {
+        input.checked = savingChecked;
+        return;
+      }
       const nextChecked = input.checked;
       const previousChecked = !nextChecked;
+      saving = true;
+      savingChecked = nextChecked;
       label.dataset.controlState = nextChecked ? "on" : "off";
-      input.disabled = true;
+      label.dataset.controlSaving = "true";
+      input.setAttribute("aria-busy", "true");
+      const finishInlineUpdate = this.beginInlineControlUpdate();
       try {
         await onChange(nextChecked);
       } catch (_error) {
         input.checked = previousChecked;
+        savingChecked = previousChecked;
         label.dataset.controlState = previousChecked ? "on" : "off";
       } finally {
-        input.disabled = false;
+        finishInlineUpdate();
+        saving = false;
+        label.removeAttribute("data-control-saving");
+        input.removeAttribute("aria-busy");
       }
     });
 
@@ -946,8 +984,21 @@ export class SettingsPanel {
       option.selected = optionValue === value;
       select.appendChild(option);
     }
+    let pointerDrivenSelection = false;
+    select.addEventListener("pointerdown", () => {
+      pointerDrivenSelection = true;
+    });
     select.addEventListener("change", async () => {
-      await onCommit(select.value as T);
+      const finishInlineUpdate = this.beginInlineControlUpdate();
+      try {
+        await onCommit(select.value as T);
+        if (pointerDrivenSelection) {
+          select.blur();
+        }
+      } finally {
+        pointerDrivenSelection = false;
+        finishInlineUpdate();
+      }
     });
 
     wrapper.append(select);

@@ -345,6 +345,57 @@ describe("thumbnail labels", () => {
     expect(label.dataset.bsbExpanded).toBe("true");
   });
 
+  it("clears expanded thumbnail state when a visible label is hidden", async () => {
+    window.history.replaceState({}, "", "/video/BV1xx411c7mD");
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "right-container";
+    wrapper.innerHTML = `
+      <article class="video-page-card-small">
+        <a class="pic-box" href="https://www.bilibili.com/video/BV17x411w7KC/">
+          <img src="https://example.com/a.jpg" alt="cover">
+        </a>
+        <div class="meta">meta</div>
+      </article>
+    `;
+    document.body.appendChild(wrapper);
+
+    const controller = new ThumbnailLabelController(new ConfigStore(), new PersistentCache(), new LocalVideoLabelStore());
+    Reflect.set(controller, "client", {
+      getWholeVideoLabel: vi.fn().mockResolvedValueOnce("exclusive_access").mockResolvedValueOnce(null)
+    });
+
+    const refresh = Reflect.get(controller, "refresh") as () => Promise<void>;
+    await refresh.call(controller);
+
+    const card = wrapper.querySelector<HTMLElement>(".video-page-card-small")!;
+    const link = wrapper.querySelector<HTMLAnchorElement>(".video-page-card-small .pic-box")!;
+    const label = wrapper.querySelector<HTMLElement>(".video-page-card-small .sponsorThumbnailLabelVisible")!;
+    const slot = wrapper.querySelector<HTMLElement>(".video-page-card-small .bsb-tm-thumbnail-slot")!;
+    card.dispatchEvent(new Event("pointerenter", { bubbles: true }));
+
+    expect(slot.dataset.bsbExpanded).toBe("true");
+    expect(label.dataset.bsbExpanded).toBe("true");
+
+    const originalMatches = card.matches.bind(card);
+    const matches = vi.spyOn(card, "matches").mockImplementation((selector) => {
+      if (selector === ":hover") {
+        return true;
+      }
+      return originalMatches(selector);
+    });
+    card.dispatchEvent(new Event("pointerleave", { bubbles: true }));
+    link.href = "https://www.bilibili.com/video/BV1xx411c7mD/";
+    await refresh.call(controller);
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    matches.mockRestore();
+
+    expect(wrapper.querySelector(".sponsorThumbnailLabelVisible")).toBeNull();
+    expect(card.dataset.bsbHover).toBeUndefined();
+    expect(slot.dataset.bsbExpanded).toBeUndefined();
+    expect(label.dataset.bsbExpanded).toBeUndefined();
+  });
+
   it("falls back to the light glass variant for near-white thumbnail overrides", async () => {
     window.history.replaceState({}, "", "/");
 

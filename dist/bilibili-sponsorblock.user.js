@@ -2560,6 +2560,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       // id -> originalText
       __publicField(this, "pendingConfirmations", /* @__PURE__ */ new Set());
       // id
+      __publicField(this, "inlineControlUpdateDepth", 0);
       __publicField(this, "handleKeydown", (event) => {
         if (event.key === "Escape" && !this.backdrop.hidden) {
           this.close("user");
@@ -2648,9 +2649,12 @@ ${inlineSurfaceFrostedGlass.overlay}
       this.backdrop.remove();
     }
     updateConfig(config) {
-      this.rememberActiveScroll();
       this.config = config;
       this.filterValidationMessage = null;
+      if (this.inlineControlUpdateDepth > 0 && !this.backdrop.hidden) {
+        return;
+      }
+      this.rememberActiveScroll();
       this.render(true);
     }
     updateStats(stats) {
@@ -2872,8 +2876,21 @@ ${inlineSurfaceFrostedGlass.overlay}
           option.selected = this.config.categoryModes[category] === mode;
           select.appendChild(option);
         }
+        let pointerDrivenSelection = false;
+        select.addEventListener("pointerdown", () => {
+          pointerDrivenSelection = true;
+        });
         select.addEventListener("change", () => __async(this, null, function* () {
-          yield this.callbacks.onCategoryModeChange(category, select.value);
+          const finishInlineUpdate = this.beginInlineControlUpdate();
+          try {
+            yield this.callbacks.onCategoryModeChange(category, select.value);
+            if (pointerDrivenSelection) {
+              select.blur();
+            }
+          } finally {
+            pointerDrivenSelection = false;
+            finishInlineUpdate();
+          }
         }));
         row.append(copy, select);
         this.categoryForm.appendChild(row);
@@ -3208,6 +3225,12 @@ ${inlineSurfaceFrostedGlass.overlay}
       }
       this.content.scrollTop = (options == null ? void 0 : options.preserveScroll) ? (_b = (_a = options.scrollTop) != null ? _a : this.contentScrollByTab[tab]) != null ? _b : 0 : 0;
     }
+    beginInlineControlUpdate() {
+      this.inlineControlUpdateDepth += 1;
+      return () => {
+        this.inlineControlUpdateDepth = Math.max(0, this.inlineControlUpdateDepth - 1);
+      };
+    }
     createTabButton(tab) {
       const button = document.createElement("button");
       button.type = "button";
@@ -3250,18 +3273,32 @@ ${inlineSurfaceFrostedGlass.overlay}
       input.className = "bsb-tm-switch";
       input.setAttribute("role", "switch");
       input.checked = checked;
-      input.addEventListener("change", () => __async(null, null, function* () {
+      let saving = false;
+      let savingChecked = checked;
+      input.addEventListener("change", () => __async(this, null, function* () {
+        if (saving) {
+          input.checked = savingChecked;
+          return;
+        }
         const nextChecked = input.checked;
         const previousChecked = !nextChecked;
+        saving = true;
+        savingChecked = nextChecked;
         label.dataset.controlState = nextChecked ? "on" : "off";
-        input.disabled = true;
+        label.dataset.controlSaving = "true";
+        input.setAttribute("aria-busy", "true");
+        const finishInlineUpdate = this.beginInlineControlUpdate();
         try {
           yield onChange(nextChecked);
         } catch (_error) {
           input.checked = previousChecked;
+          savingChecked = previousChecked;
           label.dataset.controlState = previousChecked ? "on" : "off";
         } finally {
-          input.disabled = false;
+          finishInlineUpdate();
+          saving = false;
+          label.removeAttribute("data-control-saving");
+          input.removeAttribute("aria-busy");
         }
       }));
       copy.append(title, help);
@@ -3327,8 +3364,21 @@ ${inlineSurfaceFrostedGlass.overlay}
         option.selected = optionValue === value;
         select.appendChild(option);
       }
+      let pointerDrivenSelection = false;
+      select.addEventListener("pointerdown", () => {
+        pointerDrivenSelection = true;
+      });
       select.addEventListener("change", () => __async(this, null, function* () {
-        yield onCommit(select.value);
+        const finishInlineUpdate = this.beginInlineControlUpdate();
+        try {
+          yield onCommit(select.value);
+          if (pointerDrivenSelection) {
+            select.blur();
+          }
+        } finally {
+          pointerDrivenSelection = false;
+          finishInlineUpdate();
+        }
       }));
       wrapper.append(select);
       return wrapper;
@@ -8370,6 +8420,17 @@ ${inlineSurfaceFrostedGlass.overlay}
     ".header-history-card"
   ];
   var IGNORED_SELECTORS = [".sponsorThumbnailLabel"];
+  var thumbnailHoverFrames = /* @__PURE__ */ new WeakMap();
+  function cancelOverlayHoverFrame(slot) {
+    if (!slot) {
+      return;
+    }
+    const frame = thumbnailHoverFrames.get(slot);
+    if (frame) {
+      cancelAnimationFrame(frame);
+      thumbnailHoverFrames.delete(slot);
+    }
+  }
   var COMMON_THUMBNAIL_TARGETS = [
     {
       containerSelector: ".bili-header .right-entry .v-popover-wrap:nth-of-type(3)",
@@ -8618,18 +8679,22 @@ ${inlineSurfaceFrostedGlass.overlay}
     };
     const syncState = () => {
       pendingFrame = 0;
+      thumbnailHoverFrames.delete(slot);
       setExpanded(isActive(host) || isActive(trigger) || isActive(slot));
     };
     const scheduleSync = () => {
       if (pendingFrame) {
         cancelAnimationFrame(pendingFrame);
+        thumbnailHoverFrames.delete(slot);
       }
       pendingFrame = requestAnimationFrame(syncState);
+      thumbnailHoverFrames.set(slot, pendingFrame);
     };
     const activate = () => {
       if (pendingFrame) {
         cancelAnimationFrame(pendingFrame);
         pendingFrame = 0;
+        thumbnailHoverFrames.delete(slot);
       }
       setExpanded(true);
     };
@@ -8690,12 +8755,18 @@ ${inlineSurfaceFrostedGlass.overlay}
     return { slot, overlay, shortText, text, anchor };
   }
   function hideOverlay(card) {
+    var _a;
     const overlay = card.querySelector(".sponsorThumbnailLabel");
     if (!overlay) {
       return;
     }
+    const slot = overlay.parentElement instanceof HTMLElement ? overlay.parentElement : null;
+    cancelOverlayHoverFrame(slot);
     overlay.classList.remove("sponsorThumbnailLabelVisible");
     overlay.removeAttribute("data-category");
+    overlay.removeAttribute("data-bsb-expanded");
+    slot == null ? void 0 : slot.removeAttribute("data-bsb-expanded");
+    (_a = slot == null ? void 0 : slot.parentElement) == null ? void 0 : _a.removeAttribute("data-bsb-hover");
     card.removeAttribute("data-bsb-hover");
     card.removeAttribute(PROCESSED_ATTR2);
   }
@@ -8945,8 +9016,14 @@ ${inlineSurfaceFrostedGlass.overlay}
     }
     reset() {
       for (const overlay of document.querySelectorAll(".sponsorThumbnailLabel")) {
+        const slot = overlay.parentElement instanceof HTMLElement ? overlay.parentElement : null;
+        cancelOverlayHoverFrame(slot);
         overlay.classList.remove("sponsorThumbnailLabelVisible");
         overlay.removeAttribute("data-category");
+        overlay.removeAttribute("data-bsb-expanded");
+      }
+      for (const slot of document.querySelectorAll(".bsb-tm-thumbnail-slot[data-bsb-expanded]")) {
+        slot.removeAttribute("data-bsb-expanded");
       }
       for (const host of document.querySelectorAll(".bsb-tm-thumbnail-host[data-bsb-hover]")) {
         host.removeAttribute("data-bsb-hover");
@@ -10638,35 +10715,86 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
 }
 
 .bsb-tm-panel input.bsb-tm-switch {
-  appearance: auto;
-  -webkit-appearance: checkbox;
-  width: 18px;
-  min-width: 18px;
-  height: 18px;
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  display: grid;
+  place-items: center;
+  inline-size: 28px;
+  min-inline-size: 28px;
+  block-size: 28px;
+  min-height: 28px;
   padding: 0;
   margin: 0;
-  border: none;
-  border-radius: 6px;
-  background: none;
-  box-shadow: none;
-  accent-color: var(--bsb-brand-blue);
+  border: 1px solid rgba(var(--bsb-brand-blue-rgb), 0.18);
+  border-radius: 9px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(242, 247, 252, 0.84)),
+    rgba(255, 255, 255, 0.86);
+  background-clip: padding-box;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 8px 18px rgba(15, 23, 42, 0.055),
+    inset 0 0 0 1px rgba(148, 163, 184, 0.06);
   align-self: center;
+  color: #fff;
+  contain: paint;
   cursor: pointer;
-  transition: none;
+  transform: translateZ(0);
+  transition:
+    background 170ms var(--bsb-ease-swift),
+    border-color 170ms var(--bsb-ease-swift),
+    box-shadow 170ms var(--bsb-ease-swift),
+    filter 150ms var(--bsb-ease-swift);
 }
 
 .bsb-tm-panel input.bsb-tm-switch::before {
-  display: none;
+  content: "";
+  inline-size: 6px;
+  block-size: 11px;
+  border: solid currentColor;
+  border-width: 0 2px 2px 0;
+  opacity: 0;
+  transform: translateY(-1px) rotate(45deg) scale(0.82);
+  transform-origin: 58% 58%;
+  transition:
+    opacity 110ms var(--bsb-ease-swift),
+    transform 150ms var(--bsb-ease-swift);
 }
 
 .bsb-tm-panel input.bsb-tm-switch:hover,
 .bsb-tm-panel input.bsb-tm-switch:focus,
-.bsb-tm-panel input.bsb-tm-switch:active,
+.bsb-tm-panel input.bsb-tm-switch:active {
+  border-color: rgba(var(--bsb-brand-blue-rgb), 0.3);
+  filter: saturate(1.035) brightness(1.012);
+  transform: translateZ(0);
+}
+
+.bsb-tm-panel input.bsb-tm-switch:focus-visible {
+  outline: 2px solid rgba(var(--bsb-brand-blue-rgb), 0.24);
+  outline-offset: 3px;
+}
+
 .bsb-tm-panel input.bsb-tm-switch:checked {
-  border: none;
-  background: none;
-  box-shadow: none;
-  transform: none;
+  border-color: rgba(var(--bsb-brand-blue-rgb), 0.72);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.04)),
+    var(--bsb-brand-blue);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.42),
+    0 8px 18px rgba(var(--bsb-brand-blue-rgb), 0.18),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  transform: translateZ(0);
+}
+
+.bsb-tm-panel input.bsb-tm-switch:checked::before {
+  opacity: 1;
+  transform: translateY(-1px) rotate(45deg) scale(1);
+}
+
+.bsb-tm-panel input.bsb-tm-switch:disabled {
+  cursor: progress;
+  filter: saturate(0.95) brightness(0.98);
 }
 
 .bsb-tm-button,
