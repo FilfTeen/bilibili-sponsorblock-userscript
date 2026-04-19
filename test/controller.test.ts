@@ -226,6 +226,25 @@ describe("script controller", () => {
     expect(document.querySelector<HTMLElement>(".bsb-tm-panel-backdrop")?.hidden).toBe(true);
   });
 
+  it("does not handle MBGA live fallback events while stopped", async () => {
+    const controller = createController();
+    vi.spyOn(controller as any, "refreshCurrentVideo").mockImplementation(async () => {});
+    const notices = Reflect.get(controller, "notices") as { show: (options: unknown) => void };
+    const showSpy = vi.spyOn(notices, "show");
+
+    await controller.start();
+    controller.stop();
+    window.dispatchEvent(new CustomEvent("bsb_mbga_live_fallback"));
+
+    expect(showSpy).not.toHaveBeenCalledWith(expect.objectContaining({ id: "mbga-live-fallback" }));
+
+    await controller.start();
+    window.dispatchEvent(new CustomEvent("bsb_mbga_live_fallback"));
+
+    expect(showSpy).toHaveBeenCalledTimes(1);
+    expect(showSpy).toHaveBeenCalledWith(expect.objectContaining({ id: "mbga-live-fallback" }));
+  });
+
   it("does not force the panel back to the original menu tab after visibility recovery", async () => {
     const controller = createController();
     vi.spyOn(controller as any, "refreshCurrentVideo").mockImplementation(async () => {});

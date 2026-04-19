@@ -150,7 +150,7 @@
 - `codex/BSC_v0_3_7_final_tuning_and_improvement` 是本轮活动分支，当前未合入 main 属预期状态。
 - `codex/b-video-recognition-upgrade`、`codex/bsc-v037_new_tag_transparency_effect`、`codex/v0.3.7-console-fix-main-sync` 显示为未 merged，但 `git cherry main` 标记为等价吸收。
 - `codex/main-docs-sidecar`、`codex/v0.3.7-player-overlay-audit-fix`、`codex/v0.3.7-transparency-audit-fix` 仍有未等价吸收提交，需要主线程决定是否补合入或归档。
-- `/Users/dwight/.codex/worktrees/c5ef/bilibili-sponsorblock-userscript` 存在未提交改动，涉及 `dist/bilibili-sponsorblock.user.js`、`src/ui/compact-header.ts`、`src/ui/styles.ts`、`test/compact-header.test.ts`。该现场不属于本轮可安全归因改动，未擅自提交或回退。
+- `/Users/dwight/.codex/worktrees/c5ef/bilibili-sponsorblock-userscript` 存在未提交改动，涉及旧发布产物路径、`src/ui/compact-header.ts`、`src/ui/styles.ts`、`test/compact-header.test.ts`。该现场不属于本轮可安全归因改动，未擅自提交或回退。
 
 ## 后续建议
 

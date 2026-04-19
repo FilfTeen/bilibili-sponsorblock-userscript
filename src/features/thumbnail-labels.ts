@@ -556,6 +556,7 @@ export class ThumbnailLabelController {
   private refreshing = false;
   private pendingRefresh = false;
   private refreshTimerId: number | null = null;
+  private cancelIdleRefresh: (() => void) | null = null;
   private domObserver: MutationObserver | null = null;
   private stopObservingUrl: (() => void) | null = null;
   private currentConfig: StoredConfig;
@@ -623,6 +624,8 @@ export class ThumbnailLabelController {
       window.clearTimeout(this.refreshTimerId);
       this.refreshTimerId = null;
     }
+    this.cancelIdleRefresh?.();
+    this.cancelIdleRefresh = null;
     window.removeEventListener("resize", this.handleWindowLayoutChange);
     document.removeEventListener("visibilitychange", this.handleVisibilityChange);
     this.domObserver?.disconnect();
@@ -631,23 +634,42 @@ export class ThumbnailLabelController {
   }
 
   private scheduleRefresh(): void {
+    if (!this.started) {
+      return;
+    }
+
     if (this.refreshTimerId !== null) {
       return;
     }
 
     this.refreshTimerId = window.setTimeout(() => {
       this.refreshTimerId = null;
-      const schedule =
-        typeof requestIdleCallback === "function"
-          ? requestIdleCallback
-          : (cb: () => void) => window.setTimeout(cb, 0);
-      schedule(() => {
+      if (!this.started) {
+        return;
+      }
+      const runRefresh = () => {
+        this.cancelIdleRefresh = null;
+        if (!this.started) {
+          return;
+        }
         void this.refresh();
-      });
+      };
+      if (typeof requestIdleCallback === "function" && typeof cancelIdleCallback === "function") {
+        const idleId = requestIdleCallback(runRefresh);
+        this.cancelIdleRefresh = () => cancelIdleCallback(idleId);
+        return;
+      }
+
+      const timeoutId = window.setTimeout(runRefresh, 0);
+      this.cancelIdleRefresh = () => window.clearTimeout(timeoutId);
     }, 180);
   }
 
   private async refresh(): Promise<void> {
+    if (!this.started) {
+      return;
+    }
+
     if (this.refreshing) {
       this.pendingRefresh = true;
       return;
@@ -710,7 +732,7 @@ export class ThumbnailLabelController {
       }
     } finally {
       this.refreshing = false;
-      if (this.pendingRefresh) {
+      if (this.started && this.pendingRefresh) {
         this.pendingRefresh = false;
         this.scheduleRefresh();
       }

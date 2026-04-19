@@ -3,6 +3,17 @@ import { ConfigStore } from "../src/core/config-store";
 import { PersistentCache } from "../src/core/cache";
 import { LocalVideoLabelStore } from "../src/core/local-label-store";
 import { ThumbnailLabelController } from "../src/features/thumbnail-labels";
+import type { FetchResponse } from "../src/types";
+
+function createStartedThumbnailController(
+  configStore = new ConfigStore(),
+  cache: PersistentCache<FetchResponse> = new PersistentCache<FetchResponse>(),
+  localLabelStore = new LocalVideoLabelStore()
+): ThumbnailLabelController {
+  const controller = new ThumbnailLabelController(configStore, cache, localLabelStore);
+  Reflect.set(controller, "started", true);
+  return controller;
+}
 
 describe("thumbnail labels", () => {
   it("labels search cards without mutating the outer layout", async () => {
@@ -21,7 +32,7 @@ describe("thumbnail labels", () => {
     `;
     document.body.appendChild(wrapper);
 
-    const controller = new ThumbnailLabelController(new ConfigStore(), new PersistentCache(), new LocalVideoLabelStore());
+    const controller = createStartedThumbnailController();
     Reflect.set(controller, "client", {
       getWholeVideoLabel: vi.fn(async () => "sponsor")
     });
@@ -95,7 +106,7 @@ describe("thumbnail labels", () => {
         }) as DOMRect
     );
 
-    const controller = new ThumbnailLabelController(new ConfigStore(), new PersistentCache(), new LocalVideoLabelStore());
+    const controller = createStartedThumbnailController();
     Reflect.set(controller, "client", {
       getWholeVideoLabel: vi.fn(async () => "sponsor")
     });
@@ -131,7 +142,7 @@ describe("thumbnail labels", () => {
     `;
     document.body.appendChild(wrapper);
 
-    const controller = new ThumbnailLabelController(new ConfigStore(), new PersistentCache(), new LocalVideoLabelStore());
+    const controller = createStartedThumbnailController();
     const getWholeVideoLabel = vi.fn(async () => null);
     Reflect.set(controller, "client", { getWholeVideoLabel });
 
@@ -178,7 +189,7 @@ describe("thumbnail labels", () => {
       ])
     );
 
-    const controller = new ThumbnailLabelController(new ConfigStore(), new PersistentCache(), localLabelStore);
+    const controller = createStartedThumbnailController(new ConfigStore(), new PersistentCache(), localLabelStore);
     Reflect.set(controller, "client", {
       getWholeVideoLabel: vi.fn(async () => null)
     });
@@ -206,7 +217,7 @@ describe("thumbnail labels", () => {
     `;
     document.body.appendChild(wrapper);
 
-    const controller = new ThumbnailLabelController(new ConfigStore(), new PersistentCache(), new LocalVideoLabelStore());
+    const controller = createStartedThumbnailController();
     Reflect.set(controller, "client", {
       getWholeVideoLabel: vi.fn(async () => "sponsor")
     });
@@ -273,7 +284,7 @@ describe("thumbnail labels", () => {
     `;
     document.body.appendChild(wrapper);
 
-    const controller = new ThumbnailLabelController(new ConfigStore(), new PersistentCache(), new LocalVideoLabelStore());
+    const controller = createStartedThumbnailController();
     Reflect.set(controller, "client", {
       getWholeVideoLabel: vi.fn(async () => "exclusive_access")
     });
@@ -299,7 +310,7 @@ describe("thumbnail labels", () => {
     `;
     document.body.appendChild(wrapper);
 
-    const controller = new ThumbnailLabelController(new ConfigStore(), new PersistentCache(), new LocalVideoLabelStore());
+    const controller = createStartedThumbnailController();
     Reflect.set(controller, "client", {
       getWholeVideoLabel: vi.fn(async () => "sponsor")
     });
@@ -327,7 +338,7 @@ describe("thumbnail labels", () => {
     `;
     document.body.appendChild(wrapper);
 
-    const controller = new ThumbnailLabelController(new ConfigStore(), new PersistentCache(), new LocalVideoLabelStore());
+    const controller = createStartedThumbnailController();
     Reflect.set(controller, "client", {
       getWholeVideoLabel: vi.fn(async () => "exclusive_access")
     });
@@ -360,7 +371,7 @@ describe("thumbnail labels", () => {
     `;
     document.body.appendChild(wrapper);
 
-    const controller = new ThumbnailLabelController(new ConfigStore(), new PersistentCache(), new LocalVideoLabelStore());
+    const controller = createStartedThumbnailController();
     Reflect.set(controller, "client", {
       getWholeVideoLabel: vi.fn().mockResolvedValueOnce("exclusive_access").mockResolvedValueOnce(null)
     });
@@ -426,7 +437,7 @@ describe("thumbnail labels", () => {
       }
     });
 
-    const controller = new ThumbnailLabelController(configStore, new PersistentCache(), new LocalVideoLabelStore());
+    const controller = createStartedThumbnailController(configStore);
     Reflect.set(controller, "client", {
       getWholeVideoLabel: vi.fn(async () => "sponsor")
     });
@@ -439,5 +450,26 @@ describe("thumbnail labels", () => {
     expect(label?.dataset.glassVariant).toBe("light");
     expect(label?.style.getPropertyValue("--category-display-accent")).not.toBe("#ffffff");
     expect(label?.style.getPropertyValue("--category-contrast")).toBe("#0f172a");
+  });
+
+  it("cancels pending idle refresh work after stop", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("requestIdleCallback", (callback: IdleRequestCallback) =>
+      window.setTimeout(() => callback({ didTimeout: false, timeRemaining: () => 0 } as IdleDeadline), 0)
+    );
+    vi.stubGlobal("cancelIdleCallback", (id: number) => window.clearTimeout(id));
+
+    const controller = createStartedThumbnailController();
+    Reflect.set(controller, "started", true);
+    const refreshSpy = vi.spyOn(controller as never, "refresh" as never);
+
+    Reflect.get(controller, "scheduleRefresh").call(controller);
+    vi.advanceTimersByTime(180);
+    controller.stop();
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(refreshSpy).not.toHaveBeenCalled();
+    expect(Reflect.get(controller, "started")).toBe(false);
+    vi.useRealTimers();
   });
 });

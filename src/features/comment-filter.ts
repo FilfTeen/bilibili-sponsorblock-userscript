@@ -726,6 +726,7 @@ async function rememberSubmittedCommentFeedbackKey(key: string | null): Promise<
     return;
   }
   await loadSubmittedCommentFeedbackKeys();
+  const previousKeys = new Set(submittedCommentFeedbackKeys);
   submittedCommentFeedbackKeys.add(key);
   const existing = await gmGetValue<Record<string, number> | null>(COMMENT_FEEDBACK_STORAGE_KEY, null);
   const now = Date.now();
@@ -739,7 +740,15 @@ async function rememberSubmittedCommentFeedbackKey(key: string | null): Promise<
   for (const entryKey of Object.keys(payload)) {
     submittedCommentFeedbackKeys.add(entryKey);
   }
-  await gmSetValue(COMMENT_FEEDBACK_STORAGE_KEY, payload);
+  try {
+    await gmSetValue(COMMENT_FEEDBACK_STORAGE_KEY, payload);
+  } catch (error) {
+    submittedCommentFeedbackKeys.clear();
+    for (const entryKey of previousKeys) {
+      submittedCommentFeedbackKeys.add(entryKey);
+    }
+    throw error;
+  }
 }
 
 function hasSubmittedCommentFeedbackKey(key: string | null): boolean {
@@ -856,7 +865,9 @@ function createFeedbackMenu(match: CommentSponsorMatch, feedbackKey: string | nu
         return;
       }
       submitted = true;
-      void rememberSubmittedCommentFeedbackKey(feedbackKey);
+      void rememberSubmittedCommentFeedbackKey(feedbackKey).catch((error) => {
+        debugLog("Failed to persist comment feedback state", error);
+      });
       dispatchVideoSignalFeedback(match, "confirm", feedbackToken, feedbackKey);
       setFeedbackMenuSubmitted(menu, trigger, choices, keepButton, dismissButton);
     }
@@ -870,7 +881,9 @@ function createFeedbackMenu(match: CommentSponsorMatch, feedbackKey: string | nu
         return;
       }
       submitted = true;
-      void rememberSubmittedCommentFeedbackKey(feedbackKey);
+      void rememberSubmittedCommentFeedbackKey(feedbackKey).catch((error) => {
+        debugLog("Failed to persist comment feedback state", error);
+      });
       dispatchVideoSignalFeedback(match, "dismiss", feedbackToken, feedbackKey);
       setFeedbackMenuSubmitted(menu, trigger, choices, keepButton, dismissButton);
     }
@@ -1210,6 +1223,7 @@ export class CommentSponsorController {
   private rootSweepAttempt = 0;
   private documentObserver: MutationObserver | null = null;
   private refreshTimerId: number | null = null;
+  private cancelIdleRefresh: (() => void) | null = null;
   private stopObservingUrl: (() => void) | null = null;
   private readonly rootObservers = new Map<HTMLElement, MutationObserver>();
   private pendingVisibleRefresh = false;
@@ -1311,6 +1325,8 @@ export class CommentSponsorController {
       window.clearTimeout(this.refreshTimerId);
       this.refreshTimerId = null;
     }
+    this.cancelIdleRefresh?.();
+    this.cancelIdleRefresh = null;
     this.documentObserver?.disconnect();
     this.documentObserver = null;
     this.disconnectRootObservers();
@@ -1352,6 +1368,10 @@ export class CommentSponsorController {
   }
 
   private scheduleRefresh(): void {
+    if (!this.started) {
+      return;
+    }
+
     if (document.hidden) {
       this.pendingVisibleRefresh = true;
       return;
@@ -1363,17 +1383,32 @@ export class CommentSponsorController {
 
     this.refreshTimerId = window.setTimeout(() => {
       this.refreshTimerId = null;
-      const schedule =
-        typeof requestIdleCallback === "function"
-          ? requestIdleCallback
-          : (cb: () => void) => window.setTimeout(cb, 0);
-      schedule(() => {
+      if (!this.started) {
+        return;
+      }
+      const runRefresh = () => {
+        this.cancelIdleRefresh = null;
+        if (!this.started) {
+          return;
+        }
         this.refresh();
-      });
+      };
+      if (typeof requestIdleCallback === "function" && typeof cancelIdleCallback === "function") {
+        const idleId = requestIdleCallback(runRefresh);
+        this.cancelIdleRefresh = () => cancelIdleCallback(idleId);
+        return;
+      }
+
+      const timeoutId = window.setTimeout(runRefresh, 0);
+      this.cancelIdleRefresh = () => window.clearTimeout(timeoutId);
     }, 160);
   }
 
   private refresh(): void {
+    if (!this.started) {
+      return;
+    }
+
     if (document.hidden) {
       this.pendingVisibleRefresh = true;
       return;

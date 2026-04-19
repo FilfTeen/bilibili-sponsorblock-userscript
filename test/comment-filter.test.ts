@@ -183,6 +183,12 @@ function getMainActionRoot(rootShadow: ShadowRoot): ShadowRoot | null {
     ?.shadowRoot ?? null;
 }
 
+function createStartedCommentController(configStore = new ConfigStore()): CommentSponsorController {
+  const controller = new CommentSponsorController(configStore);
+  Reflect.set(controller, "started", true);
+  return controller;
+}
+
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -517,7 +523,7 @@ describe("comment filter", () => {
 
     expect(extractCommentAuthorMid(shillRenderer)).toBe("100200300");
 
-    const controller = new CommentSponsorController(new ConfigStore());
+    const controller = createStartedCommentController();
     Reflect.set(controller, "currentConfig", {
       ...cloneDefaultConfig(),
       commentFilterMode: "label"
@@ -571,7 +577,7 @@ describe("comment filter", () => {
       )
     );
 
-    const controller = new CommentSponsorController(new ConfigStore());
+    const controller = createStartedCommentController();
     Reflect.set(controller, "currentConfig", {
       ...cloneDefaultConfig(),
       commentFilterMode: "label"
@@ -644,7 +650,7 @@ describe("comment filter", () => {
 
   it("processes comment threads after a delayed re-scan", async () => {
     const configStore = new ConfigStore();
-    const controller = new CommentSponsorController(configStore);
+    const controller = createStartedCommentController(configStore);
     Reflect.set(controller, "currentConfig", {
       ...cloneDefaultConfig(),
       commentFilterMode: "hide"
@@ -694,7 +700,7 @@ describe("comment filter", () => {
 
   it("processes sponsored reply renderers", () => {
     const configStore = new ConfigStore();
-    const controller = new CommentSponsorController(configStore);
+    const controller = createStartedCommentController(configStore);
     Reflect.set(controller, "currentConfig", {
       ...cloneDefaultConfig(),
       commentFilterMode: "hide"
@@ -730,7 +736,7 @@ describe("comment filter", () => {
 
   it("processes flat reply renderers used by the current elements comment tree", () => {
     const configStore = new ConfigStore();
-    const controller = new CommentSponsorController(configStore);
+    const controller = createStartedCommentController(configStore);
     Reflect.set(controller, "currentConfig", {
       ...cloneDefaultConfig(),
       commentFilterMode: "hide",
@@ -763,7 +769,7 @@ describe("comment filter", () => {
 
   it("injects comment locations for elements comments even when filtering is off", () => {
     const configStore = new ConfigStore();
-    const controller = new CommentSponsorController(configStore);
+    const controller = createStartedCommentController(configStore);
     Reflect.set(controller, "currentConfig", {
       ...cloneDefaultConfig(),
       commentFilterMode: "off",
@@ -785,7 +791,7 @@ describe("comment filter", () => {
 
   it("deduplicates legacy elements location nodes", () => {
     const configStore = new ConfigStore();
-    const controller = new CommentSponsorController(configStore);
+    const controller = createStartedCommentController(configStore);
     Reflect.set(controller, "currentConfig", {
       ...cloneDefaultConfig(),
       commentFilterMode: "off",
@@ -810,7 +816,7 @@ describe("comment filter", () => {
 
   it("injects vue-style comment locations beside reply time nodes", () => {
     const configStore = new ConfigStore();
-    const controller = new CommentSponsorController(configStore);
+    const controller = createStartedCommentController(configStore);
     Reflect.set(controller, "currentConfig", {
       ...cloneDefaultConfig(),
       commentFilterMode: "off",
@@ -853,7 +859,7 @@ describe("comment filter", () => {
     document.body.appendChild(root);
     rootShadow.appendChild(createThread(createCommentRenderer(false, "点评论区置顶领取优惠券") as HTMLElement));
 
-    const controller = new CommentSponsorController(new ConfigStore());
+    const controller = createStartedCommentController();
     Reflect.get(controller, "handleFeedbackAvailability").call(
       controller,
       new CustomEvent(LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT, {
@@ -883,7 +889,7 @@ describe("comment filter", () => {
     document.body.appendChild(root);
     rootShadow.appendChild(createThread(createCommentRenderer(false, "点评论区置顶领取优惠券") as HTMLElement));
 
-    const controller = new CommentSponsorController(new ConfigStore());
+    const controller = createStartedCommentController();
     Reflect.get(controller, "handleFeedbackAvailability").call(
       controller,
       new CustomEvent(LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT, {
@@ -918,7 +924,7 @@ describe("comment filter", () => {
     rootShadow.appendChild(createThread(createCommentRenderer(false, "点评论区置顶领取优惠券") as HTMLElement));
     rootShadow.appendChild(createThread(createCommentRenderer(false, "朋友们，和客服报【大吉】，专属优惠！") as HTMLElement));
 
-    const controller = new CommentSponsorController(new ConfigStore());
+    const controller = createStartedCommentController();
     Reflect.get(controller, "handleFeedbackAvailability").call(
       controller,
       new CustomEvent(LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT, {
@@ -973,7 +979,7 @@ describe("comment filter", () => {
     const eventSpy = vi.fn();
     window.addEventListener(VIDEO_SIGNAL_FEEDBACK_EVENT, eventSpy as EventListener);
 
-    const controller = new CommentSponsorController(new ConfigStore());
+    const controller = createStartedCommentController();
     Reflect.get(controller, "handleFeedbackAvailability").call(
       controller,
       new CustomEvent(LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT, {
@@ -1015,5 +1021,25 @@ describe("comment filter", () => {
     expect(eventSpy).toHaveBeenCalledTimes(1);
 
     window.removeEventListener(VIDEO_SIGNAL_FEEDBACK_EVENT, eventSpy as EventListener);
+  });
+
+  it("cancels pending idle refresh work after stop", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("requestIdleCallback", (callback: IdleRequestCallback) =>
+      window.setTimeout(() => callback({ didTimeout: false, timeRemaining: () => 0 } as IdleDeadline), 0)
+    );
+    vi.stubGlobal("cancelIdleCallback", (id: number) => window.clearTimeout(id));
+
+    const controller = createStartedCommentController();
+    Reflect.set(controller, "started", true);
+    const refreshSpy = vi.spyOn(controller as never, "refresh" as never);
+
+    Reflect.get(controller, "scheduleRefresh").call(controller);
+    vi.advanceTimersByTime(160);
+    controller.stop();
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(refreshSpy).not.toHaveBeenCalled();
+    expect(Reflect.get(controller, "started")).toBe(false);
   });
 });

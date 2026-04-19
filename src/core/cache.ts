@@ -6,6 +6,7 @@ import {
 } from "../constants";
 import { gmGetValue, gmSetValue } from "../platform/gm";
 import type { CacheEntry, CachePayload } from "../types";
+import { debugLog } from "../utils/dom";
 
 function estimateSize(value: unknown): number {
   return JSON.stringify(value).length;
@@ -23,7 +24,9 @@ export class PersistentCache<T> {
     const stored = await gmGetValue<CachePayload<T> | null>(CACHE_STORAGE_KEY, null);
     this.payload = normalizePayload(stored);
     this.loaded = true;
-    await this.persist();
+    void this.persist().catch((error) => {
+      debugLog("Failed to persist normalized cache payload", error);
+    });
   }
 
   private persistPromise: Promise<void> | null = null;
@@ -33,18 +36,23 @@ export class PersistentCache<T> {
       return this.persistPromise;
     }
 
-    this.persistPromise = new Promise<void>((resolve) => {
+    this.persistPromise = new Promise<void>((resolve, reject) => {
       window.setTimeout(async () => {
-        this.persistPromise = null;
-        this.cleanupExpired();
-        this.evictOverflow();
+        try {
+          this.cleanupExpired();
+          this.evictOverflow();
 
-        if (Object.keys(this.payload.entries).length === 0) {
-          await gmSetValue(CACHE_STORAGE_KEY, null);
-        } else {
-          await gmSetValue(CACHE_STORAGE_KEY, this.payload);
+          if (Object.keys(this.payload.entries).length === 0) {
+            await gmSetValue(CACHE_STORAGE_KEY, null);
+          } else {
+            await gmSetValue(CACHE_STORAGE_KEY, this.payload);
+          }
+          resolve();
+        } catch (error) {
+          reject(error);
+        } finally {
+          this.persistPromise = null;
         }
-        resolve();
       }, 200);
     });
 

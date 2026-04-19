@@ -9,5 +9,7 @@ describe("userscript banner source", () => {
     expect(PRODUCT_NAME).toBe("Bilibili QoL Core");
     expect(buildScript).toContain("// @name         Bilibili QoL Core");
     expect(buildScript).toContain("// @author       Hush_");
+    expect(buildScript).toContain("bilibili-qol-core.user.js");
+    expect(buildScript).not.toContain("dist/bilibili-sponsorblock.user.js");
   });
 });

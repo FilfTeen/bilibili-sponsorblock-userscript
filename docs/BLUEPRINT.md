@@ -10,7 +10,7 @@
 | 真实验收环境 | Safari 主窗口，已登录，已安装当前构建产物 |
 | 入口文件 | `src/main.ts` |
 | 构建入口 | `scripts/build.mjs` |
-| 产物 | `dist/bilibili-sponsorblock.user.js` |
+| 产物 | `dist/bilibili-qol-core.user.js` |
 | 菜单入口 | `src/runtime/menu.ts` 注册 `打开 QoL Core 控制台`、`打开 QoL Core 帮助`、`清理 QoL Core 缓存` |
 
 启动顺序：

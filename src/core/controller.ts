@@ -182,7 +182,9 @@ export class ScriptController {
     });
     this.syncLocalFeedbackAvailability();
     if (shouldPersistLocalVideoSignal(signal)) {
-      void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal);
+      void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal).catch((error) => {
+        debugLog("Failed to persist runtime local video signal", error);
+      });
     }
   };
   private readonly handleVideoSignalFeedback = (event: Event) => {
@@ -251,7 +253,9 @@ export class ScriptController {
       this.updateTitleBadge(segment);
       this.panel.setFullVideoLabels([segment]);
       if (shouldPersistLocalVideoSignal(signal)) {
-        void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal);
+        void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal).catch((error) => {
+          debugLog("Failed to persist comment local video signal", error);
+        });
       }
     }
 
@@ -471,6 +475,7 @@ export class ScriptController {
     document.removeEventListener("visibilitychange", this.handleVisibilityChange);
     window.removeEventListener(VIDEO_SIGNAL_EVENT, this.handleVideoSignal as EventListener);
     window.removeEventListener(VIDEO_SIGNAL_FEEDBACK_EVENT, this.handleVideoSignalFeedback as EventListener);
+    window.removeEventListener("bsb_mbga_live_fallback", this.handleMbgaLiveFallback as EventListener);
     this.syncCompactVideoHeader();
     this.clearRuntimeState(true);
   }

@@ -15,7 +15,7 @@
 
 - Safari 主窗口
 - 已登录真实账号
-- 已安装当前构建产物 `dist/bilibili-sponsorblock.user.js`
+- 已安装当前构建产物 `dist/bilibili-qol-core.user.js`
 - Tampermonkey 脚本已开启
 
 不作为最终验收结论的环境：

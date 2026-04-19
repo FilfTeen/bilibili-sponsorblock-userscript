@@ -18,8 +18,8 @@
 // @run-at       document-start
 // @homepageURL  https://github.com/FilfTeen/bilibili-sponsorblock-userscript
 // @supportURL   https://github.com/FilfTeen/bilibili-sponsorblock-userscript/issues
-// @downloadURL  https://raw.githubusercontent.com/FilfTeen/bilibili-sponsorblock-userscript/main/dist/bilibili-sponsorblock.user.js
-// @updateURL    https://raw.githubusercontent.com/FilfTeen/bilibili-sponsorblock-userscript/main/dist/bilibili-sponsorblock.user.js
+// @downloadURL  https://raw.githubusercontent.com/FilfTeen/bilibili-sponsorblock-userscript/main/dist/bilibili-qol-core.user.js
+// @updateURL    https://raw.githubusercontent.com/FilfTeen/bilibili-sponsorblock-userscript/main/dist/bilibili-qol-core.user.js
 // ==/UserScript==
 "use strict";
 (() => {
@@ -1050,13 +1050,22 @@
     patch(update) {
       return __async(this, null, function* () {
         var _a, _b;
+        const previous = this.getSnapshot();
         this.stats = {
           skipCount: (_a = update.skipCount) != null ? _a : this.stats.skipCount,
           minutesSaved: (_b = update.minutesSaved) != null ? _b : this.stats.minutesSaved
         };
-        yield gmSetValue(STATS_STORAGE_KEY, this.stats);
         for (const listener of this.listeners) {
           listener(this.getSnapshot());
+        }
+        try {
+          yield gmSetValue(STATS_STORAGE_KEY, this.stats);
+        } catch (error) {
+          this.stats = previous;
+          for (const listener of this.listeners) {
+            listener(this.getSnapshot());
+          }
+          throw error;
         }
         return this.getSnapshot();
       });
@@ -1070,6 +1079,183 @@
       });
     }
   };
+
+  // src/utils/page.ts
+  var SUPPORTED_HOSTS = /* @__PURE__ */ new Set([
+    "www.bilibili.com",
+    "search.bilibili.com",
+    "t.bilibili.com",
+    "space.bilibili.com"
+  ]);
+  function detectPageType(url) {
+    try {
+      const parsed = new URL(url);
+      if (!SUPPORTED_HOSTS.has(parsed.hostname)) {
+        return "unsupported";
+      }
+      if (parsed.hostname === "search.bilibili.com") {
+        return "search";
+      }
+      if (parsed.hostname === "t.bilibili.com") {
+        return "dynamic";
+      }
+      if (parsed.hostname === "space.bilibili.com") {
+        return "channel";
+      }
+      if (parsed.pathname.startsWith("/account/history") || parsed.pathname.startsWith("/history")) {
+        return "history";
+      }
+      if (parsed.pathname.startsWith("/video/")) {
+        return "video";
+      }
+      if (parsed.pathname.startsWith("/list/") || parsed.pathname.startsWith("/medialist/play/")) {
+        return "list";
+      }
+      if (parsed.pathname.startsWith("/festival/")) {
+        return "festival";
+      }
+      if (parsed.pathname.startsWith("/bangumi/")) {
+        return "anime";
+      }
+      if (parsed.pathname.startsWith("/opus/")) {
+        return "opus";
+      }
+      return "main";
+    } catch (_error) {
+      return "unknown";
+    }
+  }
+  function isSupportedLocation(url) {
+    const pageType = detectPageType(url);
+    return pageType !== "unknown" && pageType !== "unsupported";
+  }
+  function supportsVideoFeatures(url) {
+    const pageType = detectPageType(url);
+    return pageType === "video" || pageType === "list" || pageType === "festival" || pageType === "anime" || pageType === "opus";
+  }
+  function supportsCompactVideoHeader(url) {
+    return supportsVideoFeatures(url);
+  }
+  function isCompactVideoHeaderSuppressed(documentRef = document) {
+    if (documentRef.fullscreenElement) {
+      return true;
+    }
+    return Boolean(
+      documentRef.querySelector(
+        [
+          ".player-full-win",
+          ".player-fullscreen",
+          ".bpx-state-webfull",
+          ".bpx-state-webscreen",
+          ".bpx-state-fullscreen",
+          ".bpx-player-container[data-screen='web']",
+          ".bpx-player-container[data-screen='webscreen']",
+          ".bpx-player-container[data-screen='full']",
+          ".squirtle-video-pagefullscreen",
+          ".squirtle-video-fullscreen",
+          ".player-mode-webfullscreen",
+          ".mode-webscreen"
+        ].join(",")
+      )
+    );
+  }
+  function supportsDynamicFilters(url) {
+    const pageType = detectPageType(url);
+    return pageType === "main" || pageType === "dynamic" || pageType === "channel";
+  }
+  function supportsCommentFilters(url) {
+    const pageType = detectPageType(url);
+    return pageType === "video" || pageType === "list" || pageType === "festival" || pageType === "anime" || pageType === "opus" || pageType === "dynamic" || pageType === "channel";
+  }
+
+  // src/utils/dom.ts
+  var PLAYER_HOST_SELECTORS = [
+    "#bilibili-player",
+    ".bpx-player-container",
+    ".bpx-player-video-area",
+    ".player-container",
+    ".bili-video-player"
+  ];
+  var VIDEO_TITLE_SELECTORS = [
+    ".video-info-container h1",
+    ".video-title-container h1",
+    ".media-right h1",
+    "h1.video-title",
+    ".video-title"
+  ];
+  var TITLE_ACCESSORY_ATTR = "data-bsb-title-accessories";
+  function findVideoElement() {
+    return document.querySelector("video");
+  }
+  function resolvePlayerHost(video) {
+    var _a;
+    for (const selector of PLAYER_HOST_SELECTORS) {
+      const found = video.closest(selector);
+      if (found) {
+        return found;
+      }
+    }
+    return (_a = video.parentElement) != null ? _a : video;
+  }
+  function findVideoTitleElement() {
+    for (const selector of VIDEO_TITLE_SELECTORS) {
+      const found = document.querySelector(selector);
+      if (found) {
+        return found;
+      }
+    }
+    return null;
+  }
+  function ensureVideoTitleAccessoryHost() {
+    var _a;
+    const title = findVideoTitleElement();
+    if (!title) {
+      return null;
+    }
+    const parent = title.parentElement;
+    if (!parent) {
+      return null;
+    }
+    title.classList.remove("bsb-tm-title-row", "bsb-tm-title-text");
+    parent.classList.remove("bsb-tm-title-layout");
+    let accessories = (_a = Array.from(parent.children).find(
+      (child) => child instanceof HTMLElement && child.getAttribute(TITLE_ACCESSORY_ATTR) === "true"
+    )) != null ? _a : null;
+    if (!accessories) {
+      accessories = document.createElement("span");
+      accessories.className = "bsb-tm-title-accessories";
+      accessories.setAttribute(TITLE_ACCESSORY_ATTR, "true");
+      parent.insertBefore(accessories, title);
+    }
+    return accessories;
+  }
+  function cleanupVideoTitleAccessoryHost(host) {
+    if (!host || host.getAttribute(TITLE_ACCESSORY_ATTR) !== "true") {
+      return;
+    }
+    const parent = host.parentElement instanceof HTMLElement ? host.parentElement : null;
+    const title = host.nextElementSibling instanceof HTMLElement ? host.nextElementSibling : null;
+    if (host.childElementCount === 0) {
+      host.remove();
+    }
+    title == null ? void 0 : title.classList.remove("bsb-tm-title-row", "bsb-tm-title-text");
+    parent == null ? void 0 : parent.classList.remove("bsb-tm-title-layout");
+  }
+  function formatSegmentTime(seconds) {
+    const total = Math.max(0, Math.floor(seconds));
+    const mins = Math.floor(total / 60).toString().padStart(2, "0");
+    const secs = (total % 60).toString().padStart(2, "0");
+    return `${mins}:${secs}`;
+  }
+  function formatDurationLabel(start, end) {
+    if (end === null) {
+      return formatSegmentTime(start);
+    }
+    return `${formatSegmentTime(start)} - ${formatSegmentTime(end)}`;
+  }
+  function debugLog(message, ...extra) {
+    console.debug(`[${SCRIPT_NAME}] ${message}`, ...extra);
+  }
 
   // src/core/cache.ts
   function estimateSize(value) {
@@ -1089,7 +1275,9 @@
         const stored = yield gmGetValue(CACHE_STORAGE_KEY, null);
         this.payload = normalizePayload(stored);
         this.loaded = true;
-        yield this.persist();
+        void this.persist().catch((error) => {
+          debugLog("Failed to persist normalized cache payload", error);
+        });
       });
     }
     persist() {
@@ -1097,17 +1285,22 @@
         if (this.persistPromise) {
           return this.persistPromise;
         }
-        this.persistPromise = new Promise((resolve) => {
+        this.persistPromise = new Promise((resolve, reject) => {
           window.setTimeout(() => __async(this, null, function* () {
-            this.persistPromise = null;
-            this.cleanupExpired();
-            this.evictOverflow();
-            if (Object.keys(this.payload.entries).length === 0) {
-              yield gmSetValue(CACHE_STORAGE_KEY, null);
-            } else {
-              yield gmSetValue(CACHE_STORAGE_KEY, this.payload);
+            try {
+              this.cleanupExpired();
+              this.evictOverflow();
+              if (Object.keys(this.payload.entries).length === 0) {
+                yield gmSetValue(CACHE_STORAGE_KEY, null);
+              } else {
+                yield gmSetValue(CACHE_STORAGE_KEY, this.payload);
+              }
+              resolve();
+            } catch (error) {
+              reject(error);
+            } finally {
+              this.persistPromise = null;
             }
-            resolve();
           }), 200);
         });
         return this.persistPromise;
@@ -1339,6 +1532,16 @@
     constructor() {
       __publicField(this, "records", /* @__PURE__ */ new Map());
     }
+    persistWithRollback(previous) {
+      return __async(this, null, function* () {
+        try {
+          yield gmSetValue(LOCAL_LABEL_STORAGE_KEY, serializeRecords(this.records));
+        } catch (error) {
+          this.records = previous;
+          throw error;
+        }
+      });
+    }
     load() {
       return __async(this, null, function* () {
         this.records = normalizePayload2(yield gmGetValue(LOCAL_LABEL_STORAGE_KEY, null));
@@ -1364,6 +1567,7 @@
         if (!shouldReplaceAutomaticLocalLabel(existing, signal)) {
           return;
         }
+        const previous = new Map(this.records);
         this.records.set(videoId, {
           category: signal.category,
           source: signal.source,
@@ -1372,7 +1576,7 @@
           reason: signal.reason
         });
         this.records = pruneRecords(this.records);
-        yield gmSetValue(LOCAL_LABEL_STORAGE_KEY, serializeRecords(this.records));
+        yield this.persistWithRollback(previous);
       });
     }
     rememberManual(videoId, category, reason = "\u624B\u52A8\u786E\u8BA4\u672C\u5730\u6807\u7B7E") {
@@ -1380,6 +1584,7 @@
         if (!videoId.startsWith("BV")) {
           return;
         }
+        const previous = new Map(this.records);
         this.records.set(videoId, {
           category,
           source: "manual",
@@ -1388,7 +1593,7 @@
           reason
         });
         this.records = pruneRecords(this.records);
-        yield gmSetValue(LOCAL_LABEL_STORAGE_KEY, serializeRecords(this.records));
+        yield this.persistWithRollback(previous);
       });
     }
     dismiss(videoId, reason = "\u624B\u52A8\u5FFD\u7565\u672C\u5730\u6807\u7B7E") {
@@ -1396,6 +1601,7 @@
         if (!videoId.startsWith("BV")) {
           return;
         }
+        const previous = new Map(this.records);
         this.records.set(videoId, {
           category: null,
           source: "manual-dismiss",
@@ -1404,7 +1610,7 @@
           reason
         });
         this.records = pruneRecords(this.records);
-        yield gmSetValue(LOCAL_LABEL_STORAGE_KEY, serializeRecords(this.records));
+        yield this.persistWithRollback(previous);
       });
     }
   };
@@ -1451,9 +1657,15 @@
         if (!uuid) {
           return;
         }
+        const previous = new Map(this.records);
         this.records.set(uuid, Date.now());
         this.records = pruneRecords2(this.records);
-        yield gmSetValue(VOTE_HISTORY_STORAGE_KEY, serializeRecords2(this.records));
+        try {
+          yield gmSetValue(VOTE_HISTORY_STORAGE_KEY, serializeRecords2(this.records));
+        } catch (error) {
+          this.records = previous;
+          throw error;
+        }
       });
     }
   };
@@ -4066,183 +4278,6 @@ ${inlineSurfaceFrostedGlass.overlay}
     }
   };
 
-  // src/utils/page.ts
-  var SUPPORTED_HOSTS = /* @__PURE__ */ new Set([
-    "www.bilibili.com",
-    "search.bilibili.com",
-    "t.bilibili.com",
-    "space.bilibili.com"
-  ]);
-  function detectPageType(url) {
-    try {
-      const parsed = new URL(url);
-      if (!SUPPORTED_HOSTS.has(parsed.hostname)) {
-        return "unsupported";
-      }
-      if (parsed.hostname === "search.bilibili.com") {
-        return "search";
-      }
-      if (parsed.hostname === "t.bilibili.com") {
-        return "dynamic";
-      }
-      if (parsed.hostname === "space.bilibili.com") {
-        return "channel";
-      }
-      if (parsed.pathname.startsWith("/account/history") || parsed.pathname.startsWith("/history")) {
-        return "history";
-      }
-      if (parsed.pathname.startsWith("/video/")) {
-        return "video";
-      }
-      if (parsed.pathname.startsWith("/list/") || parsed.pathname.startsWith("/medialist/play/")) {
-        return "list";
-      }
-      if (parsed.pathname.startsWith("/festival/")) {
-        return "festival";
-      }
-      if (parsed.pathname.startsWith("/bangumi/")) {
-        return "anime";
-      }
-      if (parsed.pathname.startsWith("/opus/")) {
-        return "opus";
-      }
-      return "main";
-    } catch (_error) {
-      return "unknown";
-    }
-  }
-  function isSupportedLocation(url) {
-    const pageType = detectPageType(url);
-    return pageType !== "unknown" && pageType !== "unsupported";
-  }
-  function supportsVideoFeatures(url) {
-    const pageType = detectPageType(url);
-    return pageType === "video" || pageType === "list" || pageType === "festival" || pageType === "anime" || pageType === "opus";
-  }
-  function supportsCompactVideoHeader(url) {
-    return supportsVideoFeatures(url);
-  }
-  function isCompactVideoHeaderSuppressed(documentRef = document) {
-    if (documentRef.fullscreenElement) {
-      return true;
-    }
-    return Boolean(
-      documentRef.querySelector(
-        [
-          ".player-full-win",
-          ".player-fullscreen",
-          ".bpx-state-webfull",
-          ".bpx-state-webscreen",
-          ".bpx-state-fullscreen",
-          ".bpx-player-container[data-screen='web']",
-          ".bpx-player-container[data-screen='webscreen']",
-          ".bpx-player-container[data-screen='full']",
-          ".squirtle-video-pagefullscreen",
-          ".squirtle-video-fullscreen",
-          ".player-mode-webfullscreen",
-          ".mode-webscreen"
-        ].join(",")
-      )
-    );
-  }
-  function supportsDynamicFilters(url) {
-    const pageType = detectPageType(url);
-    return pageType === "main" || pageType === "dynamic" || pageType === "channel";
-  }
-  function supportsCommentFilters(url) {
-    const pageType = detectPageType(url);
-    return pageType === "video" || pageType === "list" || pageType === "festival" || pageType === "anime" || pageType === "opus" || pageType === "dynamic" || pageType === "channel";
-  }
-
-  // src/utils/dom.ts
-  var PLAYER_HOST_SELECTORS = [
-    "#bilibili-player",
-    ".bpx-player-container",
-    ".bpx-player-video-area",
-    ".player-container",
-    ".bili-video-player"
-  ];
-  var VIDEO_TITLE_SELECTORS = [
-    ".video-info-container h1",
-    ".video-title-container h1",
-    ".media-right h1",
-    "h1.video-title",
-    ".video-title"
-  ];
-  var TITLE_ACCESSORY_ATTR = "data-bsb-title-accessories";
-  function findVideoElement() {
-    return document.querySelector("video");
-  }
-  function resolvePlayerHost(video) {
-    var _a;
-    for (const selector of PLAYER_HOST_SELECTORS) {
-      const found = video.closest(selector);
-      if (found) {
-        return found;
-      }
-    }
-    return (_a = video.parentElement) != null ? _a : video;
-  }
-  function findVideoTitleElement() {
-    for (const selector of VIDEO_TITLE_SELECTORS) {
-      const found = document.querySelector(selector);
-      if (found) {
-        return found;
-      }
-    }
-    return null;
-  }
-  function ensureVideoTitleAccessoryHost() {
-    var _a;
-    const title = findVideoTitleElement();
-    if (!title) {
-      return null;
-    }
-    const parent = title.parentElement;
-    if (!parent) {
-      return null;
-    }
-    title.classList.remove("bsb-tm-title-row", "bsb-tm-title-text");
-    parent.classList.remove("bsb-tm-title-layout");
-    let accessories = (_a = Array.from(parent.children).find(
-      (child) => child instanceof HTMLElement && child.getAttribute(TITLE_ACCESSORY_ATTR) === "true"
-    )) != null ? _a : null;
-    if (!accessories) {
-      accessories = document.createElement("span");
-      accessories.className = "bsb-tm-title-accessories";
-      accessories.setAttribute(TITLE_ACCESSORY_ATTR, "true");
-      parent.insertBefore(accessories, title);
-    }
-    return accessories;
-  }
-  function cleanupVideoTitleAccessoryHost(host) {
-    if (!host || host.getAttribute(TITLE_ACCESSORY_ATTR) !== "true") {
-      return;
-    }
-    const parent = host.parentElement instanceof HTMLElement ? host.parentElement : null;
-    const title = host.nextElementSibling instanceof HTMLElement ? host.nextElementSibling : null;
-    if (host.childElementCount === 0) {
-      host.remove();
-    }
-    title == null ? void 0 : title.classList.remove("bsb-tm-title-row", "bsb-tm-title-text");
-    parent == null ? void 0 : parent.classList.remove("bsb-tm-title-layout");
-  }
-  function formatSegmentTime(seconds) {
-    const total = Math.max(0, Math.floor(seconds));
-    const mins = Math.floor(total / 60).toString().padStart(2, "0");
-    const secs = (total % 60).toString().padStart(2, "0");
-    return `${mins}:${secs}`;
-  }
-  function formatDurationLabel(start, end) {
-    if (end === null) {
-      return formatSegmentTime(start);
-    }
-    return `${formatSegmentTime(start)} - ${formatSegmentTime(end)}`;
-  }
-  function debugLog(message, ...extra) {
-    console.debug(`[${SCRIPT_NAME}] ${message}`, ...extra);
-  }
-
   // src/ui/title-badge.ts
   var DEFAULT_COPY = "\u6574\u4E2A\u89C6\u9891\u90FD\u88AB\u793E\u533A\u6807\u8BB0\u4E3A\u8FD9\u4E00\u7C7B\u5185\u5BB9\u3002\u6807\u7B7E\u4EC5\u7528\u4E8E\u8F85\u52A9\u5224\u65AD\uFF0C\u4E0D\u5E94\u66FF\u4EE3\u4F60\u81EA\u5DF1\u7684\u89C2\u770B\u5224\u65AD\u3002";
   var LABEL_ONLY_COPY = "\u8FD9\u4E2A\u6807\u7B7E\u6765\u81EA\u6574\u89C6\u9891\u6807\u7B7E\u63A5\u53E3\u7ED3\u679C\uFF1B\u8BE5\u63A5\u53E3\u53EA\u63D0\u4F9B\u5206\u7C7B\u6458\u8981\uFF0C\u6CA1\u6709\u53EF\u76F4\u63A5\u53CD\u9988\u7684\u6295\u7968 UUID\u3002";
@@ -5672,6 +5707,7 @@ ${inlineSurfaceFrostedGlass.overlay}
         return;
       }
       yield loadSubmittedCommentFeedbackKeys();
+      const previousKeys = new Set(submittedCommentFeedbackKeys);
       submittedCommentFeedbackKeys.add(key);
       const existing = yield gmGetValue(COMMENT_FEEDBACK_STORAGE_KEY, null);
       const now = Date.now();
@@ -5682,7 +5718,15 @@ ${inlineSurfaceFrostedGlass.overlay}
       for (const entryKey of Object.keys(payload)) {
         submittedCommentFeedbackKeys.add(entryKey);
       }
-      yield gmSetValue(COMMENT_FEEDBACK_STORAGE_KEY, payload);
+      try {
+        yield gmSetValue(COMMENT_FEEDBACK_STORAGE_KEY, payload);
+      } catch (error) {
+        submittedCommentFeedbackKeys.clear();
+        for (const entryKey of previousKeys) {
+          submittedCommentFeedbackKeys.add(entryKey);
+        }
+        throw error;
+      }
     });
   }
   function hasSubmittedCommentFeedbackKey(key) {
@@ -5783,7 +5827,9 @@ ${inlineSurfaceFrostedGlass.overlay}
           return;
         }
         submitted = true;
-        void rememberSubmittedCommentFeedbackKey(feedbackKey);
+        void rememberSubmittedCommentFeedbackKey(feedbackKey).catch((error) => {
+          debugLog("Failed to persist comment feedback state", error);
+        });
         dispatchVideoSignalFeedback(match, "confirm", feedbackToken, feedbackKey);
         setFeedbackMenuSubmitted(menu, trigger, choices, keepButton, dismissButton);
       }
@@ -5797,7 +5843,9 @@ ${inlineSurfaceFrostedGlass.overlay}
           return;
         }
         submitted = true;
-        void rememberSubmittedCommentFeedbackKey(feedbackKey);
+        void rememberSubmittedCommentFeedbackKey(feedbackKey).catch((error) => {
+          debugLog("Failed to persist comment feedback state", error);
+        });
         dispatchVideoSignalFeedback(match, "dismiss", feedbackToken, feedbackKey);
         setFeedbackMenuSubmitted(menu, trigger, choices, keepButton, dismissButton);
       }
@@ -6089,6 +6137,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       __publicField(this, "rootSweepAttempt", 0);
       __publicField(this, "documentObserver", null);
       __publicField(this, "refreshTimerId", null);
+      __publicField(this, "cancelIdleRefresh", null);
       __publicField(this, "stopObservingUrl", null);
       __publicField(this, "rootObservers", /* @__PURE__ */ new Map());
       __publicField(this, "pendingVisibleRefresh", false);
@@ -6163,7 +6212,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       );
     }
     stop() {
-      var _a;
+      var _a, _b;
       if (!this.started) {
         return;
       }
@@ -6180,7 +6229,9 @@ ${inlineSurfaceFrostedGlass.overlay}
         window.clearTimeout(this.refreshTimerId);
         this.refreshTimerId = null;
       }
-      (_a = this.documentObserver) == null ? void 0 : _a.disconnect();
+      (_a = this.cancelIdleRefresh) == null ? void 0 : _a.call(this);
+      this.cancelIdleRefresh = null;
+      (_b = this.documentObserver) == null ? void 0 : _b.disconnect();
       this.documentObserver = null;
       this.disconnectRootObservers();
       this.pendingVisibleRefresh = false;
@@ -6215,6 +6266,9 @@ ${inlineSurfaceFrostedGlass.overlay}
       }, delay);
     }
     scheduleRefresh() {
+      if (!this.started) {
+        return;
+      }
       if (document.hidden) {
         this.pendingVisibleRefresh = true;
         return;
@@ -6224,13 +6278,29 @@ ${inlineSurfaceFrostedGlass.overlay}
       }
       this.refreshTimerId = window.setTimeout(() => {
         this.refreshTimerId = null;
-        const schedule = typeof requestIdleCallback === "function" ? requestIdleCallback : (cb) => window.setTimeout(cb, 0);
-        schedule(() => {
+        if (!this.started) {
+          return;
+        }
+        const runRefresh = () => {
+          this.cancelIdleRefresh = null;
+          if (!this.started) {
+            return;
+          }
           this.refresh();
-        });
+        };
+        if (typeof requestIdleCallback === "function" && typeof cancelIdleCallback === "function") {
+          const idleId = requestIdleCallback(runRefresh);
+          this.cancelIdleRefresh = () => cancelIdleCallback(idleId);
+          return;
+        }
+        const timeoutId = window.setTimeout(runRefresh, 0);
+        this.cancelIdleRefresh = () => window.clearTimeout(timeoutId);
       }, 160);
     }
     refresh() {
+      if (!this.started) {
+        return;
+      }
       if (document.hidden) {
         this.pendingVisibleRefresh = true;
         return;
@@ -6933,7 +7003,9 @@ ${inlineSurfaceFrostedGlass.overlay}
         });
         this.syncLocalFeedbackAvailability();
         if (shouldPersistLocalVideoSignal(signal)) {
-          void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal);
+          void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal).catch((error) => {
+            debugLog("Failed to persist runtime local video signal", error);
+          });
         }
       });
       __publicField(this, "handleVideoSignalFeedback", (event) => {
@@ -6986,7 +7058,9 @@ ${inlineSurfaceFrostedGlass.overlay}
           this.updateTitleBadge(segment);
           this.panel.setFullVideoLabels([segment]);
           if (shouldPersistLocalVideoSignal(signal)) {
-            void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal);
+            void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal).catch((error) => {
+              debugLog("Failed to persist comment local video signal", error);
+            });
           }
         }
         this.notices.show({
@@ -7183,6 +7257,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       document.removeEventListener("visibilitychange", this.handleVisibilityChange);
       window.removeEventListener(VIDEO_SIGNAL_EVENT, this.handleVideoSignal);
       window.removeEventListener(VIDEO_SIGNAL_FEEDBACK_EVENT, this.handleVideoSignalFeedback);
+      window.removeEventListener("bsb_mbga_live_fallback", this.handleMbgaLiveFallback);
       this.syncCompactVideoHeader();
       this.clearRuntimeState(true);
     }
@@ -8330,6 +8405,9 @@ ${inlineSurfaceFrostedGlass.overlay}
       this.resetProcessedItems();
     }
     scheduleRefresh() {
+      if (!this.started) {
+        return;
+      }
       if (document.hidden) {
         this.pendingVisibleRefresh = true;
         return;
@@ -8339,10 +8417,16 @@ ${inlineSurfaceFrostedGlass.overlay}
       }
       this.refreshTimerId = window.setTimeout(() => {
         this.refreshTimerId = null;
+        if (!this.started) {
+          return;
+        }
         this.refresh();
       }, 120);
     }
     refresh() {
+      if (!this.started) {
+        return;
+      }
       if (document.hidden) {
         this.pendingVisibleRefresh = true;
         return;
@@ -8840,6 +8924,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       __publicField(this, "refreshing", false);
       __publicField(this, "pendingRefresh", false);
       __publicField(this, "refreshTimerId", null);
+      __publicField(this, "cancelIdleRefresh", null);
       __publicField(this, "domObserver", null);
       __publicField(this, "stopObservingUrl", null);
       __publicField(this, "currentConfig");
@@ -8885,7 +8970,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       document.addEventListener("visibilitychange", this.handleVisibilityChange);
     }
     stop() {
-      var _a, _b;
+      var _a, _b, _c;
       if (!this.started) {
         return;
       }
@@ -8896,27 +8981,48 @@ ${inlineSurfaceFrostedGlass.overlay}
         window.clearTimeout(this.refreshTimerId);
         this.refreshTimerId = null;
       }
+      (_b = this.cancelIdleRefresh) == null ? void 0 : _b.call(this);
+      this.cancelIdleRefresh = null;
       window.removeEventListener("resize", this.handleWindowLayoutChange);
       document.removeEventListener("visibilitychange", this.handleVisibilityChange);
-      (_b = this.domObserver) == null ? void 0 : _b.disconnect();
+      (_c = this.domObserver) == null ? void 0 : _c.disconnect();
       this.domObserver = null;
       this.reset();
     }
     scheduleRefresh() {
+      if (!this.started) {
+        return;
+      }
       if (this.refreshTimerId !== null) {
         return;
       }
       this.refreshTimerId = window.setTimeout(() => {
         this.refreshTimerId = null;
-        const schedule = typeof requestIdleCallback === "function" ? requestIdleCallback : (cb) => window.setTimeout(cb, 0);
-        schedule(() => {
+        if (!this.started) {
+          return;
+        }
+        const runRefresh = () => {
+          this.cancelIdleRefresh = null;
+          if (!this.started) {
+            return;
+          }
           void this.refresh();
-        });
+        };
+        if (typeof requestIdleCallback === "function" && typeof cancelIdleCallback === "function") {
+          const idleId = requestIdleCallback(runRefresh);
+          this.cancelIdleRefresh = () => cancelIdleCallback(idleId);
+          return;
+        }
+        const timeoutId = window.setTimeout(runRefresh, 0);
+        this.cancelIdleRefresh = () => window.clearTimeout(timeoutId);
       }, 180);
     }
     refresh() {
       return __async(this, null, function* () {
         var _a, _b;
+        if (!this.started) {
+          return;
+        }
         if (this.refreshing) {
           this.pendingRefresh = true;
           return;
@@ -8972,7 +9078,7 @@ ${inlineSurfaceFrostedGlass.overlay}
           }
         } finally {
           this.refreshing = false;
-          if (this.pendingRefresh) {
+          if (this.started && this.pendingRefresh) {
             this.pendingRefresh = false;
             this.scheduleRefresh();
           }
@@ -9054,6 +9160,8 @@ ${inlineSurfaceFrostedGlass.overlay}
     videoFitMode: "__BSB_MBGA_VIDEO_FIT_MODE__",
     grayscaleObserver: "__BSB_MBGA_GRAYSCALE_OBSERVER__"
   };
+  var ARTICLE_COPY_UNLOCKED_ATTR = "data-bsb-mbga-copy-unlocked";
+  var ARTICLE_COPY_UNLOCK_TIMEOUT_MS = 1e4;
   var USELESS_URL_PARAMS = [
     "buvid",
     "is_story_h5",
@@ -9715,18 +9823,47 @@ html[wide] main { margin: 0 8px; flex: 1; overflow: hidden; width: initial; }
     if (win.original) {
       win.original.reprint = "1";
     }
-    const holder = ctx.doc.querySelector(".article-holder");
-    if (!(holder instanceof HTMLElement)) {
+    const unlockArticleHolder = (holder) => {
+      if (holder.getAttribute(ARTICLE_COPY_UNLOCKED_ATTR) === "true") {
+        return true;
+      }
+      holder.classList.remove("unable-reprint");
+      holder.setAttribute(ARTICLE_COPY_UNLOCKED_ATTR, "true");
+      holder.addEventListener(
+        "copy",
+        (event) => {
+          event.stopImmediatePropagation();
+        },
+        true
+      );
+      return true;
+    };
+    const existingHolder = ctx.doc.querySelector(".article-holder");
+    if (existingHolder instanceof HTMLElement) {
+      unlockArticleHolder(existingHolder);
       return;
     }
-    holder.classList.remove("unable-reprint");
-    holder.addEventListener(
-      "copy",
-      (event) => {
-        event.stopImmediatePropagation();
-      },
-      true
-    );
+    let timeoutId = null;
+    const observer = new MutationObserver(() => {
+      const holder = ctx.doc.querySelector(".article-holder");
+      if (!(holder instanceof HTMLElement)) {
+        return;
+      }
+      unlockArticleHolder(holder);
+      observer.disconnect();
+      if (timeoutId !== null) {
+        win.clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+    });
+    observer.observe(ctx.doc.documentElement, {
+      childList: true,
+      subtree: true
+    });
+    timeoutId = win.setTimeout(() => {
+      observer.disconnect();
+      timeoutId = null;
+    }, ARTICLE_COPY_UNLOCK_TIMEOUT_MS);
   }
   function mountLiveUiCleanup(ctx) {
     ensureScopedStyle(
