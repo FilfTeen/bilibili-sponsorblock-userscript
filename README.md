@@ -1,102 +1,34 @@
-# Bilibili SponsorBlock Userscript (v0.3.6)
+# Bilibili QoL Core (v0.3.7)
 
-> [!TIP]
-> **最新更新 v0.3.6**: 强化了维护工具的安全性（二阶段确认、醒目色彩预警）并修复了网页全屏下的 UI 遮挡问题。
+> 面向 Safari + Tampermonkey 的 Bilibili 低侵入增强 userscript：整合 SponsorBlock 片段、整视频性质标签、评论/动态识别、本地推理学习、MBGA 生态净化和 Apple 风格控制台。
 
-这是一个受 [SponsorBlock](https://sponsor.ajay.app/) 启发，专为 Bilibili 打造的跳过视频广告片段、标记商业内容的 Tampermonkey 脚本。
+Bilibili QoL Core 的目标不是接管 B 站页面，而是在尽量少改动原生 DOM/CSS 的前提下补充实用能力。所有本地推理都保持纯本地、可解释、可回退；真实验收环境以已登录的 Safari 主窗口为准。
 
-## 核心特性
+## 核心能力
 
-- **广告跳过**：自动或手动跳过 SponsorBlock 数据库中已有的 B 站视频广告片段。
-- **整视频标签**：在视频标题前显示商业性质标签（如：商单、导流、互动视频等）。
-- **缩略图标记**：在首页、搜索页、历史记录及推荐列表的视频封面通过“胶囊标签”直观标记。
-- **维护工具硬化 (New)**：清理缓存与重置设置支持二阶段安全确认，界面操作更稳健，防止误触。
-- **全屏优化**：紧凑型顶部栏在网页全屏/全屏模式下自动隐藏，提供零干扰观影。
-
-## 文档导航
-
-- 项目概览与安装: [README.md](./README.md)
-- 使用手册: [docs/USER_GUIDE.md](./docs/USER_GUIDE.md)
-- 能力说明: [docs/CAPABILITIES.md](./docs/CAPABILITIES.md)
-- 技术文档: [docs/TECHNICAL.md](./docs/TECHNICAL.md)
-- 误差与可靠性说明: [docs/RELIABILITY.md](./docs/RELIABILITY.md)
-- Safari 播放器背后文本调查: [docs/SAFARI_PLAYER_OVERLAY_INVESTIGATION.md](./docs/SAFARI_PLAYER_OVERLAY_INVESTIGATION.md)
-- 免责声明: [DISCLAIMER.md](./DISCLAIMER.md)
-- Attribution: [NOTICE.md](./NOTICE.md)
-
-## 致谢
-
-本项目是对 [hanydd/BilibiliSponsorBlock](https://github.com/hanydd/BilibiliSponsorBlock) 的派生实现，并额外吸收了其他开源 userscript 的单点能力。
-
-- 原项目作者: `hanydd`
-- 原项目许可证: `GPL-3.0`
-- 本项目沿用了原项目的分类语义、片段请求思路和核心使用场景，但将运行时重写为 Tampermonkey userscript
-- 评论区属地显示（开盒）功能参考并适配了 [mscststs / B站评论区开盒](https://greasyfork.org/zh-CN/scripts/448434-b%E7%AB%99%E8%AF%84%E8%AE%BA%E5%8C%BA%E5%BC%80%E7%9B%92) 的公开实现思路，原脚本许可证为 `ISC`
-
-更多 attribution 请见 [NOTICE.md](./NOTICE.md)。
-
-## 免责声明
-
-使用前请先阅读 [DISCLAIMER.md](./DISCLAIMER.md)。
-
-简要说明:
-
-- 这是非官方派生脚本，不隶属于原作者、Bilibili、SponsorBlock 或 Tampermonkey
-- 评论区属地显示功能只会读取 Bilibili 当前评论 payload 或页面已经公开提供的属地字段，不会额外探测或推断用户真实地理位置
-- 脚本可能因 Bilibili 页面结构、接口、第三方服务或浏览器策略变化而失效
-- 脚本只会根据配置访问 SponsorBlock 服务地址并在本地保存配置/缓存
-- 由此脚本造成的误跳过、误静音、兼容性问题或账号/浏览体验风险，需要由使用者自行判断和承担
-
-## 当前功能
-
-- 按 `bvid` 请求 SponsorBlock 片段
-- 分类级别的 `自动 / 手动 / 仅提示 / 关闭`
-- `skip` 片段自动或手动跳过
-- `mute` 片段自动或手动静音
-- `poi_highlight` 高光点提示与跳转
-- 视频页进度条片段预览条
-- 首页、搜索页、播放页推荐区等位置的整视频缩略图角标
-- 视频页标题前的 `full` 整视频标签胶囊
-- 整视频标签的 `标记正确 / 标记有误` 反馈入口
-- 播放器控制栏内的 SponsorBlock 盾牌按钮
-- 首页、动态页和空间页的可疑带货动态识别
-- 评论区商品卡广告、可疑广告评论和可疑广告回复识别
-- 评论区属地显示（开盒），默认开启
-- 统一商业意图知识库驱动的页面/评论/动态本地识别与本地学习
-- 分栏式设置 / 帮助控制台
-- 本地配置、统计和 TTL 缓存
-- 评论/动态过滤的 `隐藏并标记 / 仅标记 / 关闭`
-- 单文件发布产物: `dist/bilibili-sponsorblock.user.js`
-
-## 不包含的能力
-
-- 片段投稿
-- 通用片段投票和投稿
-- 弹幕跳转
-- 快捷键
-- 浏览器扩展专属的 popup/options 独立页面
+- **SponsorBlock 片段处理**：按 BVID hash-prefix 请求片段，支持自动跳过、手动提示、静音、高光点和进度条预览。
+- **整视频标签**：综合社区 `full` 片段、整视频标签接口、本地页面/评论信号和用户反馈，在标题与缩略图上显示胶囊标签。
+- **评论区增强**：识别商品卡、导流话术、可疑托评和回复层广告，支持仅标记或折叠，并显示 B 站 payload 自带 IP 属地。
+- **动态页增强**：对首页、动态页、空间页中的可疑商业动态进行标记或折叠，优先降低误杀。
+- **本地推理与学习**：上游无整视频记录时补充本地判断；用户可保留或忽略本地判断。
+- **低侵入 UI**：标题胶囊、缩略图胶囊、紧凑视频顶栏、通知浮窗和 QoL Core 控制台尽量不破坏原生布局。
+- **MBGA 生态净化**：可选压制部分遥测/PCDN 行为，清理追踪参数，并补充低侵入页面小修。
 
 ## 安装
 
 ### Safari + Tampermonkey
 
 1. 从 App Store 安装 Tampermonkey for Safari。
-2. 优先打开这个安装入口:
-   [bilibili-sponsorblock.user.js](https://github.com/FilfTeen/bilibili-sponsorblock-userscript/raw/main/dist/bilibili-sponsorblock.user.js)
-3. 当 Tampermonkey 弹出安装确认页时，点击 `Install`。
-4. 打开任意支持的 Bilibili 视频页。
-5. 进入视频页后，可以通过播放器控制栏里的 SponsorBlock 盾牌按钮，或 Tampermonkey 菜单里的 `打开 BSB 控制台` 进入设置。
+2. 打开安装链接：[bilibili-qol-core.user.js](https://github.com/FilfTeen/bilibili-sponsorblock-userscript/raw/main/dist/bilibili-qol-core.user.js)。
+3. 在 Tampermonkey 安装确认页点击 `Install`。
+4. 打开支持的 Bilibili 页面，并确认脚本已启用。
+5. 通过 Tampermonkey 菜单的 `打开 QoL Core 控制台`、视频页标题胶囊或播放器盾牌按钮进入设置。
 
-如果 Safari 直接把脚本当作普通文本页打开，没有弹出安装确认页:
+如果 Safari 只把脚本打开成文本页，可以在 `Tampermonkey Dashboard -> Utilities -> Import from URL` 手动导入 raw 链接。
 
-1. 打开 `Tampermonkey Dashboard -> Utilities`。
-2. 在 `Import from URL` 中粘贴:
-   `https://raw.githubusercontent.com/FilfTeen/bilibili-sponsorblock-userscript/main/dist/bilibili-sponsorblock.user.js`
-3. 手动导入并启用。
+### 其他 Tampermonkey 浏览器
 
-### 其他支持 Tampermonkey 的浏览器
-
-同样使用上面的 raw GitHub 链接安装即可。Release 页面仍保留构建产物，便于版本归档。
+Chrome 等浏览器可使用同一 userscript 安装链接。当前真实验收环境以 Safari 为准，Chrome 只作为兼容目标。
 
 ## 支持页面
 
@@ -105,115 +37,83 @@
 - `https://t.bilibili.com/*`
 - `https://space.bilibili.com/*`
 
-其中视频片段能力主要覆盖:
+视频能力重点覆盖 `/video/*`、`/list/*`、`/medialist/play/*`、`/bangumi/*`、`/festival/*` 和 `/opus/*`，其中非常规视频页按 best effort 处理。
 
-- `https://www.bilibili.com/video/*`
-- `https://www.bilibili.com/list/*`
-- `https://www.bilibili.com/medialist/play/*`
-- `https://www.bilibili.com/bangumi/*` `best effort`
-- `https://www.bilibili.com/festival/*` `best effort`
-- `https://www.bilibili.com/opus/*` `best effort`
+## 文档导航
 
-URL 解析额外兼容:
+- [工程蓝图](./docs/BLUEPRINT.md)：功能、实现、状态、风险和验收入口的总索引。
+- [使用手册](./docs/USER_GUIDE.md)：面向用户的安装、配置和操作说明。
+- [能力说明](./docs/CAPABILITIES.md)：QoL Core 已实现能力和不提供能力。
+- [技术文档](./docs/TECHNICAL.md)：模块结构、运行链路和工程约束。
+- [上游对接审计](./docs/UPSTREAM_ALIGNMENT_AUDIT.md)：与 BilibiliSponsorBlock / SponsorBlock API 的差异和修复点。
+- [误差与可靠性说明](./docs/RELIABILITY.md)：哪些判断可靠，哪些必须谨慎。
+- [v0.3.7 审计记录](./docs/AUDIT_V037.md)：代码、安全、UI 和分支健康审计结果。
+- [分支健康记录](./docs/BRANCH_HEALTH_V037.md)：main、integration、已吸收分支和脏工作树状态。
+- [Safari 验收清单](./docs/SAFARI_ACCEPTANCE_V037.md)：真实 Safari 主窗口验收要求。
 
-- `BV` 直链
-- `av` 直链
-- `list / medialist` 场景下的 `bvid / aid / cid` 查询参数
+## 配置与本地数据
 
-## 配置项
+主要配置保存在 Tampermonkey 存储键 `bsb_tm_config_v1`。`bsb_tm_*` 是历史兼容前缀，升级到 Bilibili QoL Core 后不会迁移，以免破坏已有用户数据。
 
-配置保存在 Tampermonkey 存储键 `bsb_tm_config_v1` 下:
+配置覆盖：
 
-- `enabled`
-- `serverAddress`
-- `enableCache`
-- `noticeDurationSec`
-- `minDurationSec`
-- `showPreviewBar`
-- `thumbnailLabelMode`
-- `categoryModes`
-- `dynamicFilterMode`
-- `dynamicRegexPattern`
-- `dynamicRegexKeywordMinMatches`
-- `commentFilterMode`
-- `commentHideReplies`
-- `commentLocationEnabled`
+- SponsorBlock 服务地址、缓存、提示时长、最短处理时长。
+- 分类处理模式和分类配色。
+- 标题、缩略图、评论、动态标签透明度。
+- 评论过滤、评论属地、动态过滤。
+- 紧凑视频顶栏和灰字搜索行为。
+- MBGA 网络净化、PCDN 压制、URL 清理和 UI 简化。
 
-更完整的配置解释见 [docs/USER_GUIDE.md](./docs/USER_GUIDE.md)。
-
-统计单独保存在 `bsb_tm_stats_v1`:
-
-- `skipCount`
-- `minutesSaved`
+其他本地数据包括统计、TTL 缓存、本地整视频标签、评论反馈锁定和整视频投票历史。详见 [docs/BLUEPRINT.md](./docs/BLUEPRINT.md)。
 
 ## 与原扩展的主要差异
 
-| 项目 | 原扩展 | 本项目 |
+| 项目 | 原扩展 | Bilibili QoL Core |
 | --- | --- | --- |
-| 分发形式 | 浏览器扩展 | Tampermonkey 单文件脚本 |
+| 分发形式 | 浏览器扩展 | Tampermonkey 单文件 userscript |
 | 运行模型 | background + content scripts | 页内脚本 + 页面桥接 |
-| 设置入口 | popup / options 页面 | Tampermonkey 菜单 + 分栏式控制台 + 播放器按钮 |
-| 投稿/投票 | 支持 | 支持整视频标签反馈，暂不支持完整投稿工作流 |
-| 评论/动态过滤 | 支持 | 支持核心过滤与标记 |
-| 预览条 | 支持 | 支持核心进度条标记 |
-| 缩略图整视频角标 | 支持 | 支持核心角标模式 |
-| 标题区商业标签 | 支持 | 支持 |
+| 设置入口 | popup / options 页面 | QoL Core 控制台、标题胶囊、播放器按钮、Tampermonkey 菜单 |
+| 片段投稿 | 支持 | 暂不支持 |
+| 投票 | 支持完整流程 | 仅真实社区 `full` 标签可投票；整视频标签接口结果只展示 |
+| Bilibili 评论/动态增强 | 非核心 | 支持本地启发式识别和标记/折叠 |
+| MBGA 生态净化 | 不适用 | 可选启用 |
 
-## 过滤说明
-
-- 评论区过滤目前支持两类信号: 商品卡链接，以及基于关键词/正则的可疑广告文案。
-- 评论区属地显示默认开启，但只会在 Bilibili 当前评论数据本身包含属地字段时显示；如果页面返回里没有该字段，脚本不会伪造或猜测属地信息。
-- 当 Bilibili 当前评论组件结构允许时，回复楼层也会沿用同样的识别与隐藏逻辑。
-- 动态过滤同样基于商品卡和可疑广告文案两类信号。
-- 这部分是启发式过滤，不保证零误判；建议先用 `仅标记` 模式观察，再决定是否启用 `隐藏并标记`。
-- 本地判断、自学习记录、评论/动态线索与 SponsorBlock 社区标签之间可能出现阶段性不一致，详见 [docs/RELIABILITY.md](./docs/RELIABILITY.md)。
-
-## 当前 UI 说明
-
-- 首页、搜索页和视频页右侧推荐区的整视频商业标签，会以左上角 SponsorBlock 盾牌角标的形式出现。
-- 当整个视频被社区标记为某个商业分类时，视频标题前会显示彩色胶囊。点击胶囊可以打开说明和反馈按钮。
-- 视频播放器控制栏会插入 SponsorBlock 盾牌按钮，用于快速打开当前脚本的设置 / 帮助控制台。
-- 评论区和动态过滤默认关闭，建议先在控制台中切到 `仅标记，不隐藏` 观察效果，再决定是否启用隐藏。
-
-## 工程说明
-
-- URL 变化监听同时使用 `history` patch、`popstate/hashchange`、`Navigation API` 和低频 fallback，尽量兼容 Bilibili 的 SPA 路由。
-- 评论区和回复区大量使用 `shadow DOM`，脚本内部对 `bili-comments` 根节点做增量监听，并在根节点尚未出现时使用短时退避补扫，避免长期高频轮询。
-- 运行时额外处理了 `pagehide/pageshow` 生命周期，避免 Safari `BFCache` 恢复后脚本失活。
-- 运行时代码避免 `innerHTML`、`eval`、`new Function` 这类高风险路径，主要通过 DOM API 和 Tampermonkey 授权接口工作。
-- CI 默认跑 `tsc + vitest + build`，Safari 本机回归额外提供 `validate:safari` 脚本。
-
-更完整的开发/测试约定见 [CONTRIBUTING.md](./CONTRIBUTING.md) 和 [docs/TECHNICAL.md](./docs/TECHNICAL.md)。
-
-## 本地构建
+## 开发与验证
 
 ```bash
 npm ci
-npm run check
+npm run evaluate:recognition
 npm test
+npm run check
 npm run build
-npm run smoke:bilibili
-npm run capture:bilibili
+npm run verify:compat
 npm run validate:safari
-npm run investigate:safari-player -- --sample-id demo --window-type existing_logged_in_window --login-state logged_in --compact-header on
 ```
 
-构建输出:
+构建产物：
 
-- `dist/bilibili-sponsorblock.user.js`
-- `output/playwright/*.png` `仅当运行 capture 命令时生成`
-- `output/safari/*` `仅当运行 Safari 验证命令时生成`
+- `dist/bilibili-qol-core.user.js`
 
-## GitHub 发布
+辅助采样产物：
 
-推送 `v*` 标签后，GitHub Actions 会自动:
+- `output/playwright/*`
+- `output/safari/*`
 
-1. 安装依赖
-2. 运行类型检查
-3. 运行测试
-4. 构建 userscript
-5. 把 `dist/bilibili-sponsorblock.user.js` 上传到 GitHub Release
+真实验收必须在已登录 Safari 主窗口中重载脚本后进行。Playwright、Chrome 或 Safari 自动化窗口只能作为辅助证据。
+
+## 免责声明
+
+使用前请阅读 [DISCLAIMER.md](./DISCLAIMER.md)。简要说明：
+
+- 本项目不是 Bilibili、SponsorBlock、Tampermonkey 或上游扩展的官方产品。
+- 评论属地只展示 Bilibili 当前页面或 payload 已公开提供的字段，不推断真实位置。
+- 本地商业判断是辅助信号，不代表 SponsorBlock 社区共识或 Bilibili 官方结论。
+- 页面结构、接口、登录态、权限、实验流和浏览器策略变化都可能影响脚本表现。
+
+## 致谢
+
+Bilibili QoL Core 由 Hush_ 维护。本项目参考并派生自 [hanydd/BilibiliSponsorBlock](https://github.com/hanydd/BilibiliSponsorBlock)，并适配了公开 userscript 的部分思路。详细来源与许可证见 [NOTICE.md](./NOTICE.md)。
 
 ## 许可证
 
-本项目遵循 `GPL-3.0-only`。详见 [LICENSE](./LICENSE)。
+`GPL-3.0-only`。详见 [LICENSE](./LICENSE)。

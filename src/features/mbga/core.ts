@@ -10,6 +10,8 @@ const MBGA_MARKS = {
   videoFitMode: "__BSB_MBGA_VIDEO_FIT_MODE__",
   grayscaleObserver: "__BSB_MBGA_GRAYSCALE_OBSERVER__"
 } as const;
+const ARTICLE_COPY_UNLOCKED_ATTR = "data-bsb-mbga-copy-unlocked";
+const ARTICLE_COPY_UNLOCK_TIMEOUT_MS = 10_000;
 
 const USELESS_URL_PARAMS = [
   "buvid",
@@ -198,6 +200,22 @@ function installWebRtcStubs(win: UnsafeWindow): void {
   } catch (_error) {
     // WebRTC is best-effort only.
   }
+}
+
+function findHeadBilivideoDomain(doc: Document): string | undefined {
+  const domainPattern = /up[\w-]+\.bilivideo\.com/u;
+  const attributeCandidates = doc.head.querySelectorAll("[src], [href], [content]");
+  for (const node of attributeCandidates) {
+    for (const attributeName of ["src", "href", "content"]) {
+      const value = node.getAttribute(attributeName);
+      const match = value?.match(domainPattern)?.[0];
+      if (match) {
+        return match;
+      }
+    }
+  }
+
+  return doc.head.textContent?.match(domainPattern)?.[0];
 }
 
 function completeBlockedXhr(xhr: XMLHttpRequest, win: UnsafeWindow, url: string, decision: MbgaNetworkDecision): void {
@@ -531,7 +549,7 @@ function mountPcdnDisabler(ctx: MbgaContext): void {
     let cdnDomain: string | undefined;
 
     const replaceP2PUrl = (input: string) => {
-      cdnDomain ||= ctx.doc.head.innerHTML.match(/up[\w-]+\.bilivideo\.com/u)?.[0];
+      cdnDomain ||= findHeadBilivideoDomain(ctx.doc);
       try {
         const url = new URL(input);
         if (url.hostname.endsWith(".mcdn.bilivideo.cn")) {
@@ -743,18 +761,51 @@ function mountArticleCopyUnlock(ctx: MbgaContext): void {
   if (win.original) {
     win.original.reprint = "1";
   }
-  const holder = ctx.doc.querySelector(".article-holder");
-  if (!(holder instanceof HTMLElement)) {
+
+  const unlockArticleHolder = (holder: HTMLElement): boolean => {
+    if (holder.getAttribute(ARTICLE_COPY_UNLOCKED_ATTR) === "true") {
+      return true;
+    }
+    holder.classList.remove("unable-reprint");
+    holder.setAttribute(ARTICLE_COPY_UNLOCKED_ATTR, "true");
+    holder.addEventListener(
+      "copy",
+      (event) => {
+        event.stopImmediatePropagation();
+      },
+      true
+    );
+    return true;
+  };
+
+  const existingHolder = ctx.doc.querySelector(".article-holder");
+  if (existingHolder instanceof HTMLElement) {
+    unlockArticleHolder(existingHolder);
     return;
   }
-  holder.classList.remove("unable-reprint");
-  holder.addEventListener(
-    "copy",
-    (event) => {
-      event.stopImmediatePropagation();
-    },
-    true
-  );
+
+  let timeoutId: number | null = null;
+  const observer = new MutationObserver(() => {
+    const holder = ctx.doc.querySelector(".article-holder");
+    if (!(holder instanceof HTMLElement)) {
+      return;
+    }
+    unlockArticleHolder(holder);
+    observer.disconnect();
+    if (timeoutId !== null) {
+      win.clearTimeout(timeoutId);
+      timeoutId = null;
+    }
+  });
+
+  observer.observe(ctx.doc.documentElement, {
+    childList: true,
+    subtree: true
+  });
+  timeoutId = win.setTimeout(() => {
+    observer.disconnect();
+    timeoutId = null;
+  }, ARTICLE_COPY_UNLOCK_TIMEOUT_MS);
 }
 
 function mountLiveUiCleanup(ctx: MbgaContext): void {
@@ -799,8 +850,28 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
 
     const item = ctx.doc.createElement("div");
     item.className = "bpx-player-ctrl-setting-fit-mode bui bui-switch";
-    item.innerHTML =
-      '<input class="bui-switch-input" type="checkbox"><label class="bui-switch-label"><span class="bui-switch-name">裁切模式</span><span class="bui-switch-body"><span class="bui-switch-dot"><span></span></span></span></label>';
+
+    const input = ctx.doc.createElement("input");
+    input.className = "bui-switch-input";
+    input.type = "checkbox";
+
+    const label = ctx.doc.createElement("label");
+    label.className = "bui-switch-label";
+
+    const name = ctx.doc.createElement("span");
+    name.className = "bui-switch-name";
+    name.textContent = "裁切模式";
+
+    const body = ctx.doc.createElement("span");
+    body.className = "bui-switch-body";
+
+    const dot = ctx.doc.createElement("span");
+    dot.className = "bui-switch-dot";
+    dot.appendChild(ctx.doc.createElement("span"));
+    body.appendChild(dot);
+    label.append(name, body);
+    item.append(input, label);
+
     const moreLink = ctx.doc.querySelector(".bpx-player-ctrl-setting-more");
     if (moreLink instanceof HTMLElement) {
       parent.insertBefore(item, moreLink);
@@ -808,17 +879,14 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
       parent.appendChild(item);
     }
 
-    const input = item.querySelector("input");
-    if (input instanceof HTMLInputElement) {
-      input.addEventListener("change", (event) => {
-        const checked = (event.currentTarget as HTMLInputElement).checked;
-        if (checked) {
-          ctx.doc.body.setAttribute("video-fit", "");
-        } else {
-          ctx.doc.body.removeAttribute("video-fit");
-        }
-      });
-    }
+    input.addEventListener("change", (event) => {
+      const checked = (event.currentTarget as HTMLInputElement).checked;
+      if (checked) {
+        ctx.doc.body.setAttribute("video-fit", "");
+      } else {
+        ctx.doc.body.removeAttribute("video-fit");
+      }
+    });
   };
 
   const timer = win.setInterval(() => {

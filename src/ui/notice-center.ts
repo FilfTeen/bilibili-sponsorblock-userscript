@@ -21,6 +21,9 @@ export class NoticeCenter {
   }
 
   setHost(host: HTMLElement | null): void {
+    if (this.host && this.host !== host) {
+      this.host.classList.remove("bsb-tm-player-host");
+    }
     this.host = host;
     if (host) {
       host.classList.add("bsb-tm-player-host");

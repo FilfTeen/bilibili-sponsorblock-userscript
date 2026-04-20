@@ -15,8 +15,8 @@ type TitleBadgeCallbacks = {
 
 const DEFAULT_COPY =
   "整个视频都被社区标记为这一类内容。标签仅用于辅助判断，不应替代你自己的观看判断。";
-const LABEL_ONLY_COPY = "这个标签来自整视频标签结果，但当前没有可直接反馈的投票记录。";
-const LOCAL_SIGNAL_COPY = "这个标签来自本地页面线索，而不是 SponsorBlock 社区已收录的整视频记录。";
+const LABEL_ONLY_COPY = "这个标签来自整视频标签接口结果；该接口只提供分类摘要，没有可直接反馈的投票 UUID。";
+const LOCAL_SIGNAL_COPY = "这是本地推理标签，来自本机页面或评论线索，不代表 SponsorBlock 社区已收录的整视频记录。";
 const LOCKED_COPY = "这条整视频标签的反馈已在本机提交。为避免重复投票，当前按钮已锁定。";
 const LOCAL_LOCKED_COPY =
   "已提交。本地学习会在后续继续保留或忽略此判断；该操作对当前视频不可重复提交。";
@@ -46,6 +46,7 @@ export class TitleBadge {
   private currentSegment: SegmentRecord | null = null;
   private mountedHost: HTMLElement | null = null;
   private isOpen = false;
+  private openFrame: number | null = null;
   private closeTimer: number | null = null;
   private positionFrame: number | null = null;
   private categoryColorOverrides: CategoryColorOverrides = {};
@@ -177,6 +178,10 @@ export class TitleBadge {
       window.cancelAnimationFrame(this.positionFrame);
       this.positionFrame = null;
     }
+    if (this.openFrame !== null) {
+      window.cancelAnimationFrame(this.openFrame);
+      this.openFrame = null;
+    }
     const host = this.root.parentElement as HTMLElement | null;
     this.root.remove();
     cleanupVideoTitleAccessoryHost(host);
@@ -244,7 +249,7 @@ export class TitleBadge {
         : "这条提示来自本地评论或页面线索。你可以保留它，也可以忽略并阻止当前视频继续触发本地提示。提交后当前视频不可重复反馈。"
       : this.voteLocked
         ? LOCKED_COPY
-      : "这条标签目前只有整视频标签结果，没有可直接投票的 SponsorBlock UUID。";
+      : "这条标签目前只有整视频标签接口结果，没有可直接投票的 SponsorBlock UUID。";
     this.actions.classList.toggle("vote-unavailable", !this.votingAvailable);
     this.pillButton.setAttribute(
       "aria-label",
@@ -298,7 +303,14 @@ export class TitleBadge {
     this.pillButton.setAttribute("aria-expanded", "true");
     this.popover.hidden = false;
     this.schedulePopoverPosition();
-    requestAnimationFrame(() => {
+    if (this.openFrame !== null) {
+      window.cancelAnimationFrame(this.openFrame);
+    }
+    this.openFrame = window.requestAnimationFrame(() => {
+      this.openFrame = null;
+      if (!this.isOpen || this.popover.hidden) {
+        return;
+      }
       this.popover.classList.add("open");
     });
     this.attachPopoverListeners();
@@ -306,6 +318,10 @@ export class TitleBadge {
 
   private closePopover(): void {
     this.isOpen = false;
+    if (this.openFrame !== null) {
+      window.cancelAnimationFrame(this.openFrame);
+      this.openFrame = null;
+    }
     this.pillButton.setAttribute("aria-expanded", "false");
     this.popover.classList.remove("open");
     this.detachPopoverListeners();

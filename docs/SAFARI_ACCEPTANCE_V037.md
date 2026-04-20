@@ -7,7 +7,7 @@
 - `MBGA` 网络净化
 - `MBGA` UI 补丁
 - `MBGA` 行为解锁
-- 对 BSC 既有功能的回归检查
+- 对 Bilibili QoL Core 既有功能的回归检查
 
 ## 验收前提
 
@@ -15,7 +15,7 @@
 
 - Safari 主窗口
 - 已登录真实账号
-- 已安装当前构建产物 `dist/bilibili-sponsorblock.user.js`
+- 已安装当前构建产物 `dist/bilibili-qol-core.user.js`
 - Tampermonkey 脚本已开启
 
 不作为最终验收结论的环境：
@@ -63,7 +63,7 @@
 
 - 视频页静态截图
 - 视频裁切切换前后截图
-- 录屏一段，覆盖进入页面、切换裁切、播放、触发一个 BSC 原有能力
+- 录屏一段，覆盖进入页面、切换裁切、播放、触发一个 QoL Core 原有能力
 
 ### 2. 动态页
 
@@ -193,7 +193,7 @@
 - 未生效或可疑项：
 - 是否存在误伤：
 
-## BSC 回归
+## QoL Core 回归
 - SponsorBlock：
 - 标签系统：
 - 评论区增强：

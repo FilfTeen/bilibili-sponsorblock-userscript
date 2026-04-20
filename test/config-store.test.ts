@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_DYNAMIC_REGEX_PATTERN } from "../src/constants";
-import { ConfigStore, normalizeConfig } from "../src/core/config-store";
+import { ConfigStore, StatsStore, normalizeConfig } from "../src/core/config-store";
 
 describe("config normalization", () => {
   afterEach(() => {
@@ -143,5 +143,25 @@ describe("config normalization", () => {
 
     expect(store.getSnapshot().compactVideoHeader).toBe(true);
     expect(states).toEqual([false, true]);
+  });
+
+  it("rolls stats back when persistence fails", async () => {
+    vi.stubGlobal("GM_getValue", vi.fn(async (_key, fallback) => fallback));
+    vi.stubGlobal("GM_setValue", vi.fn(async () => {
+      throw new Error("stats save failed");
+    }));
+
+    const store = new StatsStore();
+    await store.load();
+
+    const states: number[] = [];
+    store.subscribe((stats) => {
+      states.push(stats.skipCount);
+    });
+
+    await expect(store.patch({ skipCount: 1 })).rejects.toThrow("stats save failed");
+
+    expect(store.getSnapshot().skipCount).toBe(0);
+    expect(states).toEqual([1, 0]);
   });
 });

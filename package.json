@@ -1,10 +1,10 @@
 {
-  "name": "bilibili-sponsorblock-userscript",
+  "name": "bilibili-qol-core-userscript",
   "version": "0.3.7",
   "private": true,
   "type": "module",
   "license": "GPL-3.0-only",
-  "description": "Tampermonkey userscript port of the core BilibiliSponsorBlock experience.",
+  "description": "Local-first Bilibili quality-of-life userscript with SponsorBlock segments, video labels, local reasoning, MBGA cleanup, and low-intrusion UI.",
   "repository": {
     "type": "git",
     "url": "https://github.com/FilfTeen/bilibili-sponsorblock-userscript.git"

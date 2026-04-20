@@ -245,6 +245,10 @@ export class DynamicSponsorController {
   }
 
   private scheduleRefresh(): void {
+    if (!this.started) {
+      return;
+    }
+
     if (document.hidden) {
       this.pendingVisibleRefresh = true;
       return;
@@ -256,11 +260,18 @@ export class DynamicSponsorController {
 
     this.refreshTimerId = window.setTimeout(() => {
       this.refreshTimerId = null;
+      if (!this.started) {
+        return;
+      }
       this.refresh();
     }, 120);
   }
 
   private refresh(): void {
+    if (!this.started) {
+      return;
+    }
+
     if (document.hidden) {
       this.pendingVisibleRefresh = true;
       return;

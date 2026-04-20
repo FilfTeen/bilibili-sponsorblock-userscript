@@ -13,6 +13,7 @@ import { VideoLabelClient } from "../api/video-label-client";
 import { normalizeSegments } from "./segment-filter";
 import { resolveWholeVideoLabels } from "./whole-video-label";
 import { requestPageSnapshot } from "../platform/page-bridge";
+import { configureNativeRequestGuard } from "../platform/native-request-guard";
 import { NoticeCenter } from "../ui/notice-center";
 import { SettingsPanel, type PanelTab } from "../ui/panel";
 import { PreviewBar } from "../ui/preview-bar";
@@ -48,6 +49,7 @@ import {
 } from "../utils/local-learning";
 import { inferLocalVideoSignal } from "../utils/local-video-signal";
 import { resolveVideoContext } from "../utils/video-context";
+import { reportDiagnostic } from "../utils/diagnostics";
 import { debugLog, findVideoElement, formatDurationLabel, resolvePlayerHost } from "../utils/dom";
 import { observeUrlChanges } from "../utils/navigation";
 import { isCompactVideoHeaderSuppressed, supportsCompactVideoHeader, supportsVideoFeatures } from "../utils/page";
@@ -181,7 +183,15 @@ export class ScriptController {
     });
     this.syncLocalFeedbackAvailability();
     if (shouldPersistLocalVideoSignal(signal)) {
-      void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal);
+      void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal).catch((error) => {
+        debugLog("Failed to persist runtime local video signal", error);
+        reportDiagnostic({
+          severity: "warn",
+          area: "storage",
+          message: "本地视频推理结果写入失败，已保留当前页面临时显示",
+          detail: error
+        });
+      });
     }
   };
   private readonly handleVideoSignalFeedback = (event: Event) => {
@@ -250,7 +260,15 @@ export class ScriptController {
       this.updateTitleBadge(segment);
       this.panel.setFullVideoLabels([segment]);
       if (shouldPersistLocalVideoSignal(signal)) {
-        void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal);
+        void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal).catch((error) => {
+          debugLog("Failed to persist comment local video signal", error);
+          reportDiagnostic({
+            severity: "warn",
+            area: "storage",
+            message: "评论触发的本地视频推理写入失败，已保留当前页面临时显示",
+            detail: error
+          });
+        });
       }
     }
 
@@ -470,6 +488,7 @@ export class ScriptController {
     document.removeEventListener("visibilitychange", this.handleVisibilityChange);
     window.removeEventListener(VIDEO_SIGNAL_EVENT, this.handleVideoSignal as EventListener);
     window.removeEventListener(VIDEO_SIGNAL_FEEDBACK_EVENT, this.handleVideoSignalFeedback as EventListener);
+    window.removeEventListener("bsb_mbga_live_fallback", this.handleMbgaLiveFallback as EventListener);
     this.syncCompactVideoHeader();
     this.clearRuntimeState(true);
   }
@@ -684,6 +703,12 @@ export class ScriptController {
       });
     } catch (error) {
       debugLog("Failed to refresh video context", error);
+      reportDiagnostic({
+        severity: "error",
+        area: "upstream",
+        message: "视频上下文或上游片段读取失败",
+        detail: error
+      });
       this.updateRuntimeStatus({
         kind: "error",
         message: error instanceof Error ? `片段读取失败：${error.message}` : "片段读取失败",
@@ -1278,17 +1303,30 @@ export class ScriptController {
       placeholderVisible: this.currentConfig.compactHeaderPlaceholderVisible,
       searchPlaceholderEnabled: this.currentConfig.compactHeaderSearchPlaceholderEnabled
     });
+    const compactSupported = supportsCompactVideoHeader(window.location.href);
     const shouldCompact =
       this.started &&
       this.currentConfig.enabled &&
       this.currentConfig.compactVideoHeader &&
-      supportsCompactVideoHeader(window.location.href) &&
+      compactSupported &&
       !isCompactVideoHeaderSuppressed(document);
     if (shouldCompact) {
       this.compactHeader.mount();
+      configureNativeRequestGuard({
+        enabled: true,
+        supportedPage: true,
+        compactHeaderReady: true,
+        reason: "compact-header-mounted"
+      });
       return;
     }
     this.compactHeader.unmount();
+    configureNativeRequestGuard({
+      enabled: this.started && this.currentConfig.enabled && this.currentConfig.compactVideoHeader,
+      supportedPage: compactSupported,
+      compactHeaderReady: false,
+      reason: "compact-header-inactive"
+    });
   }
 
   private resolveFullVideoSegment(): SegmentRecord | null {
@@ -1445,6 +1483,9 @@ export class ScriptController {
   private formatVoteErrorMessage(statusCode: number, responseText: string): string {
     if (statusCode === 403) {
       return "服务端拒绝了这次反馈，稍后可再试一次。";
+    }
+    if (statusCode === 429) {
+      return "SponsorBlock 暂时限制了这次反馈请求，反馈未提交，请稍后再试。";
     }
     if (statusCode === -1) {
       return "请求没有送达 SponsorBlock 服务，请检查网络或 Tampermonkey 授权。";

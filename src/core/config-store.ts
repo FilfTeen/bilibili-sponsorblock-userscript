@@ -220,13 +220,22 @@ export class StatsStore {
   }
 
   async patch(update: Partial<StoredStats>): Promise<StoredStats> {
+    const previous = this.getSnapshot();
     this.stats = {
       skipCount: update.skipCount ?? this.stats.skipCount,
       minutesSaved: update.minutesSaved ?? this.stats.minutesSaved
     };
-    await gmSetValue(STATS_STORAGE_KEY, this.stats);
     for (const listener of this.listeners) {
       listener(this.getSnapshot());
+    }
+    try {
+      await gmSetValue(STATS_STORAGE_KEY, this.stats);
+    } catch (error) {
+      this.stats = previous;
+      for (const listener of this.listeners) {
+        listener(this.getSnapshot());
+      }
+      throw error;
     }
     return this.getSnapshot();
   }

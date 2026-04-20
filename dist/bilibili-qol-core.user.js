@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         Bilibili SponsorBlock Core
+// @name         Bilibili QoL Core
 // @namespace    https://github.com/FilfTeen/bilibili-sponsorblock-userscript
 // @version      0.3.7
-// @description  Tampermonkey core script for skipping sponsor segments on Bilibili.
-// @author       FilfTeen
+// @description  Local-first quality-of-life toolkit for Bilibili: SponsorBlock segments, labels, comment/dynamic signals, MBGA cleanup, and low-intrusion UI.
+// @author       Hush_
 // @license      GPL-3.0-only
 // @match        https://www.bilibili.com/*
 // @match        https://search.bilibili.com/*
@@ -18,8 +18,8 @@
 // @run-at       document-start
 // @homepageURL  https://github.com/FilfTeen/bilibili-sponsorblock-userscript
 // @supportURL   https://github.com/FilfTeen/bilibili-sponsorblock-userscript/issues
-// @downloadURL  https://raw.githubusercontent.com/FilfTeen/bilibili-sponsorblock-userscript/main/dist/bilibili-sponsorblock.user.js
-// @updateURL    https://raw.githubusercontent.com/FilfTeen/bilibili-sponsorblock-userscript/main/dist/bilibili-sponsorblock.user.js
+// @downloadURL  https://raw.githubusercontent.com/FilfTeen/bilibili-sponsorblock-userscript/main/dist/bilibili-qol-core.user.js
+// @updateURL    https://raw.githubusercontent.com/FilfTeen/bilibili-sponsorblock-userscript/main/dist/bilibili-qol-core.user.js
 // ==/UserScript==
 "use strict";
 (() => {
@@ -210,7 +210,10 @@
   }
 
   // src/constants.ts
-  var SCRIPT_NAME = "Bilibili SponsorBlock Core";
+  var PRODUCT_NAME = "Bilibili QoL Core";
+  var SCRIPT_NAME = PRODUCT_NAME;
+  var AUTHOR_NAME = "Hush_";
+  var SCRIPT_VERSION = "0.3.7".trim().length > 0 ? "0.3.7" : "0.3.7";
   var CONFIG_STORAGE_KEY = "bsb_tm_config_v1";
   var STATS_STORAGE_KEY = "bsb_tm_stats_v1";
   var CACHE_STORAGE_KEY = "bsb_tm_cache_v1";
@@ -1047,13 +1050,22 @@
     patch(update) {
       return __async(this, null, function* () {
         var _a, _b;
+        const previous = this.getSnapshot();
         this.stats = {
           skipCount: (_a = update.skipCount) != null ? _a : this.stats.skipCount,
           minutesSaved: (_b = update.minutesSaved) != null ? _b : this.stats.minutesSaved
         };
-        yield gmSetValue(STATS_STORAGE_KEY, this.stats);
         for (const listener of this.listeners) {
           listener(this.getSnapshot());
+        }
+        try {
+          yield gmSetValue(STATS_STORAGE_KEY, this.stats);
+        } catch (error) {
+          this.stats = previous;
+          for (const listener of this.listeners) {
+            listener(this.getSnapshot());
+          }
+          throw error;
         }
         return this.getSnapshot();
       });
@@ -1067,6 +1079,331 @@
       });
     }
   };
+
+  // src/utils/diagnostics.ts
+  var MAX_DIAGNOSTIC_EVENTS = 40;
+  var SENSITIVE_KEY_PATTERN = /user.?id|token|cookie|authorization|comment.?text|reply.?text|raw.?text|feedback.?token/iu;
+  var diagnosticEvents = [];
+  var listeners = /* @__PURE__ */ new Set();
+  var nextDiagnosticId = 1;
+  var diagnosticDebugOverride = null;
+  function isNodeRuntime() {
+    var _a;
+    return typeof process !== "undefined" && ((_a = process.release) == null ? void 0 : _a.name) === "node";
+  }
+  function cleanString(input) {
+    return input.replace(/<[^>]*>/gu, "").replace(/\s+/gu, " ").trim().slice(0, 1200);
+  }
+  function sanitizeValue(key, value) {
+    if (SENSITIVE_KEY_PATTERN.test(key)) {
+      return "[redacted]";
+    }
+    if (value instanceof Error) {
+      return `${value.name}: ${cleanString(value.message)}`;
+    }
+    if (typeof value === "string") {
+      return cleanString(value);
+    }
+    return value;
+  }
+  function sanitizeDiagnosticDetail(input) {
+    if (input === null || typeof input === "undefined") {
+      return void 0;
+    }
+    if (input instanceof Error) {
+      return `${input.name}: ${cleanString(input.message)}`;
+    }
+    if (typeof input === "string") {
+      return cleanString(input);
+    }
+    try {
+      return cleanString(
+        JSON.stringify(input, (key, value) => sanitizeValue(key, value))
+      );
+    } catch (_error) {
+      return "[unserializable diagnostic detail]";
+    }
+  }
+  function getDiagnosticEvents() {
+    return diagnosticEvents.map((event) => __spreadValues({}, event));
+  }
+  function notifyDiagnosticsChanged() {
+    const snapshot = getDiagnosticEvents();
+    for (const listener of listeners) {
+      listener(snapshot);
+    }
+  }
+  function subscribeDiagnostics(listener) {
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+    };
+  }
+  function clearDiagnostics() {
+    diagnosticEvents.splice(0, diagnosticEvents.length);
+    notifyDiagnosticsChanged();
+  }
+  function isDiagnosticDebugEnabled() {
+    if (diagnosticDebugOverride !== null) {
+      return diagnosticDebugOverride;
+    }
+    if (isNodeRuntime()) {
+      return false;
+    }
+    try {
+      const stored = window.localStorage.getItem("qol_core_debug");
+      if (stored === "1" || stored === "true") {
+        return true;
+      }
+    } catch (_error) {
+    }
+    try {
+      const locationText = `${window.location.search}${window.location.hash}`;
+      return /(?:[?&#])qol_core_debug(?:=1|=true|(?=&|$))/iu.test(locationText);
+    } catch (_error) {
+      return false;
+    }
+  }
+  function setDiagnosticDebugEnabled(enabled) {
+    diagnosticDebugOverride = enabled;
+    if (!isNodeRuntime()) {
+      try {
+        if (enabled) {
+          window.localStorage.setItem("qol_core_debug", "1");
+        } else {
+          window.localStorage.removeItem("qol_core_debug");
+        }
+      } catch (error) {
+        reportDiagnostic({
+          severity: "warn",
+          area: "storage",
+          message: "\u8BCA\u65AD\u8C03\u8BD5\u5F00\u5173\u6301\u4E45\u5316\u5931\u8D25\uFF0C\u4EC5\u5728\u5F53\u524D\u9875\u9762\u751F\u6548",
+          detail: error
+        });
+      }
+    }
+    return isDiagnosticDebugEnabled();
+  }
+  function reportDiagnostic(input) {
+    var _a, _b;
+    const event = {
+      id: `diag-${nextDiagnosticId}`,
+      at: Date.now(),
+      severity: input.severity,
+      area: input.area,
+      message: cleanString(input.message),
+      detail: sanitizeDiagnosticDetail(input.detail)
+    };
+    nextDiagnosticId += 1;
+    diagnosticEvents.push(event);
+    while (diagnosticEvents.length > MAX_DIAGNOSTIC_EVENTS) {
+      diagnosticEvents.shift();
+    }
+    notifyDiagnosticsChanged();
+    const prefix = `[${PRODUCT_NAME}] ${event.message}`;
+    if (event.severity === "error") {
+      console.error(prefix, (_a = event.detail) != null ? _a : "");
+    } else if (isDiagnosticDebugEnabled()) {
+      console.warn(prefix, (_b = event.detail) != null ? _b : "");
+    }
+    return __spreadValues({}, event);
+  }
+  function formatDiagnosticReport() {
+    const lines = [
+      `${PRODUCT_NAME} diagnostics`,
+      `Version: ${SCRIPT_VERSION}`,
+      `Generated: ${(/* @__PURE__ */ new Date()).toISOString()}`,
+      `Debug: ${isDiagnosticDebugEnabled() ? "enabled" : "disabled"}`,
+      `Page: ${cleanString(window.location.href)}`,
+      `UserAgent: ${cleanString(navigator.userAgent)}`,
+      `Events: ${diagnosticEvents.length}`
+    ];
+    for (const event of diagnosticEvents) {
+      lines.push(
+        `- ${new Date(event.at).toISOString()} [${event.severity}/${event.area}] ${event.message}${event.detail ? ` | ${event.detail}` : ""}`
+      );
+    }
+    return lines.join("\n");
+  }
+
+  // src/utils/page.ts
+  var SUPPORTED_HOSTS = /* @__PURE__ */ new Set([
+    "www.bilibili.com",
+    "search.bilibili.com",
+    "t.bilibili.com",
+    "space.bilibili.com"
+  ]);
+  function detectPageType(url) {
+    try {
+      const parsed = new URL(url);
+      if (!SUPPORTED_HOSTS.has(parsed.hostname)) {
+        return "unsupported";
+      }
+      if (parsed.hostname === "search.bilibili.com") {
+        return "search";
+      }
+      if (parsed.hostname === "t.bilibili.com") {
+        return "dynamic";
+      }
+      if (parsed.hostname === "space.bilibili.com") {
+        return "channel";
+      }
+      if (parsed.pathname.startsWith("/account/history") || parsed.pathname.startsWith("/history")) {
+        return "history";
+      }
+      if (parsed.pathname.startsWith("/video/")) {
+        return "video";
+      }
+      if (parsed.pathname.startsWith("/list/") || parsed.pathname.startsWith("/medialist/play/")) {
+        return "list";
+      }
+      if (parsed.pathname.startsWith("/festival/")) {
+        return "festival";
+      }
+      if (parsed.pathname.startsWith("/bangumi/")) {
+        return "anime";
+      }
+      if (parsed.pathname.startsWith("/opus/")) {
+        return "opus";
+      }
+      return "main";
+    } catch (_error) {
+      return "unknown";
+    }
+  }
+  function isSupportedLocation(url) {
+    const pageType = detectPageType(url);
+    return pageType !== "unknown" && pageType !== "unsupported";
+  }
+  function supportsVideoFeatures(url) {
+    const pageType = detectPageType(url);
+    return pageType === "video" || pageType === "list" || pageType === "festival" || pageType === "anime" || pageType === "opus";
+  }
+  function supportsCompactVideoHeader(url) {
+    return supportsVideoFeatures(url);
+  }
+  function isCompactVideoHeaderSuppressed(documentRef = document) {
+    if (documentRef.fullscreenElement) {
+      return true;
+    }
+    return Boolean(
+      documentRef.querySelector(
+        [
+          ".player-full-win",
+          ".player-fullscreen",
+          ".bpx-state-webfull",
+          ".bpx-state-webscreen",
+          ".bpx-state-fullscreen",
+          ".bpx-player-container[data-screen='web']",
+          ".bpx-player-container[data-screen='webscreen']",
+          ".bpx-player-container[data-screen='full']",
+          ".squirtle-video-pagefullscreen",
+          ".squirtle-video-fullscreen",
+          ".player-mode-webfullscreen",
+          ".mode-webscreen"
+        ].join(",")
+      )
+    );
+  }
+  function supportsDynamicFilters(url) {
+    const pageType = detectPageType(url);
+    return pageType === "main" || pageType === "dynamic" || pageType === "channel";
+  }
+  function supportsCommentFilters(url) {
+    const pageType = detectPageType(url);
+    return pageType === "video" || pageType === "list" || pageType === "festival" || pageType === "anime" || pageType === "opus" || pageType === "dynamic" || pageType === "channel";
+  }
+
+  // src/utils/dom.ts
+  var PLAYER_HOST_SELECTORS = [
+    "#bilibili-player",
+    ".bpx-player-container",
+    ".bpx-player-video-area",
+    ".player-container",
+    ".bili-video-player"
+  ];
+  var VIDEO_TITLE_SELECTORS = [
+    ".video-info-container h1",
+    ".video-title-container h1",
+    ".media-right h1",
+    "h1.video-title",
+    ".video-title"
+  ];
+  var TITLE_ACCESSORY_ATTR = "data-bsb-title-accessories";
+  function findVideoElement() {
+    return document.querySelector("video");
+  }
+  function resolvePlayerHost(video) {
+    var _a;
+    for (const selector of PLAYER_HOST_SELECTORS) {
+      const found = video.closest(selector);
+      if (found) {
+        return found;
+      }
+    }
+    return (_a = video.parentElement) != null ? _a : video;
+  }
+  function findVideoTitleElement() {
+    for (const selector of VIDEO_TITLE_SELECTORS) {
+      const found = document.querySelector(selector);
+      if (found) {
+        return found;
+      }
+    }
+    return null;
+  }
+  function ensureVideoTitleAccessoryHost() {
+    var _a;
+    const title = findVideoTitleElement();
+    if (!title) {
+      return null;
+    }
+    const parent = title.parentElement;
+    if (!parent) {
+      return null;
+    }
+    title.classList.remove("bsb-tm-title-row", "bsb-tm-title-text");
+    parent.classList.remove("bsb-tm-title-layout");
+    let accessories = (_a = Array.from(parent.children).find(
+      (child) => child instanceof HTMLElement && child.getAttribute(TITLE_ACCESSORY_ATTR) === "true"
+    )) != null ? _a : null;
+    if (!accessories) {
+      accessories = document.createElement("span");
+      accessories.className = "bsb-tm-title-accessories";
+      accessories.setAttribute(TITLE_ACCESSORY_ATTR, "true");
+      parent.insertBefore(accessories, title);
+    }
+    return accessories;
+  }
+  function cleanupVideoTitleAccessoryHost(host) {
+    if (!host || host.getAttribute(TITLE_ACCESSORY_ATTR) !== "true") {
+      return;
+    }
+    const parent = host.parentElement instanceof HTMLElement ? host.parentElement : null;
+    const title = host.nextElementSibling instanceof HTMLElement ? host.nextElementSibling : null;
+    if (host.childElementCount === 0) {
+      host.remove();
+    }
+    title == null ? void 0 : title.classList.remove("bsb-tm-title-row", "bsb-tm-title-text");
+    parent == null ? void 0 : parent.classList.remove("bsb-tm-title-layout");
+  }
+  function formatSegmentTime(seconds) {
+    const total = Math.max(0, Math.floor(seconds));
+    const mins = Math.floor(total / 60).toString().padStart(2, "0");
+    const secs = (total % 60).toString().padStart(2, "0");
+    return `${mins}:${secs}`;
+  }
+  function formatDurationLabel(start, end) {
+    if (end === null) {
+      return formatSegmentTime(start);
+    }
+    return `${formatSegmentTime(start)} - ${formatSegmentTime(end)}`;
+  }
+  function debugLog(message, ...extra) {
+    if (isDiagnosticDebugEnabled()) {
+      console.debug(`[${SCRIPT_NAME}] ${message}`, ...extra);
+    }
+  }
 
   // src/core/cache.ts
   function estimateSize(value) {
@@ -1086,7 +1423,15 @@
         const stored = yield gmGetValue(CACHE_STORAGE_KEY, null);
         this.payload = normalizePayload(stored);
         this.loaded = true;
-        yield this.persist();
+        void this.persist().catch((error) => {
+          debugLog("Failed to persist normalized cache payload", error);
+          reportDiagnostic({
+            severity: "warn",
+            area: "storage",
+            message: "\u7F13\u5B58\u540E\u53F0\u6574\u7406\u5199\u5165\u5931\u8D25\uFF0C\u5DF2\u7EE7\u7EED\u4F7F\u7528\u5185\u5B58\u7F13\u5B58",
+            detail: error
+          });
+        });
       });
     }
     persist() {
@@ -1094,17 +1439,22 @@
         if (this.persistPromise) {
           return this.persistPromise;
         }
-        this.persistPromise = new Promise((resolve) => {
+        this.persistPromise = new Promise((resolve, reject) => {
           window.setTimeout(() => __async(this, null, function* () {
-            this.persistPromise = null;
-            this.cleanupExpired();
-            this.evictOverflow();
-            if (Object.keys(this.payload.entries).length === 0) {
-              yield gmSetValue(CACHE_STORAGE_KEY, null);
-            } else {
-              yield gmSetValue(CACHE_STORAGE_KEY, this.payload);
+            try {
+              this.cleanupExpired();
+              this.evictOverflow();
+              if (Object.keys(this.payload.entries).length === 0) {
+                yield gmSetValue(CACHE_STORAGE_KEY, null);
+              } else {
+                yield gmSetValue(CACHE_STORAGE_KEY, this.payload);
+              }
+              resolve();
+            } catch (error) {
+              reject(error);
+            } finally {
+              this.persistPromise = null;
             }
-            resolve();
           }), 200);
         });
         return this.persistPromise;
@@ -1336,6 +1686,16 @@
     constructor() {
       __publicField(this, "records", /* @__PURE__ */ new Map());
     }
+    persistWithRollback(previous) {
+      return __async(this, null, function* () {
+        try {
+          yield gmSetValue(LOCAL_LABEL_STORAGE_KEY, serializeRecords(this.records));
+        } catch (error) {
+          this.records = previous;
+          throw error;
+        }
+      });
+    }
     load() {
       return __async(this, null, function* () {
         this.records = normalizePayload2(yield gmGetValue(LOCAL_LABEL_STORAGE_KEY, null));
@@ -1361,6 +1721,7 @@
         if (!shouldReplaceAutomaticLocalLabel(existing, signal)) {
           return;
         }
+        const previous = new Map(this.records);
         this.records.set(videoId, {
           category: signal.category,
           source: signal.source,
@@ -1369,7 +1730,7 @@
           reason: signal.reason
         });
         this.records = pruneRecords(this.records);
-        yield gmSetValue(LOCAL_LABEL_STORAGE_KEY, serializeRecords(this.records));
+        yield this.persistWithRollback(previous);
       });
     }
     rememberManual(videoId, category, reason = "\u624B\u52A8\u786E\u8BA4\u672C\u5730\u6807\u7B7E") {
@@ -1377,6 +1738,7 @@
         if (!videoId.startsWith("BV")) {
           return;
         }
+        const previous = new Map(this.records);
         this.records.set(videoId, {
           category,
           source: "manual",
@@ -1385,7 +1747,7 @@
           reason
         });
         this.records = pruneRecords(this.records);
-        yield gmSetValue(LOCAL_LABEL_STORAGE_KEY, serializeRecords(this.records));
+        yield this.persistWithRollback(previous);
       });
     }
     dismiss(videoId, reason = "\u624B\u52A8\u5FFD\u7565\u672C\u5730\u6807\u7B7E") {
@@ -1393,6 +1755,7 @@
         if (!videoId.startsWith("BV")) {
           return;
         }
+        const previous = new Map(this.records);
         this.records.set(videoId, {
           category: null,
           source: "manual-dismiss",
@@ -1401,7 +1764,7 @@
           reason
         });
         this.records = pruneRecords(this.records);
-        yield gmSetValue(LOCAL_LABEL_STORAGE_KEY, serializeRecords(this.records));
+        yield this.persistWithRollback(previous);
       });
     }
   };
@@ -1448,9 +1811,15 @@
         if (!uuid) {
           return;
         }
+        const previous = new Map(this.records);
         this.records.set(uuid, Date.now());
         this.records = pruneRecords2(this.records);
-        yield gmSetValue(VOTE_HISTORY_STORAGE_KEY, serializeRecords2(this.records));
+        try {
+          yield gmSetValue(VOTE_HISTORY_STORAGE_KEY, serializeRecords2(this.records));
+        } catch (error) {
+          this.records = previous;
+          throw error;
+        }
       });
     }
   };
@@ -1471,12 +1840,18 @@
   }
 
   // src/core/user-id.ts
+  var USER_ID_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  var USER_ID_LENGTH = 36;
   function generateUserId() {
-    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-      return crypto.randomUUID();
+    const bytes = new Uint8Array(USER_ID_LENGTH);
+    if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+      crypto.getRandomValues(bytes);
+    } else {
+      for (let index = 0; index < bytes.length; index += 1) {
+        bytes[index] = Math.floor(Math.random() * 256);
+      }
     }
-    const random = Math.random().toString(36).slice(2);
-    return `bsb-${Date.now().toString(36)}-${random}`;
+    return Array.from(bytes, (byte) => USER_ID_ALPHABET[byte % USER_ID_ALPHABET.length]).join("");
   }
   function ensureUserId() {
     return __async(this, null, function* () {
@@ -1504,6 +1879,10 @@
     "exclusive_access"
   ]);
   var VALID_ACTION_TYPES = /* @__PURE__ */ new Set(["skip", "mute", "full", "poi"]);
+  var UPSTREAM_HEADERS = {
+    Accept: "application/json",
+    "x-ext-version": SCRIPT_VERSION
+  };
   function buildUrl(serverAddress, path) {
     return `${serverAddress.replace(/\/+$/u, "")}${path}`;
   }
@@ -1581,9 +1960,10 @@
           const response = yield gmXmlHttpRequest({
             method: "POST",
             url,
+            headers: UPSTREAM_HEADERS,
             timeout: REQUEST_TIMEOUT_MS
           });
-          if (response.ok || response.status === 429) {
+          if (response.ok) {
             return {
               successType: 1,
               statusCode: response.status,
@@ -1633,9 +2013,7 @@
             const response = yield gmXmlHttpRequest({
               method: "GET",
               url,
-              headers: {
-                Accept: "application/json"
-              },
+              headers: __spreadValues({}, UPSTREAM_HEADERS),
               timeout: REQUEST_TIMEOUT_MS
             });
             if (response.ok || response.status === 404 || response.status < 500 || index === attempts - 1) {
@@ -1666,6 +2044,10 @@
     "poi_highlight",
     "exclusive_access"
   ]);
+  var UPSTREAM_HEADERS2 = {
+    Accept: "application/json",
+    "x-ext-version": SCRIPT_VERSION
+  };
   function buildUrl2(serverAddress, path) {
     return `${serverAddress.replace(/\/+$/u, "")}${path}`;
   }
@@ -1716,9 +2098,7 @@
         const request = gmXmlHttpRequest({
           method: "GET",
           url,
-          headers: {
-            Accept: "application/json"
-          },
+          headers: __spreadValues({}, UPSTREAM_HEADERS2),
           timeout: REQUEST_TIMEOUT_MS
         }).finally(() => {
           this.inFlightRequests.delete(cacheKey);
@@ -1792,6 +2172,110 @@
   function resolveWholeVideoCategory(bvid, segments, labelCategory, config) {
     var _a, _b;
     return (_b = (_a = resolveWholeVideoLabels(bvid, segments, labelCategory, config)[0]) == null ? void 0 : _a.category) != null ? _b : null;
+  }
+
+  // src/platform/native-request-guard.ts
+  var GUARD_FLAG = "__BSB_NATIVE_REQUEST_GUARD__";
+  var CONFIG_EVENT = "bsb-tm:native-request-guard-config";
+  var REDUNDANT_TOPBAR_PATHS = ["/x/msgfeed/unread", "/x/web-interface/nav/stat"];
+  var bridgeInjected2 = false;
+  function buildNativeRequestGuardSource() {
+    return `
+(() => {
+  const flag = ${JSON.stringify(GUARD_FLAG)};
+  if (window[flag]) {
+    return;
+  }
+
+  const paths = ${JSON.stringify([...REDUNDANT_TOPBAR_PATHS])};
+  const state = {
+    enabled: false,
+    supportedPage: false,
+    compactHeaderReady: false,
+    reason: "initial",
+    records: []
+  };
+
+  function remember(url, action) {
+    state.records.push({ url: String(url), action, time: Date.now(), reason: state.reason });
+    if (state.records.length > 80) {
+      state.records.shift();
+    }
+  }
+
+  function shouldBlock(url) {
+    if (!state.enabled || !state.supportedPage || !state.compactHeaderReady) {
+      return false;
+    }
+    try {
+      const parsed = new URL(String(url), window.location.href);
+      return parsed.hostname === "api.bilibili.com" && paths.includes(parsed.pathname);
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  window[flag] = {
+    configure(next) {
+      state.enabled = Boolean(next && next.enabled);
+      state.supportedPage = Boolean(next && next.supportedPage);
+      state.compactHeaderReady = Boolean(next && next.compactHeaderReady);
+      state.reason = next && typeof next.reason === "string" ? next.reason : "runtime";
+    },
+    snapshot() {
+      return {
+        enabled: state.enabled,
+        supportedPage: state.supportedPage,
+        compactHeaderReady: state.compactHeaderReady,
+        reason: state.reason,
+        records: state.records.slice()
+      };
+    }
+  };
+
+  const originalFetch = window.fetch;
+  if (typeof originalFetch === "function") {
+    window.fetch = function(input, init) {
+      const url = typeof input === "string" ? input : input && typeof input.url === "string" ? input.url : "";
+      if (shouldBlock(url)) {
+        remember(url, "blocked-fetch");
+        return Promise.resolve(new Response("", { status: 204, statusText: "Blocked by Bilibili QoL Core" }));
+      }
+      remember(url, "observed-fetch");
+      return originalFetch.apply(this, arguments);
+    };
+  }
+
+  const originalOpen = window.XMLHttpRequest && window.XMLHttpRequest.prototype.open;
+  if (typeof originalOpen === "function") {
+    window.XMLHttpRequest.prototype.open = function(method, url) {
+      remember(url, shouldBlock(url) ? "would-block-xhr" : "observed-xhr");
+      return originalOpen.apply(this, arguments);
+    };
+  }
+
+  document.addEventListener(${JSON.stringify(CONFIG_EVENT)}, (event) => {
+    window[flag].configure(event.detail || {});
+  });
+})();`;
+  }
+  function installNativeRequestGuardBridge() {
+    if (bridgeInjected2) {
+      return;
+    }
+    const script = document.createElement("script");
+    script.id = "bsb-tm-native-request-guard";
+    script.textContent = buildNativeRequestGuardSource();
+    (document.head || document.documentElement).appendChild(script);
+    script.remove();
+    bridgeInjected2 = true;
+  }
+  function configureNativeRequestGuard(config) {
+    document.dispatchEvent(
+      new CustomEvent(CONFIG_EVENT, {
+        detail: config
+      })
+    );
   }
 
   // src/ui/icons.ts
@@ -1928,6 +2412,9 @@
       this.root.classList.toggle("is-floating", parent === document.documentElement);
     }
     setHost(host) {
+      if (this.host && this.host !== host) {
+        this.host.classList.remove("bsb-tm-player-host");
+      }
       this.host = host;
       if (host) {
         host.classList.add("bsb-tm-player-host");
@@ -2023,2422 +2510,6 @@
       }
     }
   };
-
-  // src/ui/panel.ts
-  var TAB_LABELS = {
-    overview: "\u6982\u89C8",
-    behavior: "\u7247\u6BB5\u4E0E\u6807\u7B7E",
-    transparency: "\u6807\u7B7E\u900F\u660E\u5EA6",
-    filters: "\u52A8\u6001 / \u8BC4\u8BBA",
-    mbga: "\u751F\u6001\u51C0\u5316 (MBGA)",
-    help: "\u5E2E\u52A9 / \u53CD\u9988"
-  };
-  var TAB_DESCRIPTIONS = {
-    overview: "\u72B6\u6001\u3001\u6458\u8981\u4E0E\u7EF4\u62A4\u5DE5\u5177",
-    behavior: "\u7247\u6BB5\u3001\u6807\u7B7E\u4E0E\u663E\u793A\u7B56\u7565",
-    transparency: "\u80F6\u56CA\u900F\u660E\u5EA6\u4E0E\u964D\u566A\u7B56\u7565",
-    filters: "\u52A8\u6001\u548C\u8BC4\u8BBA\u533A\u589E\u5F3A",
-    mbga: "\u5C4F\u853D\u8FFD\u8E2A\u3001\u539F\u753B\u9501\u5B9A\u4E0E\u6C89\u6D78\u5316",
-    help: "\u5E2E\u52A9\u94FE\u63A5\u4E0E\u4F7F\u7528\u8BF4\u660E"
-  };
-  var SettingsPanel = class {
-    constructor(config, stats, callbacks) {
-      this.callbacks = callbacks;
-      __publicField(this, "backdrop", document.createElement("div"));
-      __publicField(this, "panel", document.createElement("aside"));
-      __publicField(this, "body", document.createElement("div"));
-      __publicField(this, "nav", document.createElement("nav"));
-      __publicField(this, "content", document.createElement("div"));
-      __publicField(this, "statsEl", document.createElement("div"));
-      __publicField(this, "form", document.createElement("div"));
-      __publicField(this, "transparencyForm", document.createElement("div"));
-      __publicField(this, "filterForm", document.createElement("div"));
-      __publicField(this, "categoryForm", document.createElement("div"));
-      __publicField(this, "mbgaForm", document.createElement("div"));
-      __publicField(this, "sections", /* @__PURE__ */ new Map());
-      __publicField(this, "panelId", "bsb-tm-panel");
-      __publicField(this, "contentScrollByTab", {});
-      __publicField(this, "activeTab", "overview");
-      __publicField(this, "filterValidationMessage", null);
-      __publicField(this, "config");
-      __publicField(this, "stats");
-      __publicField(this, "fullVideoLabels", []);
-      __publicField(this, "runtimeStatus", {
-        kind: "idle",
-        message: "\u7B49\u5F85\u9875\u9762\u5339\u914D",
-        bvid: null,
-        segmentCount: null
-      });
-      __publicField(this, "activeFeedbacks", /* @__PURE__ */ new Map());
-      // id -> originalText
-      __publicField(this, "pendingConfirmations", /* @__PURE__ */ new Set());
-      // id
-      __publicField(this, "handleKeydown", (event) => {
-        if (event.key === "Escape" && !this.backdrop.hidden) {
-          this.close("user");
-        }
-      });
-      __publicField(this, "handleViewportResize", () => {
-        this.syncViewportMetrics();
-      });
-      __publicField(this, "viewportListenersAttached", false);
-      this.config = config;
-      this.stats = stats;
-      this.backdrop.className = "bsb-tm-panel-backdrop";
-      this.backdrop.hidden = true;
-      this.backdrop.addEventListener("click", (event) => {
-        if (event.target === this.backdrop) {
-          this.close("user");
-        }
-      });
-      this.panel.className = "bsb-tm-panel";
-      this.panel.id = this.panelId;
-      this.panel.setAttribute("role", "dialog");
-      this.panel.setAttribute("aria-modal", "true");
-      this.panel.setAttribute("aria-labelledby", "bsb-tm-panel-title");
-      this.body.className = "bsb-tm-panel-body";
-      this.nav.className = "bsb-tm-panel-nav";
-      this.content.className = "bsb-tm-panel-content";
-      this.statsEl.className = "bsb-tm-stats";
-      this.form.className = "bsb-tm-form";
-      this.transparencyForm.className = "bsb-tm-form";
-      this.filterForm.className = "bsb-tm-form";
-      this.categoryForm.className = "bsb-tm-categories";
-      this.mbgaForm.className = "bsb-tm-form";
-      this.panel.append(this.createHeader(), this.body);
-      this.body.append(this.nav, this.content);
-      for (const tab of Object.keys(TAB_LABELS)) {
-        this.nav.appendChild(this.createTabButton(tab));
-        const section = this.createSection(tab);
-        this.sections.set(tab, section);
-        this.content.appendChild(section);
-      }
-      this.backdrop.appendChild(this.panel);
-      this.render();
-      this.setActiveTab("overview");
-    }
-    mount() {
-      if (!this.backdrop.isConnected) {
-        document.documentElement.appendChild(this.backdrop);
-      }
-      this.syncViewportMetrics();
-    }
-    toggle() {
-      if (this.backdrop.hidden) {
-        this.open();
-        return;
-      }
-      this.close("user");
-    }
-    isOpen() {
-      return !this.backdrop.hidden;
-    }
-    getActiveTab() {
-      return this.activeTab;
-    }
-    open(tab = this.activeTab) {
-      this.mount();
-      this.attachViewportListeners();
-      this.syncViewportMetrics();
-      this.setActiveTab(tab);
-      this.backdrop.hidden = false;
-      document.documentElement.classList.add("bsb-tm-panel-open");
-      document.addEventListener("keydown", this.handleKeydown);
-    }
-    close(reason = "user") {
-      var _a, _b;
-      const wasOpen = !this.backdrop.hidden;
-      this.backdrop.hidden = true;
-      this.detachViewportListeners();
-      document.documentElement.classList.remove("bsb-tm-panel-open");
-      document.removeEventListener("keydown", this.handleKeydown);
-      if (wasOpen) {
-        (_b = (_a = this.callbacks).onClose) == null ? void 0 : _b.call(_a, reason);
-      }
-    }
-    unmount() {
-      this.close("system");
-      this.backdrop.remove();
-    }
-    updateConfig(config) {
-      this.rememberActiveScroll();
-      this.config = config;
-      this.filterValidationMessage = null;
-      this.render(true);
-    }
-    updateStats(stats) {
-      this.rememberActiveScroll();
-      this.stats = stats;
-      this.renderOverview();
-      this.restoreActiveScroll();
-    }
-    updateRuntimeStatus(status) {
-      this.rememberActiveScroll();
-      this.runtimeStatus = status;
-      this.renderOverview();
-      this.restoreActiveScroll();
-    }
-    setFullVideoLabels(segments) {
-      this.rememberActiveScroll();
-      this.fullVideoLabels = [...new Set(segments.map((segment) => CATEGORY_LABELS[segment.category]))];
-      this.renderOverview();
-      this.restoreActiveScroll();
-    }
-    render(preserveScroll = false) {
-      var _a;
-      const nextScrollTop = preserveScroll ? (_a = this.contentScrollByTab[this.activeTab]) != null ? _a : this.content.scrollTop : 0;
-      this.renderOverview();
-      this.renderBehavior();
-      this.renderTransparency();
-      this.renderFilters();
-      this.renderMbga();
-      this.renderHelp();
-      this.setActiveTab(this.activeTab, { preserveScroll, scrollTop: nextScrollTop });
-    }
-    renderOverview() {
-      var _a;
-      const labels = this.fullVideoLabels.length > 0 ? this.fullVideoLabels.join(" / ") : "\u5F53\u524D\u89C6\u9891\u65E0\u6574\u89C6\u9891\u6807\u7B7E";
-      const thumbnailStatus = this.config.thumbnailLabelMode === "off" ? "\u5DF2\u5173\u95ED" : "\u5DF2\u5F00\u542F";
-      const titleLabelStatus = this.fullVideoLabels.length > 0 ? "\u5DF2\u8BC6\u522B" : "\u7B49\u5F85\u4E2D";
-      const compactHeaderStatus = this.config.compactVideoHeader ? "\u5DF2\u5F00\u542F" : "\u5DF2\u5173\u95ED";
-      const commentFilterStatus = this.config.commentFilterMode === "off" ? "\u5DF2\u5173\u95ED" : "\u5DF2\u5F00\u542F";
-      const commentLocationStatus = this.config.commentLocationEnabled ? "\u5DF2\u5F00\u542F" : "\u5DF2\u5173\u95ED";
-      this.statsEl.replaceChildren(
-        this.createSummaryLine("\u811A\u672C\u72B6\u6001", this.config.enabled ? "\u5DF2\u542F\u7528" : "\u5DF2\u505C\u7528"),
-        this.createSummaryLine("\u5F53\u524D\u89C6\u9891", (_a = this.runtimeStatus.bvid) != null ? _a : "\u5F53\u524D\u4E0D\u662F\u89C6\u9891\u9875"),
-        this.createSummaryLine("\u7247\u6BB5\u72B6\u6001", this.runtimeStatus.message),
-        this.createSummaryLine("\u6574\u89C6\u9891\u6807\u7B7E", labels),
-        this.createSummaryLine("\u7D2F\u8BA1\u8DF3\u8FC7", `${this.stats.skipCount} \u6B21`),
-        this.createSummaryLine("\u7D2F\u8BA1\u8282\u7701", `${this.stats.minutesSaved.toFixed(2)} \u5206\u949F`)
-      );
-      const section = this.sections.get("overview");
-      if (!section) {
-        return;
-      }
-      section.replaceChildren(
-        this.createSectionHeading(
-          "\u5F53\u524D\u72B6\u6001",
-          "\u8FD9\u4E00\u9875\u96C6\u4E2D\u5C55\u793A\u811A\u672C\u662F\u5426\u751F\u6548\u3001\u5F53\u524D\u89C6\u9891\u8BC6\u522B\u7ED3\u679C\uFF0C\u4EE5\u53CA\u4F60\u5728\u7AD9\u5185\u4F1A\u770B\u5230\u54EA\u4E9B\u589E\u5F3A\u5143\u7D20\u3002"
-        ),
-        this.statsEl,
-        this.createFeatureGrid(
-          [
-            {
-              title: "\u9996\u9875 / \u641C\u7D22\u5361\u7247\u6807\u7B7E",
-              value: thumbnailStatus,
-              description: "\u5728\u6574\u89C6\u9891\u88AB\u6807\u8BB0\u4E3A\u5546\u4E1A\u5185\u5BB9\u65F6\uFF0C\u4E8E\u5C01\u9762\u4E0A\u65B9\u5C45\u4E2D\u663E\u793A\u7B80\u5199\u6807\u7B7E\uFF0C\u60AC\u505C\u540E\u5C55\u5F00\u5B8C\u6574\u5206\u7C7B\u540D\u3002"
-            },
-            {
-              title: "\u89C6\u9891\u6807\u9898\u5546\u4E1A\u6807\u7B7E",
-              value: titleLabelStatus,
-              description: "\u5728\u89C6\u9891\u6807\u9898\u524D\u663E\u793A\u5206\u7C7B\u80F6\u56CA\uFF0C\u5E76\u63D0\u4F9B\u201C\u6807\u8BB0\u6B63\u786E / \u6807\u8BB0\u6709\u8BEF\u201D\u7684\u53CD\u9988\u5165\u53E3\u3002"
-            },
-            {
-              title: "\u7D27\u51D1\u89C6\u9891\u9876\u90E8\u680F",
-              value: compactHeaderStatus,
-              description: "\u4EC5\u5728\u89C6\u9891\u64AD\u653E\u9875\u6536\u8D77\u5DE6\u4FA7\u5BFC\u822A\uFF0C\u4FDD\u7559\u641C\u7D22\u4E0E\u4E2A\u4EBA\u5165\u53E3\uFF0C\u51CF\u5C11\u9876\u90E8\u5360\u9AD8\u3002"
-            },
-            {
-              title: "\u8BC4\u8BBA\u533A\u5546\u54C1\u8FC7\u6EE4",
-              value: commentFilterStatus,
-              description: "\u8BC6\u522B\u5E26\u8D27\u8BC4\u8BBA\u65F6\uFF0C\u4F1A\u7ED9\u51FA\u66F4\u660E\u786E\u7684\u9690\u85CF / \u663E\u793A\u53CD\u9988\uFF0C\u800C\u4E0D\u662F\u76F4\u63A5\u9759\u9ED8\u5904\u7406\u3002"
-            },
-            {
-              title: "\u8BC4\u8BBA\u533A\u5C5E\u5730\u663E\u793A\uFF08\u5F00\u76D2\uFF09",
-              value: commentLocationStatus,
-              description: "\u9ED8\u8BA4\u5F00\u542F\uFF0C\u76F4\u63A5\u663E\u793A B \u7AD9\u8BC4\u8BBA payload \u81EA\u5E26\u7684 IP \u5C5E\u5730\u4FE1\u606F\uFF0C\u5E76\u517C\u5BB9\u65B0\u7248\u8BC4\u8BBA\u7ED3\u6784\u3002"
-            }
-          ],
-          "bsb-tm-overview-grid"
-        ),
-        this.createFormGroup(
-          "\u7EF4\u62A4\u5DE5\u5177",
-          "\u6392\u969C\u6216\u60F3\u56DE\u5230\u521D\u59CB\u72B6\u6001\u65F6\uFF0C\u518D\u4F7F\u7528\u8FD9\u4E9B\u52A8\u4F5C\u3002\u7F13\u5B58\u6E05\u7406\u53EA\u4F1A\u5F71\u54CD SponsorBlock \u6570\u636E\uFF0C\u4E0D\u4F1A\u5220\u9664\u4F60\u7684\u5176\u4ED6\u811A\u672C\u8BBE\u7F6E\u3002",
-          this.createActionRow(
-            this.createActionButton("\u6E05\u7406\u7F13\u5B58", "secondary", () => __async(this, null, function* () {
-              yield this.callbacks.onClearCache();
-            }), { id: "clear-cache" }),
-            this.createActionButton("\u6062\u590D\u9ED8\u8BA4\u8BBE\u7F6E", "danger", () => __async(this, null, function* () {
-              yield this.callbacks.onReset();
-            }), { id: "reset-settings", confirmText: "\u786E\u5B9A\u6062\u590D\u5417\uFF1F" })
-          )
-        )
-      );
-    }
-    renderBehavior() {
-      this.form.replaceChildren(
-        this.createFormGroup(
-          "\u57FA\u7840\u5F00\u5173",
-          "\u5148\u51B3\u5B9A\u811A\u672C\u662F\u5426\u5DE5\u4F5C\uFF0C\u518D\u63A7\u5236\u7F13\u5B58\u548C\u64AD\u653E\u5668\u53EF\u89C6\u5316\u589E\u5F3A\u3002",
-          this.createFieldGrid(
-            [
-              this.createCheckbox(
-                "\u542F\u7528 Bilibili SponsorBlock",
-                "\u5173\u95ED\u540E\u5C06\u505C\u6B62\u7247\u6BB5\u8BF7\u6C42\u3001\u6807\u9898\u6807\u7B7E\u3001\u7F29\u7565\u56FE\u6807\u7B7E\u548C\u64AD\u653E\u5668\u589E\u5F3A\u3002",
-                this.config.enabled,
-                (checked) => __async(this, null, function* () {
-                  yield this.callbacks.onPatchConfig({ enabled: checked });
-                })
-              ),
-              this.createCheckbox(
-                "\u542F\u7528\u7F13\u5B58",
-                "\u7F13\u5B58 SponsorBlock \u7247\u6BB5\u548C\u6574\u89C6\u9891\u6807\u7B7E\uFF0C\u51CF\u5C11\u91CD\u590D\u8BF7\u6C42\u5E76\u63D0\u5347\u9875\u9762\u5207\u6362\u901F\u5EA6\u3002",
-                this.config.enableCache,
-                (checked) => __async(this, null, function* () {
-                  yield this.callbacks.onPatchConfig({ enableCache: checked });
-                })
-              ),
-              this.createCheckbox(
-                "\u663E\u793A\u64AD\u653E\u5668\u8FDB\u5EA6\u6761\u6807\u7B7E",
-                "\u5728\u8FDB\u5EA6\u6761\u4E0A\u663E\u793A\u4E0D\u540C\u7C7B\u522B\u7684\u5F69\u8272\u7247\u6BB5\u6807\u8BB0\u3002",
-                this.config.showPreviewBar,
-                (checked) => __async(this, null, function* () {
-                  yield this.callbacks.onPatchConfig({ showPreviewBar: checked });
-                })
-              ),
-              this.createCheckbox(
-                "\u542F\u7528\u7D27\u51D1\u89C6\u9891\u9876\u90E8\u680F",
-                "\u4EC5\u5728\u89C6\u9891\u64AD\u653E\u9875\u4FDD\u7559\u641C\u7D22\u680F\u548C\u4E2A\u4EBA\u5165\u53E3\uFF0C\u6536\u8D77\u5DE6\u4FA7\u5BFC\u822A\u5E76\u51CF\u5C11\u9876\u90E8\u7A7A\u767D\u3002",
-                this.config.compactVideoHeader,
-                (checked) => __async(this, null, function* () {
-                  yield this.callbacks.onPatchConfig({ compactVideoHeader: checked });
-                })
-              ),
-              this.createCheckbox(
-                "\u663E\u793A\u7070\u5B57\u5E7F\u544A\u6587\u6848",
-                "\u9ED8\u8BA4\u5173\u95ED\u3002\u5173\u95ED\u540E\uFF0C\u7D27\u51D1\u9876\u90E8\u680F\u53EA\u663E\u793A\u901A\u7528\u5360\u4F4D\u63D0\u793A\uFF0C\u4E0D\u5C55\u793A\u539F\u751F\u641C\u7D22\u6846\u91CC\u7684\u7070\u5B57\u5E7F\u544A\u5185\u5BB9\u3002",
-                this.config.compactHeaderPlaceholderVisible,
-                (checked) => __async(this, null, function* () {
-                  yield this.callbacks.onPatchConfig({ compactHeaderPlaceholderVisible: checked });
-                })
-              ),
-              this.createCheckbox(
-                "\u5141\u8BB8\u641C\u7D22\u7070\u5B57\u5E7F\u544A\u6587\u6848",
-                "\u9ED8\u8BA4\u5173\u95ED\u3002\u5F00\u542F\u540E\uFF0C\u82E5\u7D27\u51D1\u9876\u90E8\u680F\u641C\u7D22\u6846\u4E3A\u7A7A\uFF0C\u4E14\u5F53\u524D\u5B9E\u9645\u663E\u793A\u7684\u662F\u975E\u901A\u7528\u7070\u5B57\u5E7F\u544A\u6587\u6848\uFF0C\u70B9\u51FB\u641C\u7D22\u6216\u6309\u56DE\u8F66\u4F1A\u76F4\u63A5\u641C\u7D22\u8BE5\u6587\u6848\u3002",
-                this.config.compactHeaderSearchPlaceholderEnabled,
-                (checked) => __async(this, null, function* () {
-                  yield this.callbacks.onPatchConfig({ compactHeaderSearchPlaceholderEnabled: checked });
-                })
-              )
-            ],
-            "single-column"
-          )
-        ),
-        this.createFormGroup(
-          "\u663E\u793A\u4E0E\u8BC6\u522B",
-          "\u8FD9\u91CC\u7684\u9009\u9879\u51B3\u5B9A\u5361\u7247\u6807\u7B7E\u3001\u63D0\u793A\u7B56\u7565\u548C SponsorBlock \u8BF7\u6C42\u7684\u57FA\u7840\u884C\u4E3A\u3002",
-          this.createFieldGrid([
-            this.createSelect(
-              "\u9996\u9875 / \u5217\u8868\u5361\u7247\u6807\u7B7E",
-              this.config.thumbnailLabelMode,
-              THUMBNAIL_LABEL_MODE_LABELS,
-              (value) => __async(this, null, function* () {
-                yield this.callbacks.onPatchConfig({ thumbnailLabelMode: value });
-              }),
-              "\u6574\u89C6\u9891\u88AB\u6807\u8BB0\u4E3A\u5546\u4E1A\u5185\u5BB9\u65F6\uFF0C\u5982\u4F55\u5728\u63A8\u8350\u5361\u7247\u4E0A\u5C55\u793A\u3002"
-            ),
-            this.createInput(
-              "SponsorBlock \u670D\u52A1\u5668\u5730\u5740",
-              "\u9ED8\u8BA4\u4FDD\u6301 https://www.bsbsb.top \u5373\u53EF\u3002\u53EA\u6709\u5728\u4F60\u660E\u786E\u77E5\u9053\u5907\u7528\u670D\u52A1\u53EF\u7528\u65F6\u518D\u4FEE\u6539\u3002",
-              this.config.serverAddress,
-              (value) => __async(this, null, function* () {
-                yield this.callbacks.onPatchConfig({ serverAddress: value });
-              })
-            ),
-            this.createNumberInput(
-              "\u63D0\u793A\u505C\u7559\u65F6\u95F4\uFF08\u79D2\uFF09",
-              "\u81EA\u52A8\u8DF3\u8FC7\u3001\u9519\u8BEF\u63D0\u793A\u548C\u9AD8\u5149\u70B9\u63D0\u793A\u7684\u9ED8\u8BA4\u505C\u7559\u65F6\u95F4\u3002",
-              this.config.noticeDurationSec,
-              (value) => __async(this, null, function* () {
-                yield this.callbacks.onPatchConfig({ noticeDurationSec: value });
-              })
-            ),
-            this.createNumberInput(
-              "\u6700\u77ED\u5904\u7406\u65F6\u957F\uFF08\u79D2\uFF09",
-              "\u77ED\u4E8E\u8BE5\u957F\u5EA6\u7684\u666E\u901A\u7247\u6BB5\u4E0D\u4F1A\u81EA\u52A8\u5904\u7406\uFF0C\u53EF\u7528\u4E8E\u51CF\u5C11\u8BEF\u89E6\u53D1\u3002",
-              this.config.minDurationSec,
-              (value) => __async(this, null, function* () {
-                yield this.callbacks.onPatchConfig({ minDurationSec: value });
-              })
-            )
-          ])
-        )
-      );
-      this.categoryForm.replaceChildren();
-      for (const category of CATEGORY_ORDER) {
-        const row = document.createElement("label");
-        row.className = "bsb-tm-category-row";
-        const copy = document.createElement("div");
-        copy.className = "bsb-tm-field-copy";
-        const label = document.createElement("span");
-        label.className = "bsb-tm-field-title";
-        label.textContent = CATEGORY_LABELS[category];
-        const help = document.createElement("small");
-        help.className = "bsb-tm-field-help";
-        help.textContent = CATEGORY_DESCRIPTIONS[category];
-        copy.append(label, help);
-        const select = document.createElement("select");
-        for (const mode of Object.keys(MODE_LABELS)) {
-          const option = document.createElement("option");
-          option.value = mode;
-          option.textContent = MODE_LABELS[mode];
-          option.selected = this.config.categoryModes[category] === mode;
-          select.appendChild(option);
-        }
-        select.addEventListener("change", () => __async(this, null, function* () {
-          yield this.callbacks.onCategoryModeChange(category, select.value);
-        }));
-        row.append(copy, select);
-        this.categoryForm.appendChild(row);
-      }
-      const section = this.sections.get("behavior");
-      if (!section) {
-        return;
-      }
-      section.replaceChildren(
-        this.createSectionHeading("\u7247\u6BB5\u4E0E\u6807\u7B7E", "\u8FD9\u91CC\u7684\u9009\u9879\u51B3\u5B9A\u89C6\u9891\u9875\u3001\u8FDB\u5EA6\u6761\u548C\u9996\u9875\u5361\u7247\u5982\u4F55\u5C55\u793A SponsorBlock \u6570\u636E\u3002"),
-        this.form,
-        this.createFormGroup(
-          "\u6807\u7B7E\u914D\u8272",
-          "\u9ED8\u8BA4\u914D\u8272\u5C3D\u91CF\u8D34\u8FD1\u4EBA\u7684\u76F4\u89C9\uFF1A\u7EA2\u8272\u504F\u8B66\u793A\u3001\u7EFF\u8272\u504F\u5B89\u5FC3\u3001\u9EC4\u8272\u504F\u81EA\u8350\u3002\u4F60\u53EF\u4EE5\u6309\u81EA\u5DF1\u7684\u5224\u65AD\u5FAE\u8C03\u3002",
-          this.createColorPalette(this.config.categoryColorOverrides)
-        ),
-        this.createFormGroup(
-          "\u7247\u6BB5\u5206\u7C7B\u7B56\u7565",
-          "\u4FDD\u6301\u4E0A\u6E38\u5E38\u89C1\u8BED\u4E49\uFF1A\u81EA\u52A8\u3001\u624B\u52A8\u3001\u4EC5\u63D0\u793A\u3001\u5173\u95ED\u3002\u6574\u89C6\u9891\u6807\u7B7E\u4F1A\u540C\u6B65\u5F71\u54CD\u6807\u9898\u80F6\u56CA\u4E0E\u5C01\u9762\u9876\u90E8\u77ED\u6807\u7B7E\u3002",
-          this.categoryForm
-        )
-      );
-    }
-    renderFilters() {
-      var _a, _b, _c;
-      const dynamicFields = [
-        this.createSelect(
-          "\u52A8\u6001\u8FC7\u6EE4\u6A21\u5F0F",
-          this.config.dynamicFilterMode,
-          CONTENT_FILTER_MODE_LABELS,
-          (value) => __async(this, null, function* () {
-            yield this.callbacks.onPatchConfig({ dynamicFilterMode: value });
-          }),
-          "\u9009\u62E9\u662F\u9690\u85CF\u52A8\u6001\u5185\u5BB9\u3001\u4EC5\u4FDD\u7559\u6807\u7B7E\u63D0\u793A\uFF0C\u8FD8\u662F\u5B8C\u5168\u5173\u95ED\u8FD9\u90E8\u5206\u589E\u5F3A\u3002"
-        ),
-        this.createRegexPatternInput(),
-        this.createNumberInput(
-          "\u52A8\u6001\u6700\u5C11\u547D\u4E2D\u6570",
-          "\u4EC5\u5F53\u7591\u4F3C\u5E7F\u544A\u8BCD\u547D\u4E2D\u6570\u8FBE\u5230\u8FD9\u4E2A\u9608\u503C\u65F6\uFF0C\u624D\u5BF9\u5185\u5BB9\u505A\u6807\u8BB0\u6216\u9690\u85CF\u3002",
-          this.config.dynamicRegexKeywordMinMatches,
-          (value) => __async(this, null, function* () {
-            yield this.callbacks.onPatchConfig({ dynamicRegexKeywordMinMatches: value });
-          })
-        )
-      ];
-      if (this.filterValidationMessage) {
-        dynamicFields.splice(2, 0, this.createValidationMessage(this.filterValidationMessage));
-      }
-      const commentFields = [
-        this.createCheckbox(
-          "\u663E\u793A\u8BC4\u8BBA\u533A\u5C5E\u5730\uFF08\u5F00\u76D2\uFF09",
-          "\u9ED8\u8BA4\u5F00\u542F\u3002\u590D\u523B\u81EA\u300CB\u7AD9\u8BC4\u8BBA\u533A\u5F00\u76D2\u300D\u7684\u6838\u5FC3\u80FD\u529B\uFF0C\u76F4\u63A5\u5C55\u793A\u8BC4\u8BBA payload \u81EA\u5E26\u7684 IP \u5C5E\u5730\u4FE1\u606F\u3002",
-          this.config.commentLocationEnabled,
-          (checked) => __async(this, null, function* () {
-            yield this.callbacks.onPatchConfig({ commentLocationEnabled: checked });
-          })
-        ),
-        this.createCheckbox(
-          "\u540C\u65F6\u9690\u85CF\u547D\u4E2D\u8BC4\u8BBA\u7684\u56DE\u590D",
-          "\u5F00\u542F\u540E\uFF0C\u5982\u679C\u4E3B\u8BC4\u8BBA\u547D\u4E2D\u5E7F\u544A\u89C4\u5219\uFF0C\u5176\u56DE\u590D\u697C\u5C42\u4E5F\u4F1A\u4E00\u5E76\u9690\u85CF\u3002",
-          this.config.commentHideReplies,
-          (checked) => __async(this, null, function* () {
-            yield this.callbacks.onPatchConfig({ commentHideReplies: checked });
-          })
-        ),
-        this.createSelect(
-          "\u8BC4\u8BBA\u8FC7\u6EE4\u6A21\u5F0F",
-          this.config.commentFilterMode,
-          CONTENT_FILTER_MODE_LABELS,
-          (value) => __async(this, null, function* () {
-            yield this.callbacks.onPatchConfig({ commentFilterMode: value });
-          }),
-          "\u9009\u62E9\u662F\u9690\u85CF\u547D\u4E2D\u8BC4\u8BBA\u3001\u4EC5\u4FDD\u7559\u8BC4\u8BBA\u6807\u7B7E\u63D0\u793A\uFF0C\u8FD8\u662F\u5B8C\u5168\u5173\u95ED\u8BC4\u8BBA\u8FC7\u6EE4\u3002"
-        ),
-        this.createCustomColorInput(
-          "IP \u5C5E\u5730\u6807\u7B7E\u989C\u8272",
-          "\u81EA\u5B9A\u4E49\u8BC4\u8BBA\u533A IP \u5C5E\u5730\u80F6\u56CA\u6807\u7B7E\u7684\u4E3B\u9898\u989C\u8272\u3002",
-          (_a = this.config.commentIpColor) != null ? _a : "#60a5fa",
-          (value) => __async(this, null, function* () {
-            yield this.callbacks.onPatchConfig({ commentIpColor: value });
-          })
-        ),
-        this.createCustomColorInput(
-          "\u8BC4\u8BBA\u5E7F\u544A\u6807\u7B7E\u989C\u8272",
-          "\u81EA\u5B9A\u4E49\u8BC4\u8BBA\u533A\u8BC6\u522B\u5230\u7684\u5E7F\u544A\u3001\u5E26\u8D27\u6216\u53EF\u7591\u4FC3\u9500\u6807\u7B7E\u7684\u4E3B\u9898\u989C\u8272\u3002",
-          (_b = this.config.commentAdColor) != null ? _b : "#ff6b66",
-          (value) => __async(this, null, function* () {
-            yield this.callbacks.onPatchConfig({ commentAdColor: value });
-          })
-        )
-      ];
-      this.filterForm.replaceChildren(
-        this.createFormGroup(
-          "\u52A8\u6001\u9875\u5546\u4E1A\u5185\u5BB9\u8FC7\u6EE4",
-          "\u9ED8\u8BA4\u5173\u95ED\uFF0C\u907F\u514D\u8BEF\u4F24\u6B63\u5E38\u52A8\u6001\u3002\u53EA\u6709\u5728\u4F60\u786E\u5B9E\u9700\u8981\u5C4F\u853D\u5546\u4E1A\u52A8\u6001\u65F6\u518D\u542F\u7528\u3002",
-          this.createFieldGrid(dynamicFields)
-        ),
-        this.createFormGroup(
-          "\u8BC4\u8BBA\u533A\u5546\u54C1 / \u5E26\u8D27\u8FC7\u6EE4",
-          "\u7528\u4E8E\u8BC6\u522B\u8BC4\u8BBA\u533A\u5546\u54C1\u5361\u5E7F\u544A\u3001\u5E26\u8D27\u7559\u8A00\u548C\u53EF\u7591\u4FC3\u9500\u8BC4\u8BBA\u3002",
-          this.createFieldGrid(commentFields)
-        )
-      );
-      (_c = this.sections.get("filters")) == null ? void 0 : _c.replaceChildren(
-        this.createSectionHeading("\u52A8\u6001 / \u8BC4\u8BBA\u589E\u5F3A", "\u8FD9\u90E8\u5206\u4E0D\u662F SponsorBlock \u539F\u59CB\u7247\u6BB5\u63A5\u53E3\uFF0C\u800C\u662F\u5BF9 B \u7AD9\u7AD9\u5185\u5546\u4E1A\u5185\u5BB9\u7684\u9644\u52A0\u589E\u5F3A\u3002"),
-        this.filterForm
-      );
-    }
-    renderTransparency() {
-      const transparency = this.config.labelTransparency;
-      const section = this.sections.get("transparency");
-      if (!section) {
-        return;
-      }
-      this.transparencyForm.replaceChildren(
-        this.createFormGroup(
-          "\u89C6\u9891\u4E3B\u7EBF\u6807\u7B7E",
-          "\u8FD9\u4E24\u7C7B\u6807\u7B7E\u5C5E\u4E8E BSC \u4E3B\u7EBF\u80FD\u529B\u3002\u900F\u660E\u6A21\u5F0F\u4F1A\u4ECE\u9AD8\u7EAF\u5EA6\u80F6\u56CA\u6539\u6210\u66F4\u514B\u5236\u7684 Liquid Glass \u8868\u73B0\uFF0C\u9ED8\u8BA4\u4FDD\u6301\u5173\u95ED\uFF0C\u786E\u4FDD\u5347\u7EA7\u540E\u73B0\u6709\u89C6\u89C9\u4E0D\u53D8\u3002",
-          this.createFieldGrid([
-            this.createCheckbox(
-              "\u6807\u9898\u5546\u4E1A\u6807\u7B7E\u4F7F\u7528\u900F\u660E\u6A21\u5F0F",
-              "\u7528\u4E8E\u89C6\u9891\u6807\u9898\u524D\u7684\u6574\u89C6\u9891\u80F6\u56CA\u3002\u5F00\u542F\u540E\u4F1A\u4FDD\u7559\u5206\u7C7B\u8272\u503E\u5411\uFF0C\u4F46\u628A\u7EAF\u8272\u586B\u5145\u6539\u4E3A\u66F4\u8F7B\u7684\u73BB\u7483\u67D3\u8272\uFF0C\u51CF\u5C11\u5BF9\u6807\u9898\u9605\u8BFB\u7684\u5E72\u6270\u3002",
-              transparency.titleBadge,
-              (checked) => __async(this, null, function* () {
-                yield this.callbacks.onPatchConfig({
-                  labelTransparency: __spreadProps(__spreadValues({}, this.config.labelTransparency), {
-                    titleBadge: checked
-                  })
-                });
-              })
-            ),
-            this.createCheckbox(
-              "\u5C01\u9762\u80F6\u56CA\u6807\u7B7E\u4F7F\u7528\u900F\u660E\u6A21\u5F0F",
-              "\u7528\u4E8E\u9996\u9875\u3001\u641C\u7D22\u3001\u4FA7\u680F\u5361\u7247\u4E0A\u7684\u6574\u89C6\u9891\u6807\u7B7E\u3002\u5F00\u542F\u540E\u4ECD\u4FDD\u7559\u60AC\u6D6E\u5C55\u5F00\u4E0E\u53EF\u8BFB\u6027\uFF0C\u4F46\u4F1A\u964D\u4F4E\u5BF9\u5C01\u9762\u4E3B\u4F53\u7684\u89C6\u89C9\u538B\u5236\u3002",
-              transparency.thumbnailLabel,
-              (checked) => __async(this, null, function* () {
-                yield this.callbacks.onPatchConfig({
-                  labelTransparency: __spreadProps(__spreadValues({}, this.config.labelTransparency), {
-                    thumbnailLabel: checked
-                  })
-                });
-              })
-            )
-          ])
-        ),
-        this.createFormGroup(
-          "\u7AD9\u5185\u589E\u5F3A\u6807\u7B7E",
-          "\u8FD9\u4E09\u7C7B\u6807\u7B7E\u66F4\u504F\u63D0\u793A\u6027\u8D28\uFF0C\u4E0D\u5EFA\u8BAE\u5F3A\u7ED1\u6210\u4E00\u4E2A\u603B\u5F00\u5173\u3002\u5206\u9879\u63A7\u5236\u53EF\u4EE5\u8BA9\u4F60\u53EA\u7ED9\u201C\u8FC7\u4E8E\u663E\u773C\u201D\u7684\u6807\u7B7E\u964D\u566A\uFF0C\u800C\u4E0D\u727A\u7272\u5176\u4ED6\u63D0\u9192\u80FD\u529B\u3002",
-          this.createFieldGrid([
-            this.createCheckbox(
-              "\u8BC4\u8BBA\u5E7F\u544A\u6807\u7B7E\u4F7F\u7528\u900F\u660E\u6A21\u5F0F",
-              "\u7528\u4E8E\u8BC4\u8BBA\u533A\u5E26\u8D27\u3001\u4FC3\u9500\u3001\u7591\u4F3C\u5E7F\u544A\u7B49\u6807\u7B7E\u3002\u5F00\u542F\u540E\u4F1A\u5F31\u5316\u6574\u5757\u80CC\u666F\u5B58\u5728\u611F\uFF0C\u628A\u6CE8\u610F\u529B\u66F4\u591A\u8FD8\u7ED9\u8BC4\u8BBA\u6B63\u6587\u3002",
-              transparency.commentBadge,
-              (checked) => __async(this, null, function* () {
-                yield this.callbacks.onPatchConfig({
-                  labelTransparency: __spreadProps(__spreadValues({}, this.config.labelTransparency), {
-                    commentBadge: checked
-                  })
-                });
-              })
-            ),
-            this.createCheckbox(
-              "\u8BC4\u8BBA\u5C5E\u5730\u6807\u7B7E\u4F7F\u7528\u900F\u660E\u6A21\u5F0F",
-              "\u7528\u4E8E\u8BC4\u8BBA\u53D1\u5E03\u65F6\u95F4\u65C1\u7684 IP \u5C5E\u5730\u80F6\u56CA\u3002\u8FD9\u4E2A\u573A\u666F\u6700\u5BB9\u6613\u6253\u65AD\u6B63\u6587\u9605\u8BFB\uFF0C\u6240\u4EE5\u5355\u72EC\u7ED9\u5F00\u5173\uFF0C\u9ED8\u8BA4\u5173\u95ED\u3002",
-              transparency.commentLocation,
-              (checked) => __async(this, null, function* () {
-                yield this.callbacks.onPatchConfig({
-                  labelTransparency: __spreadProps(__spreadValues({}, this.config.labelTransparency), {
-                    commentLocation: checked
-                  })
-                });
-              })
-            ),
-            this.createCheckbox(
-              "\u52A8\u6001\u9875\u5546\u4E1A\u6807\u7B7E\u4F7F\u7528\u900F\u660E\u6A21\u5F0F",
-              "\u7528\u4E8E\u52A8\u6001\u9875\u201C\u5E26\u8D27\u52A8\u6001 / \u7591\u4F3C\u5E7F\u544A\u201D\u7B49\u6807\u7B7E\u3002\u5F00\u542F\u540E\u4ECD\u4FDD\u7559\u5F3A\u8C03\u70B9\u4E0E\u8F6E\u5ED3\uFF0C\u4F46\u4F1A\u660E\u663E\u964D\u4F4E\u7EAF\u8272\u5757\u5E26\u6765\u7684\u62A2\u773C\u611F\u3002",
-              transparency.dynamicBadge,
-              (checked) => __async(this, null, function* () {
-                yield this.callbacks.onPatchConfig({
-                  labelTransparency: __spreadProps(__spreadValues({}, this.config.labelTransparency), {
-                    dynamicBadge: checked
-                  })
-                });
-              })
-            )
-          ])
-        ),
-        this.createInfoBox(
-          "\u8BBE\u8BA1\u8BF4\u660E",
-          "\u8FD9\u91CC\u7684\u201C\u900F\u660E\u201D\u4E0D\u662F\u7B80\u5355\u8C03\u4F4E opacity\uFF0C\u800C\u662F\u6539\u4E3A\u66F4\u4F4E\u4FB5\u5165\u7684 Liquid Glass\uFF1A\u8F7B\u67D3\u8272\u3001\u9AD8\u5149\u3001\u8FB9\u7F18\u63CF\u7EBF\u3001\u53D7\u63A7\u6A21\u7CCA\uFF0C\u5E76\u4F18\u5148\u4FDD\u8BC1\u6587\u5B57\u53EF\u8BFB\u6027\u3002"
-        )
-      );
-      section.replaceChildren(
-        this.createSectionHeading(
-          "\u6807\u7B7E\u900F\u660E\u5EA6",
-          "\u96C6\u4E2D\u7BA1\u7406\u6240\u6709\u80F6\u56CA\u6807\u7B7E\u7684\u900F\u660E\u6A21\u5F0F\u3002\u9ED8\u8BA4\u5168\u90E8\u5173\u95ED\uFF0C\u4FDD\u8BC1\u73B0\u6709\u7528\u6237\u5347\u7EA7\u540E\u4E0D\u4F1A\u88AB\u5F3A\u5236\u6539\u53D8\u89C6\u89C9\u98CE\u683C\u3002"
-        ),
-        this.transparencyForm
-      );
-    }
-    renderMbga() {
-      const mbgaFields = [
-        this.createCheckbox(
-          "\u542F\u7528\u751F\u6001\u51C0\u5316 (MBGA)",
-          "\u603B\u5F00\u5173\u3002\u5F00\u542F\u540E\u5C06\u6CE8\u5165\u7F51\u7EDC\u62E6\u622A\u5C42\u53CA\u6837\u5F0F\u4F18\u5316\u8865\u4E01\uFF0C\u8FD8\u4F60\u4E00\u4E2A\u66F4\u5E72\u51C0\u3001\u9AD8\u6548\u7684 B \u7AD9\u3002",
-          this.config.mbgaEnabled,
-          (checked) => __async(this, null, function* () {
-            yield this.callbacks.onPatchConfig({ mbgaEnabled: checked });
-          }),
-          true
-        ),
-        this.createCheckbox(
-          "\u5C4F\u853D\u9690\u79C1\u8FFD\u8E2A\u4E0E\u884C\u4E3A\u4E0A\u62A5",
-          "\u62E6\u622A data.bilibili.com / cm.bilibili.com \u7B49\u9065\u6D4B\u8BF7\u6C42\uFF0C\u4FDD\u62A4\u4E2A\u4EBA\u9690\u79C1\u3002",
-          this.config.mbgaBlockTracking,
-          (checked) => __async(this, null, function* () {
-            yield this.callbacks.onPatchConfig({ mbgaBlockTracking: checked });
-          }),
-          true
-        ),
-        this.createCheckbox(
-          "\u9501\u5B9A\u6700\u9AD8\u753B\u8D28\u4E0E\u76F4\u8FDE\u5B98\u65B9\u6E90",
-          "\u5F3A\u5236\u76F4\u64AD\u539F\u753B\uFF0C\u5E76\u7981\u7528 Mcdn / P2P \u6280\u672F\uFF0C\u51CF\u5C11\u672C\u5730\u8D44\u6E90\u5360\u7528\u4E0E\u53D1\u70ED\u3002",
-          this.config.mbgaDisablePcdn,
-          (checked) => __async(this, null, function* () {
-            yield this.callbacks.onPatchConfig({ mbgaDisablePcdn: checked });
-          }),
-          true
-        ),
-        this.createCheckbox(
-          "\u6E05\u7406\u5730\u5740\u680F\u8FFD\u8E2A\u53C2\u6570",
-          "\u81EA\u52A8\u79FB\u9664 URL \u4E2D spm_id_from, vd_source \u7B49\u8FFD\u8E2A\u53C2\u6570\u3002",
-          this.config.mbgaCleanUrl,
-          (checked) => __async(this, null, function* () {
-            yield this.callbacks.onPatchConfig({ mbgaCleanUrl: checked });
-          }),
-          true
-        ),
-        this.createCheckbox(
-          "\u6DF1\u5EA6\u7F51\u9875\u51C0\u5316\u4E0E\u7B80\u5316",
-          "\u79FB\u9664\u5E7F\u544A\u63D0\u793A\u3001\u9ED1\u767D\u6EE4\u955C\u3001\u89E3\u9664\u590D\u5236\u9650\u5236\u3001\u52A8\u6001\u5BBD\u5C4F\u9002\u914D\u7B49 UI \u8865\u4E01\u3002",
-          this.config.mbgaSimplifyUi,
-          (checked) => __async(this, null, function* () {
-            yield this.callbacks.onPatchConfig({ mbgaSimplifyUi: checked });
-          }),
-          true
-        )
-      ];
-      const section = this.sections.get("mbga");
-      if (!section) {
-        return;
-      }
-      section.replaceChildren(
-        this.createSectionHeading(
-          "\u751F\u6001\u51C0\u5316 (MBGA)",
-          "\u590D\u523B\u81EA\u7ECF\u5178\u7684 MBGA \u811A\u672C\uFF0C\u65E8\u5728\u901A\u8FC7\u7F51\u7EDC\u5C42\u52AB\u6301\u4E0E\u539F\u751F\u7F51\u9875\u91CD\u6784\uFF0C\u8FD8\u4F60\u4E00\u4E2A\u5E72\u51C0\u3001\u9AD8\u6548\u4E14\u79C1\u5BC6\u7684 B \u7AD9\u3002"
-        ),
-        this.createFormGroup(
-          "\u529F\u80FD\u5F00\u5173",
-          "\u6240\u6709\u6539\u52A8\u5747\u7ECF\u8FC7\u5B89\u5168\u5BA1\u8BA1\uFF0C\u65E8\u5728\u4FDD\u8BC1 BSB \u6838\u5FC3\u529F\u80FD\u4E0D\u88AB\u5E72\u6270\u7684\u524D\u63D0\u4E0B\uFF0C\u6700\u5927\u9650\u5EA6\u91CA\u653E\u672C\u5730\u7B97\u529B\u3002\u5F00\u542F\u540E\u8BF7\u5237\u65B0\u9875\u9762\u4EE5\u5B8C\u5168\u751F\u6548\u3002",
-          this.createFieldGrid(mbgaFields)
-        )
-      );
-    }
-    renderHelp() {
-      var _a;
-      (_a = this.sections.get("help")) == null ? void 0 : _a.replaceChildren(
-        this.createSectionHeading("\u5E2E\u52A9\u4E0E\u53CD\u9988", "\u8FD9\u91CC\u8BF4\u660E\u811A\u672C\u5728\u9875\u9762\u4E0A\u4F1A\u770B\u5230\u4EC0\u4E48\uFF0C\u4EE5\u53CA\u5982\u4F55\u5224\u65AD\u6807\u7B7E\u662F\u5426\u5DE5\u4F5C\u6B63\u5E38\u3002"),
-        this.createFeatureGrid(
-          [
-            {
-              title: "\u6807\u9898\u524D\u5546\u4E1A\u6807\u7B7E",
-              value: "\u89C6\u9891\u9875",
-              description: "\u5F53\u6574\u4E2A\u89C6\u9891\u88AB\u793E\u533A\u6807\u8BB0\u4E3A\u8D5E\u52A9\u3001\u81EA\u8350\u6216\u72EC\u5BB6\u8BBF\u95EE\u7B49\u6574\u89C6\u9891\u6807\u7B7E\u65F6\uFF0C\u4F1A\u5728\u6807\u9898\u524D\u663E\u793A\u5F69\u8272\u80F6\u56CA\u3002\u70B9\u51FB\u80F6\u56CA\u53EF\u6253\u5F00\u201C\u6807\u8BB0\u6B63\u786E / \u6807\u8BB0\u6709\u8BEF\u201D\u53CD\u9988\u3002"
-            },
-            {
-              title: "\u7F29\u7565\u56FE\u9876\u90E8\u5C45\u4E2D\u6807\u7B7E",
-              value: "\u9996\u9875 / \u641C\u7D22 / \u4FA7\u680F",
-              description: "\u5BF9\u6574\u89C6\u9891\u5546\u4E1A\u6807\u7B7E\u7684\u89C6\u9891\u5361\u7247\u663E\u793A\u77ED\u6807\u7B7E\uFF0C\u60AC\u6D6E\u65F6\u4EE5\u66F4\u5B8C\u6574\u7684\u80F6\u56CA\u5F62\u5F0F\u5C55\u5F00\u3002"
-            },
-            {
-              title: "\u7D27\u51D1\u89C6\u9891\u9876\u90E8\u680F",
-              value: "\u89C6\u9891\u9875",
-              description: "\u7528\u4E8E\u5728\u89C6\u9891\u9875\u4FDD\u7559\u641C\u7D22\u4E0E\u4E2A\u4EBA\u5165\u53E3\uFF0C\u907F\u514D\u539F\u751F\u9876\u90E8\u680F\u8FC7\u9AD8\u6216\u7559\u51FA\u4E0D\u5FC5\u8981\u7684\u7A7A\u767D\u3002"
-            },
-            {
-              title: "\u8BC4\u8BBA\u533A\u5C5E\u5730\u663E\u793A\uFF08\u5F00\u76D2\uFF09",
-              value: "\u8BC4\u8BBA\u533A",
-              description: "\u5F53\u8BC4\u8BBA\u6570\u636E\u672C\u8EAB\u643A\u5E26 IP \u5C5E\u5730\u65F6\uFF0C\u4F1A\u5728\u8BC4\u8BBA\u53D1\u5E03\u65F6\u95F4\u65C1\u76F4\u63A5\u5C55\u793A\u3002\u8BE5\u529F\u80FD\u57FA\u4E8E mscststs \u7684\u300CB\u7AD9\u8BC4\u8BBA\u533A\u5F00\u76D2\u300D\u601D\u8DEF\u9002\u914D\u3002"
-            }
-          ],
-          "bsb-tm-help-grid"
-        ),
-        this.createLinkGroup([
-          {
-            label: "\u5F53\u524D\u811A\u672C\u4ED3\u5E93",
-            href: "https://github.com/FilfTeen/bilibili-sponsorblock-userscript"
-          },
-          {
-            label: "\u4E0A\u6E38\u9879\u76EE hanydd/BilibiliSponsorBlock",
-            href: "https://github.com/hanydd/BilibiliSponsorBlock"
-          },
-          {
-            label: "\u53C2\u8003\u811A\u672C mscststs/B\u7AD9\u8BC4\u8BBA\u533A\u5F00\u76D2",
-            href: "https://greasyfork.org/zh-CN/scripts/448434-b\u7AD9\u8BC4\u8BBA\u533A\u5F00\u76D2"
-          },
-          {
-            label: "SponsorBlock \u670D\u52A1\u5668",
-            href: "https://www.bsbsb.top"
-          }
-        ]),
-        this.createInfoBox(
-          "\u81F4\u8C22\u4E0E\u514D\u8D23\u58F0\u660E",
-          "\u672C\u811A\u672C\u57FA\u4E8E GPL-3.0 \u7684 BilibiliSponsorBlock \u4E0A\u6E38\u5B9E\u73B0\u601D\u8DEF\u79FB\u690D\u800C\u6765\uFF1B\u8BC4\u8BBA\u533A\u5C5E\u5730\u663E\u793A\u529F\u80FD\u53C2\u8003\u5E76\u9002\u914D\u4E86 mscststs \u7684 ISC \u811A\u672C\u300CB\u7AD9\u8BC4\u8BBA\u533A\u5F00\u76D2\u300D\u3002\u6240\u6709\u7247\u6BB5\u548C\u6574\u89C6\u9891\u6807\u7B7E\u90FD\u6765\u81EA\u793E\u533A\u63D0\u4EA4\u4E0E\u6295\u7968\uFF0C\u8BC4\u8BBA\u5C5E\u5730\u5219\u4EE5 B \u7AD9\u8BC4\u8BBA payload \u81EA\u5E26\u4FE1\u606F\u4E3A\u51C6\uFF0C\u7ED3\u679C\u4EC5\u4F9B\u53C2\u8003\u3002"
-        )
-      );
-    }
-    setActiveTab(tab, options) {
-      var _a, _b;
-      this.rememberActiveScroll();
-      this.activeTab = tab;
-      for (const button of this.nav.querySelectorAll("[data-tab]")) {
-        const active = button.dataset.tab === tab;
-        button.classList.toggle("active", active);
-        button.setAttribute("aria-selected", String(active));
-      }
-      for (const [sectionTab, section] of this.sections) {
-        const active = sectionTab === tab;
-        section.hidden = !active;
-        section.setAttribute("aria-hidden", String(!active));
-        section.dataset.active = String(active);
-      }
-      this.content.scrollTop = (options == null ? void 0 : options.preserveScroll) ? (_b = (_a = options.scrollTop) != null ? _a : this.contentScrollByTab[tab]) != null ? _b : 0 : 0;
-    }
-    createTabButton(tab) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "bsb-tm-tab-button";
-      button.dataset.tab = tab;
-      button.setAttribute("aria-controls", `${this.panelId}-section-${tab}`);
-      const title = document.createElement("strong");
-      title.className = "bsb-tm-tab-title";
-      title.textContent = TAB_LABELS[tab];
-      const description = document.createElement("small");
-      description.className = "bsb-tm-tab-description";
-      description.textContent = TAB_DESCRIPTIONS[tab];
-      button.append(title, description);
-      button.addEventListener("click", () => {
-        var _a;
-        this.setActiveTab(tab, { preserveScroll: true, scrollTop: (_a = this.contentScrollByTab[tab]) != null ? _a : 0 });
-      });
-      return button;
-    }
-    createCheckbox(labelText, helpText, checked, onChange, needsRefresh = false) {
-      const label = document.createElement("label");
-      label.className = "bsb-tm-field bsb-tm-field-toggle";
-      label.dataset.controlState = checked ? "on" : "off";
-      const copy = document.createElement("div");
-      copy.className = "bsb-tm-field-copy";
-      const title = document.createElement("span");
-      title.className = "bsb-tm-field-title";
-      title.textContent = labelText;
-      if (needsRefresh) {
-        const hint = document.createElement("span");
-        hint.className = "bsb-tm-refresh-hint";
-        hint.textContent = "\u9700\u5237\u65B0";
-        title.appendChild(hint);
-      }
-      const help = document.createElement("small");
-      help.className = "bsb-tm-field-help";
-      help.textContent = helpText;
-      const input = document.createElement("input");
-      input.type = "checkbox";
-      input.className = "bsb-tm-switch";
-      input.setAttribute("role", "switch");
-      input.checked = checked;
-      input.addEventListener("change", () => __async(null, null, function* () {
-        const nextChecked = input.checked;
-        const previousChecked = !nextChecked;
-        label.dataset.controlState = nextChecked ? "on" : "off";
-        input.disabled = true;
-        try {
-          yield onChange(nextChecked);
-        } catch (_error) {
-          input.checked = previousChecked;
-          label.dataset.controlState = previousChecked ? "on" : "off";
-        } finally {
-          input.disabled = false;
-        }
-      }));
-      copy.append(title, help);
-      label.append(copy, input);
-      return label;
-    }
-    createInput(labelText, helpText, value, onCommit) {
-      const wrapper = document.createElement("label");
-      wrapper.className = "bsb-tm-field stacked";
-      wrapper.append(this.createInputLabel(labelText, helpText));
-      const input = document.createElement("input");
-      input.type = "text";
-      input.value = value;
-      input.spellcheck = false;
-      input.addEventListener("change", () => __async(this, null, function* () {
-        yield onCommit(input.value.trim());
-      }));
-      wrapper.append(input);
-      return wrapper;
-    }
-    createRegexPatternInput() {
-      const wrapper = document.createElement("label");
-      wrapper.className = "bsb-tm-field stacked";
-      wrapper.append(
-        this.createInputLabel("\u52A8\u6001\u5173\u952E\u8BCD\u6B63\u5219", "\u7528\u4E8E\u8BC6\u522B\u5E26\u8D27\u3001\u4FC3\u9500\u6216\u7591\u4F3C\u5E7F\u544A\u63AA\u8F9E\u3002\u4FDD\u7559\u9ED8\u8BA4\u503C\u901A\u5E38\u66F4\u7A33\u3002")
-      );
-      const input = document.createElement("input");
-      input.type = "text";
-      input.value = this.config.dynamicRegexPattern;
-      input.spellcheck = false;
-      if (this.filterValidationMessage) {
-        input.setAttribute("aria-invalid", "true");
-      }
-      input.addEventListener("change", () => __async(this, null, function* () {
-        var _a;
-        const nextValue = input.value.trim();
-        const validation = validateStoredPattern(nextValue);
-        if (!validation.valid) {
-          this.filterValidationMessage = (_a = validation.error) != null ? _a : "\u6B63\u5219\u683C\u5F0F\u65E0\u6548";
-          this.renderFilters();
-          return;
-        }
-        this.filterValidationMessage = null;
-        try {
-          yield this.callbacks.onPatchConfig({ dynamicRegexPattern: nextValue });
-        } catch (_error) {
-          this.filterValidationMessage = "\u6B63\u5219\u4FDD\u5B58\u5931\u8D25";
-          this.renderFilters();
-        }
-      }));
-      wrapper.append(input);
-      return wrapper;
-    }
-    createSelect(labelText, value, options, onCommit, helpText) {
-      const wrapper = document.createElement("label");
-      wrapper.className = "bsb-tm-field stacked";
-      wrapper.append(this.createInputLabel(labelText, helpText));
-      const select = document.createElement("select");
-      for (const [optionValue, optionLabel] of Object.entries(options)) {
-        const option = document.createElement("option");
-        option.value = optionValue;
-        option.textContent = optionLabel;
-        option.selected = optionValue === value;
-        select.appendChild(option);
-      }
-      select.addEventListener("change", () => __async(this, null, function* () {
-        yield onCommit(select.value);
-      }));
-      wrapper.append(select);
-      return wrapper;
-    }
-    createNumberInput(labelText, helpText, value, onCommit) {
-      const wrapper = document.createElement("label");
-      wrapper.className = "bsb-tm-field stacked";
-      wrapper.append(this.createInputLabel(labelText, helpText));
-      const input = document.createElement("input");
-      input.type = "number";
-      input.value = String(value);
-      input.min = "0";
-      input.step = "1";
-      input.addEventListener("change", () => __async(this, null, function* () {
-        yield onCommit(Number(input.value));
-      }));
-      wrapper.append(input);
-      return wrapper;
-    }
-    createColorPalette(overrides) {
-      const grid = document.createElement("div");
-      grid.className = "bsb-tm-color-grid";
-      for (const category of CATEGORY_ORDER) {
-        grid.appendChild(this.createColorInput(category, resolveCategoryAccent(category, overrides)));
-      }
-      return grid;
-    }
-    createColorInput(category, value) {
-      const field = document.createElement("label");
-      field.className = "bsb-tm-color-field";
-      const preview = document.createElement("span");
-      preview.className = "bsb-tm-color-preview";
-      preview.style.setProperty("--bsb-color-preview", value);
-      preview.textContent = CATEGORY_LABELS[category];
-      const controls = document.createElement("div");
-      controls.className = "bsb-tm-color-controls";
-      const swatch = document.createElement("input");
-      swatch.type = "color";
-      swatch.value = value;
-      swatch.setAttribute("aria-label", `${CATEGORY_LABELS[category]}\u989C\u8272`);
-      const textInput = document.createElement("input");
-      textInput.type = "text";
-      textInput.value = value;
-      textInput.spellcheck = false;
-      const commit = (nextValue) => __async(this, null, function* () {
-        var _a;
-        const normalized = (_a = normalizeHexColor(nextValue)) != null ? _a : CATEGORY_COLORS[category];
-        swatch.value = normalized;
-        textInput.value = normalized;
-        preview.style.setProperty("--bsb-color-preview", normalized);
-        yield this.callbacks.onPatchConfig({
-          categoryColorOverrides: __spreadProps(__spreadValues({}, this.config.categoryColorOverrides), {
-            [category]: normalized
-          })
-        });
-      });
-      swatch.addEventListener("input", () => __async(this, null, function* () {
-        yield commit(swatch.value);
-      }));
-      textInput.addEventListener("change", () => __async(this, null, function* () {
-        yield commit(textInput.value);
-      }));
-      controls.append(swatch, textInput);
-      field.append(preview, controls);
-      return field;
-    }
-    createCustomColorInput(labelText, helpText, value, onCommit) {
-      const wrapper = document.createElement("label");
-      wrapper.className = "bsb-tm-field stacked";
-      wrapper.append(this.createInputLabel(labelText, helpText));
-      const colorField = document.createElement("div");
-      colorField.className = "bsb-tm-color-field";
-      colorField.style.padding = "0";
-      colorField.style.border = "none";
-      colorField.style.background = "transparent";
-      colorField.style.boxShadow = "none";
-      const controls = document.createElement("div");
-      controls.className = "bsb-tm-color-controls";
-      controls.style.width = "100%";
-      const swatch = document.createElement("input");
-      swatch.type = "color";
-      swatch.value = value;
-      const textInput = document.createElement("input");
-      textInput.type = "text";
-      textInput.value = value;
-      textInput.spellcheck = false;
-      const commit = (nextValue) => __async(this, null, function* () {
-        var _a;
-        const normalized = (_a = normalizeHexColor(nextValue)) != null ? _a : value;
-        swatch.value = normalized;
-        textInput.value = normalized;
-        yield onCommit(normalized);
-      });
-      swatch.addEventListener("input", () => __async(this, null, function* () {
-        return commit(swatch.value);
-      }));
-      textInput.addEventListener("change", () => __async(this, null, function* () {
-        return commit(textInput.value);
-      }));
-      controls.append(swatch, textInput);
-      colorField.append(controls);
-      wrapper.append(colorField);
-      return wrapper;
-    }
-    createResetButton(compact) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = `bsb-tm-button danger${compact ? " compact" : ""}`;
-      button.textContent = "\u6062\u590D\u9ED8\u8BA4\u8BBE\u7F6E";
-      button.addEventListener("click", () => __async(this, null, function* () {
-        yield this.callbacks.onReset();
-      }));
-      return button;
-    }
-    createHeader() {
-      const header = document.createElement("div");
-      header.className = "bsb-tm-panel-header";
-      const titleWrap = document.createElement("div");
-      titleWrap.className = "bsb-tm-panel-header-copy";
-      const eyebrow = document.createElement("div");
-      eyebrow.className = "bsb-tm-panel-eyebrow";
-      const eyebrowIcon = document.createElement("span");
-      eyebrowIcon.className = "bsb-tm-panel-eyebrow-icon";
-      eyebrowIcon.appendChild(createSponsorShieldIcon());
-      const eyebrowText = document.createElement("span");
-      eyebrowText.textContent = "Video Quality of Life";
-      eyebrow.append(eyebrowIcon, eyebrowText);
-      const title = document.createElement("strong");
-      title.id = "bsb-tm-panel-title";
-      title.textContent = SCRIPT_NAME;
-      const subtitle = document.createElement("div");
-      subtitle.className = "bsb-tm-panel-subtitle";
-      subtitle.textContent = "\u5C3D\u91CF\u8D34\u8FD1\u4E0A\u6E38\u4F53\u9A8C\uFF0C\u5728 B \u7AD9\u9875\u9762\u4E0A\u505A\u6700\u5C11\u91CF\u3001\u6700\u53EF\u89E3\u91CA\u7684\u589E\u5F3A\u3002";
-      titleWrap.append(eyebrow, title, subtitle);
-      const actions = document.createElement("div");
-      actions.className = "bsb-tm-panel-header-actions";
-      const helpButton = document.createElement("button");
-      helpButton.type = "button";
-      helpButton.className = "bsb-tm-button secondary bsb-tm-header-action";
-      helpButton.textContent = "\u5E2E\u52A9";
-      helpButton.addEventListener("click", () => {
-        this.setActiveTab("help");
-      });
-      const closeButton = document.createElement("button");
-      closeButton.type = "button";
-      closeButton.className = "bsb-tm-button secondary bsb-tm-header-action bsb-tm-panel-close";
-      closeButton.textContent = "\u5173\u95ED";
-      closeButton.addEventListener("click", () => {
-        this.close("user");
-      });
-      actions.append(helpButton, closeButton);
-      header.append(titleWrap, actions);
-      return header;
-    }
-    createSection(name) {
-      const section = document.createElement("section");
-      section.className = "bsb-tm-panel-section";
-      section.dataset.section = name;
-      section.dataset.active = "false";
-      section.id = `${this.panelId}-section-${name}`;
-      section.setAttribute("aria-hidden", "true");
-      return section;
-    }
-    createSectionHeading(titleText, descriptionText) {
-      const wrapper = document.createElement("div");
-      wrapper.className = "bsb-tm-section-heading";
-      const title = document.createElement("strong");
-      title.className = "bsb-tm-section-title";
-      title.textContent = titleText;
-      wrapper.appendChild(title);
-      if (descriptionText) {
-        const description = document.createElement("p");
-        description.className = "bsb-tm-section-description";
-        description.textContent = descriptionText;
-        wrapper.appendChild(description);
-      }
-      return wrapper;
-    }
-    createInlineHeading(titleText, descriptionText) {
-      const wrapper = document.createElement("div");
-      wrapper.className = "bsb-tm-inline-heading";
-      const title = document.createElement("strong");
-      title.className = "bsb-tm-section-label";
-      title.textContent = titleText;
-      wrapper.appendChild(title);
-      if (descriptionText) {
-        const description = document.createElement("p");
-        description.className = "bsb-tm-section-description";
-        description.textContent = descriptionText;
-        wrapper.appendChild(description);
-      }
-      return wrapper;
-    }
-    createInputLabel(titleText, helpText) {
-      const wrapper = document.createElement("div");
-      wrapper.className = "bsb-tm-input-label";
-      const title = document.createElement("span");
-      title.className = "bsb-tm-field-title";
-      title.textContent = titleText;
-      wrapper.appendChild(title);
-      if (helpText) {
-        const help = document.createElement("small");
-        help.className = "bsb-tm-field-help";
-        help.textContent = helpText;
-        wrapper.appendChild(help);
-      }
-      return wrapper;
-    }
-    createSummaryLine(labelText, valueText) {
-      const line = document.createElement("div");
-      line.className = "bsb-tm-summary-line";
-      const label = document.createElement("strong");
-      label.textContent = labelText;
-      const value = document.createElement("span");
-      value.textContent = valueText;
-      line.append(label, value);
-      return line;
-    }
-    createValidationMessage(text) {
-      const message = document.createElement("p");
-      message.className = "bsb-tm-validation-message";
-      message.textContent = text;
-      return message;
-    }
-    createFeatureGrid(items, className) {
-      const grid = document.createElement("div");
-      grid.className = className;
-      for (const item of items) {
-        const card = document.createElement("article");
-        card.className = "bsb-tm-feature-card";
-        const title = document.createElement("strong");
-        title.className = "bsb-tm-feature-title";
-        title.textContent = item.title;
-        const value = document.createElement("span");
-        value.className = "bsb-tm-feature-value";
-        value.textContent = item.value;
-        const description = document.createElement("p");
-        description.className = "bsb-tm-section-description";
-        description.textContent = item.description;
-        card.append(title, value, description);
-        grid.appendChild(card);
-      }
-      return grid;
-    }
-    createFieldGrid(items, variant = "default") {
-      const grid = document.createElement("div");
-      grid.className = "bsb-tm-field-grid";
-      if (variant === "single-column") {
-        grid.classList.add("single-column");
-      }
-      for (const item of items) {
-        grid.appendChild(item);
-      }
-      return grid;
-    }
-    createFormGroup(titleText, descriptionText, ...children) {
-      const group = document.createElement("section");
-      group.className = "bsb-tm-form-group";
-      const header = document.createElement("div");
-      header.className = "bsb-tm-form-group-header";
-      const title = document.createElement("strong");
-      title.className = "bsb-tm-section-label";
-      title.textContent = titleText;
-      const description = document.createElement("p");
-      description.className = "bsb-tm-section-description";
-      description.textContent = descriptionText;
-      header.append(title, description);
-      const body = document.createElement("div");
-      body.className = "bsb-tm-form-group-body";
-      body.append(...children);
-      group.append(header, body);
-      return group;
-    }
-    createActionRow(...actions) {
-      const row = document.createElement("div");
-      row.className = "bsb-tm-actions-row";
-      row.append(...actions);
-      return row;
-    }
-    createActionButton(text, variant = "primary", onClick, options) {
-      const { id, confirmText } = options != null ? options : {};
-      const button = document.createElement("button");
-      const originalText = text;
-      button.type = "button";
-      if (id && this.activeFeedbacks.has(id)) {
-        button.className = "bsb-tm-button success";
-        button.textContent = "\u5DF2\u5B8C\u6210";
-        button.disabled = true;
-      } else {
-        button.className = `bsb-tm-button ${variant}`;
-        if (id && confirmText && this.pendingConfirmations.has(id)) {
-          button.textContent = confirmText;
-          button.classList.add("confirming");
-        } else {
-          button.textContent = text;
-        }
-      }
-      button.addEventListener("click", () => __async(this, null, function* () {
-        if (button.disabled) return;
-        if (id && confirmText && !this.pendingConfirmations.has(id)) {
-          this.pendingConfirmations.add(id);
-          button.textContent = confirmText;
-          button.classList.add("confirming");
-          setTimeout(() => {
-            if (this.pendingConfirmations.has(id) && !this.activeFeedbacks.has(id)) {
-              this.pendingConfirmations.delete(id);
-              this.render(true);
-            }
-          }, 3e3);
-          return;
-        }
-        button.disabled = true;
-        try {
-          yield onClick();
-          if (id) {
-            this.pendingConfirmations.delete(id);
-            this.activeFeedbacks.set(id, originalText);
-            this.render(true);
-            setTimeout(() => {
-              this.activeFeedbacks.delete(id);
-              this.render(true);
-            }, 3e3);
-          } else {
-            button.textContent = "\u5DF2\u5B8C\u6210";
-            button.classList.add("success");
-            setTimeout(() => {
-              button.textContent = originalText;
-              button.classList.remove("success");
-              button.disabled = false;
-            }, 3e3);
-          }
-        } catch (e) {
-          button.disabled = false;
-          button.textContent = originalText;
-          if (id) this.pendingConfirmations.delete(id);
-        }
-      }));
-      return button;
-    }
-    createLinkGroup(links) {
-      const group = document.createElement("div");
-      group.className = "bsb-tm-link-group";
-      for (const entry of links) {
-        const anchor = document.createElement("a");
-        anchor.className = "bsb-tm-link-card";
-        anchor.href = entry.href;
-        anchor.target = "_blank";
-        anchor.rel = "noreferrer";
-        anchor.textContent = entry.label;
-        group.appendChild(anchor);
-      }
-      return group;
-    }
-    createInfoBox(titleText, bodyText) {
-      const box = document.createElement("div");
-      box.className = "bsb-tm-info-box";
-      const title = document.createElement("strong");
-      title.textContent = titleText;
-      const body = document.createElement("p");
-      body.className = "bsb-tm-section-description";
-      body.textContent = bodyText;
-      box.append(title, body);
-      return box;
-    }
-    attachViewportListeners() {
-      var _a, _b;
-      if (this.viewportListenersAttached) {
-        return;
-      }
-      window.addEventListener("resize", this.handleViewportResize);
-      (_a = window.visualViewport) == null ? void 0 : _a.addEventListener("resize", this.handleViewportResize);
-      (_b = window.visualViewport) == null ? void 0 : _b.addEventListener("scroll", this.handleViewportResize);
-      this.viewportListenersAttached = true;
-    }
-    detachViewportListeners() {
-      var _a, _b;
-      if (!this.viewportListenersAttached) {
-        return;
-      }
-      window.removeEventListener("resize", this.handleViewportResize);
-      (_a = window.visualViewport) == null ? void 0 : _a.removeEventListener("resize", this.handleViewportResize);
-      (_b = window.visualViewport) == null ? void 0 : _b.removeEventListener("scroll", this.handleViewportResize);
-      this.viewportListenersAttached = false;
-    }
-    syncViewportMetrics() {
-      var _a, _b, _c, _d;
-      const viewportWidth = Math.max(Math.floor((_b = (_a = window.visualViewport) == null ? void 0 : _a.width) != null ? _b : window.innerWidth), 360);
-      const viewportHeight = Math.max(Math.floor((_d = (_c = window.visualViewport) == null ? void 0 : _c.height) != null ? _d : window.innerHeight), 360);
-      const availableHeight = Math.max(viewportHeight - 24, 320);
-      const preferredHeight = Math.min(860, Math.max(640, Math.round(viewportHeight * 0.82)));
-      const stablePanelHeight = Math.min(availableHeight, preferredHeight);
-      this.backdrop.style.setProperty("--bsb-tm-panel-vw", `${viewportWidth}px`);
-      this.backdrop.style.setProperty("--bsb-tm-panel-vh", `${viewportHeight}px`);
-      this.backdrop.style.setProperty("--bsb-tm-panel-height", `${stablePanelHeight}px`);
-    }
-    rememberActiveScroll() {
-      if (!this.content.isConnected) {
-        return;
-      }
-      this.contentScrollByTab[this.activeTab] = this.content.scrollTop;
-    }
-    restoreActiveScroll() {
-      var _a;
-      if (!this.content.isConnected) {
-        return;
-      }
-      this.content.scrollTop = (_a = this.contentScrollByTab[this.activeTab]) != null ? _a : 0;
-    }
-  };
-
-  // src/ui/preview-bar.ts
-  function resolvePreviewParents(video) {
-    var _a, _b, _c, _d;
-    const scope = (_a = video == null ? void 0 : video.closest(".bpx-player-control-wrap, .bpx-player-control-entity")) != null ? _a : document;
-    const main = (_b = scope.querySelector(".bpx-player-progress")) != null ? _b : scope.querySelector(".bpx-player-progress-wrap");
-    const shadow = (_d = (_c = scope.querySelector(".bpx-player-shadow-progress-area")) != null ? _c : scope.querySelector(".bpx-player-progress")) != null ? _d : scope.querySelector(".bpx-player-progress-wrap");
-    if (!main || !shadow) {
-      return null;
-    }
-    return { main, shadow };
-  }
-  function createContainer(id) {
-    const container = document.createElement("ul");
-    container.id = id;
-    return container;
-  }
-  var PreviewBar = class {
-    constructor() {
-      __publicField(this, "mainContainer", createContainer("previewbar"));
-      __publicField(this, "shadowContainer", createContainer("shadowPreviewbar"));
-      __publicField(this, "boundVideo", null);
-      __publicField(this, "boundParents", null);
-      __publicField(this, "segments", []);
-      __publicField(this, "enabled", true);
-      __publicField(this, "categoryColorOverrides", {});
-      __publicField(this, "handleDurationChange", () => {
-        this.render();
-      });
-    }
-    bind(video) {
-      if (this.boundVideo === video) {
-        if (!this.boundParents || !this.boundParents.main.isConnected || !this.boundParents.shadow.isConnected) {
-          this.boundParents = resolvePreviewParents(video);
-        }
-        this.ensureMounted();
-        this.render();
-        return;
-      }
-      this.unbind();
-      this.boundVideo = video;
-      this.boundParents = resolvePreviewParents(video);
-      if (!this.boundVideo) {
-        return;
-      }
-      this.boundVideo.addEventListener("loadedmetadata", this.handleDurationChange);
-      this.boundVideo.addEventListener("durationchange", this.handleDurationChange);
-      this.ensureMounted();
-      this.render();
-    }
-    setEnabled(enabled) {
-      this.enabled = enabled;
-      this.render();
-    }
-    setCategoryColorOverrides(overrides) {
-      this.categoryColorOverrides = __spreadValues({}, overrides);
-      this.render();
-    }
-    setSegments(segments) {
-      this.segments = segments.filter((segment) => segment.actionType !== "full");
-      this.render();
-    }
-    clear() {
-      this.segments = [];
-      this.render();
-    }
-    destroy() {
-      this.unbind();
-      this.mainContainer.remove();
-      this.shadowContainer.remove();
-    }
-    unbind() {
-      if (this.boundVideo) {
-        this.boundVideo.removeEventListener("loadedmetadata", this.handleDurationChange);
-        this.boundVideo.removeEventListener("durationchange", this.handleDurationChange);
-      }
-      this.boundVideo = null;
-      this.boundParents = null;
-    }
-    ensureMounted() {
-      if (!this.boundParents) {
-        return;
-      }
-      if (getComputedStyle(this.boundParents.main).position === "static") {
-        this.boundParents.main.style.position = "relative";
-      }
-      if (getComputedStyle(this.boundParents.shadow).position === "static") {
-        this.boundParents.shadow.style.position = "relative";
-      }
-      if (this.mainContainer.parentElement !== this.boundParents.main) {
-        this.boundParents.main.prepend(this.mainContainer);
-      }
-      if (this.shadowContainer.parentElement !== this.boundParents.shadow) {
-        this.boundParents.shadow.prepend(this.shadowContainer);
-      }
-    }
-    render() {
-      this.mainContainer.replaceChildren();
-      this.shadowContainer.replaceChildren();
-      if (!this.enabled || !this.boundVideo || !this.boundParents) {
-        return;
-      }
-      this.ensureMounted();
-      const duration = Number.isFinite(this.boundVideo.duration) ? this.boundVideo.duration : 0;
-      if (duration <= 0) {
-        return;
-      }
-      const segments = [...this.segments].sort((left, right) => {
-        var _a, _b;
-        const leftDuration = ((_a = left.end) != null ? _a : left.start) - left.start;
-        const rightDuration = ((_b = right.end) != null ? _b : right.start) - right.start;
-        return rightDuration - leftDuration;
-      });
-      for (const segment of segments) {
-        const bar = this.createBar(segment, duration);
-        if (!bar) {
-          continue;
-        }
-        this.mainContainer.appendChild(bar);
-        this.shadowContainer.appendChild(bar.cloneNode(true));
-      }
-    }
-    createBar(segment, duration) {
-      var _a;
-      const start = Math.max(0, Math.min(duration, segment.start));
-      const end = segment.actionType === "poi" ? Math.min(duration, start + Math.max(0.6, duration * 25e-4)) : Math.max(start, Math.min(duration, (_a = segment.end) != null ? _a : start));
-      if (end <= start) {
-        return null;
-      }
-      const bar = document.createElement("li");
-      bar.className = "previewbar";
-      bar.dataset.category = segment.category;
-      bar.dataset.actionType = segment.actionType;
-      bar.style.left = `${start / duration * 100}%`;
-      bar.style.right = `${100 - end / duration * 100}%`;
-      bar.style.backgroundColor = resolveCategoryAccent(segment.category, this.categoryColorOverrides);
-      bar.style.opacity = segment.actionType === "poi" ? "0.9" : "0.7";
-      return bar;
-    }
-  };
-
-  // src/utils/page.ts
-  var SUPPORTED_HOSTS = /* @__PURE__ */ new Set([
-    "www.bilibili.com",
-    "search.bilibili.com",
-    "t.bilibili.com",
-    "space.bilibili.com"
-  ]);
-  function detectPageType(url) {
-    try {
-      const parsed = new URL(url);
-      if (!SUPPORTED_HOSTS.has(parsed.hostname)) {
-        return "unsupported";
-      }
-      if (parsed.hostname === "search.bilibili.com") {
-        return "search";
-      }
-      if (parsed.hostname === "t.bilibili.com") {
-        return "dynamic";
-      }
-      if (parsed.hostname === "space.bilibili.com") {
-        return "channel";
-      }
-      if (parsed.pathname.startsWith("/account/history") || parsed.pathname.startsWith("/history")) {
-        return "history";
-      }
-      if (parsed.pathname.startsWith("/video/")) {
-        return "video";
-      }
-      if (parsed.pathname.startsWith("/list/") || parsed.pathname.startsWith("/medialist/play/")) {
-        return "list";
-      }
-      if (parsed.pathname.startsWith("/festival/")) {
-        return "festival";
-      }
-      if (parsed.pathname.startsWith("/bangumi/")) {
-        return "anime";
-      }
-      if (parsed.pathname.startsWith("/opus/")) {
-        return "opus";
-      }
-      return "main";
-    } catch (_error) {
-      return "unknown";
-    }
-  }
-  function isSupportedLocation(url) {
-    const pageType = detectPageType(url);
-    return pageType !== "unknown" && pageType !== "unsupported";
-  }
-  function supportsVideoFeatures(url) {
-    const pageType = detectPageType(url);
-    return pageType === "video" || pageType === "list" || pageType === "festival" || pageType === "anime" || pageType === "opus";
-  }
-  function supportsCompactVideoHeader(url) {
-    return supportsVideoFeatures(url);
-  }
-  function isCompactVideoHeaderSuppressed(documentRef = document) {
-    if (documentRef.fullscreenElement) {
-      return true;
-    }
-    return Boolean(
-      documentRef.querySelector(
-        [
-          ".player-full-win",
-          ".player-fullscreen",
-          ".bpx-state-webfull",
-          ".bpx-state-webscreen",
-          ".bpx-state-fullscreen",
-          ".bpx-player-container[data-screen='web']",
-          ".bpx-player-container[data-screen='webscreen']",
-          ".bpx-player-container[data-screen='full']",
-          ".squirtle-video-pagefullscreen",
-          ".squirtle-video-fullscreen",
-          ".player-mode-webfullscreen",
-          ".mode-webscreen"
-        ].join(",")
-      )
-    );
-  }
-  function supportsDynamicFilters(url) {
-    const pageType = detectPageType(url);
-    return pageType === "main" || pageType === "dynamic" || pageType === "channel";
-  }
-  function supportsCommentFilters(url) {
-    const pageType = detectPageType(url);
-    return pageType === "video" || pageType === "list" || pageType === "festival" || pageType === "anime" || pageType === "opus" || pageType === "dynamic" || pageType === "channel";
-  }
-
-  // src/utils/dom.ts
-  var PLAYER_HOST_SELECTORS = [
-    "#bilibili-player",
-    ".bpx-player-container",
-    ".bpx-player-video-area",
-    ".player-container",
-    ".bili-video-player"
-  ];
-  var VIDEO_TITLE_SELECTORS = [
-    ".video-info-container h1",
-    ".video-title-container h1",
-    ".media-right h1",
-    "h1.video-title",
-    ".video-title"
-  ];
-  var TITLE_ACCESSORY_ATTR = "data-bsb-title-accessories";
-  function findVideoElement() {
-    return document.querySelector("video");
-  }
-  function resolvePlayerHost(video) {
-    var _a;
-    for (const selector of PLAYER_HOST_SELECTORS) {
-      const found = video.closest(selector);
-      if (found) {
-        return found;
-      }
-    }
-    return (_a = video.parentElement) != null ? _a : video;
-  }
-  function findVideoTitleElement() {
-    for (const selector of VIDEO_TITLE_SELECTORS) {
-      const found = document.querySelector(selector);
-      if (found) {
-        return found;
-      }
-    }
-    return null;
-  }
-  function ensureVideoTitleAccessoryHost() {
-    var _a;
-    const title = findVideoTitleElement();
-    if (!title) {
-      return null;
-    }
-    const parent = title.parentElement;
-    if (!parent) {
-      return null;
-    }
-    title.classList.remove("bsb-tm-title-row", "bsb-tm-title-text");
-    parent.classList.remove("bsb-tm-title-layout");
-    let accessories = (_a = Array.from(parent.children).find(
-      (child) => child instanceof HTMLElement && child.getAttribute(TITLE_ACCESSORY_ATTR) === "true"
-    )) != null ? _a : null;
-    if (!accessories) {
-      accessories = document.createElement("span");
-      accessories.className = "bsb-tm-title-accessories";
-      accessories.setAttribute(TITLE_ACCESSORY_ATTR, "true");
-      parent.insertBefore(accessories, title);
-    }
-    return accessories;
-  }
-  function cleanupVideoTitleAccessoryHost(host) {
-    if (!host || host.getAttribute(TITLE_ACCESSORY_ATTR) !== "true") {
-      return;
-    }
-    const parent = host.parentElement instanceof HTMLElement ? host.parentElement : null;
-    const title = host.nextElementSibling instanceof HTMLElement ? host.nextElementSibling : null;
-    if (host.childElementCount === 0) {
-      host.remove();
-    }
-    title == null ? void 0 : title.classList.remove("bsb-tm-title-row", "bsb-tm-title-text");
-    parent == null ? void 0 : parent.classList.remove("bsb-tm-title-layout");
-  }
-  function formatSegmentTime(seconds) {
-    const total = Math.max(0, Math.floor(seconds));
-    const mins = Math.floor(total / 60).toString().padStart(2, "0");
-    const secs = (total % 60).toString().padStart(2, "0");
-    return `${mins}:${secs}`;
-  }
-  function formatDurationLabel(start, end) {
-    if (end === null) {
-      return formatSegmentTime(start);
-    }
-    return `${formatSegmentTime(start)} - ${formatSegmentTime(end)}`;
-  }
-  function debugLog(message, ...extra) {
-    console.debug(`[${SCRIPT_NAME}] ${message}`, ...extra);
-  }
-
-  // src/ui/title-badge.ts
-  var DEFAULT_COPY = "\u6574\u4E2A\u89C6\u9891\u90FD\u88AB\u793E\u533A\u6807\u8BB0\u4E3A\u8FD9\u4E00\u7C7B\u5185\u5BB9\u3002\u6807\u7B7E\u4EC5\u7528\u4E8E\u8F85\u52A9\u5224\u65AD\uFF0C\u4E0D\u5E94\u66FF\u4EE3\u4F60\u81EA\u5DF1\u7684\u89C2\u770B\u5224\u65AD\u3002";
-  var LABEL_ONLY_COPY = "\u8FD9\u4E2A\u6807\u7B7E\u6765\u81EA\u6574\u89C6\u9891\u6807\u7B7E\u7ED3\u679C\uFF0C\u4F46\u5F53\u524D\u6CA1\u6709\u53EF\u76F4\u63A5\u53CD\u9988\u7684\u6295\u7968\u8BB0\u5F55\u3002";
-  var LOCAL_SIGNAL_COPY = "\u8FD9\u4E2A\u6807\u7B7E\u6765\u81EA\u672C\u5730\u9875\u9762\u7EBF\u7D22\uFF0C\u800C\u4E0D\u662F SponsorBlock \u793E\u533A\u5DF2\u6536\u5F55\u7684\u6574\u89C6\u9891\u8BB0\u5F55\u3002";
-  var LOCKED_COPY = "\u8FD9\u6761\u6574\u89C6\u9891\u6807\u7B7E\u7684\u53CD\u9988\u5DF2\u5728\u672C\u673A\u63D0\u4EA4\u3002\u4E3A\u907F\u514D\u91CD\u590D\u6295\u7968\uFF0C\u5F53\u524D\u6309\u94AE\u5DF2\u9501\u5B9A\u3002";
-  var LOCAL_LOCKED_COPY = "\u5DF2\u63D0\u4EA4\u3002\u672C\u5730\u5B66\u4E60\u4F1A\u5728\u540E\u7EED\u7EE7\u7EED\u4FDD\u7559\u6216\u5FFD\u7565\u6B64\u5224\u65AD\uFF1B\u8BE5\u64CD\u4F5C\u5BF9\u5F53\u524D\u89C6\u9891\u4E0D\u53EF\u91CD\u590D\u63D0\u4EA4\u3002";
-  function resolveCopy(segment, votingAvailable) {
-    var _a;
-    const base = (_a = CATEGORY_DESCRIPTIONS[segment.category]) != null ? _a : DEFAULT_COPY;
-    if (segment.UUID.startsWith("local-signal:")) {
-      return `${base} ${LOCAL_SIGNAL_COPY}`;
-    }
-    if (!votingAvailable) {
-      return `${base} ${LABEL_ONLY_COPY}`;
-    }
-    return base;
-  }
-  var TitleBadge = class {
-    constructor(callbacks) {
-      this.callbacks = callbacks;
-      __publicField(this, "root", document.createElement("span"));
-      __publicField(this, "pillButton", document.createElement("button"));
-      __publicField(this, "titleText", document.createElement("span"));
-      __publicField(this, "popover", document.createElement("div"));
-      __publicField(this, "description", document.createElement("p"));
-      __publicField(this, "actions", document.createElement("div"));
-      __publicField(this, "feedbackHint", document.createElement("p"));
-      __publicField(this, "upvoteButton", document.createElement("button"));
-      __publicField(this, "downvoteButton", document.createElement("button"));
-      __publicField(this, "settingsButton", document.createElement("button"));
-      __publicField(this, "currentSegment", null);
-      __publicField(this, "mountedHost", null);
-      __publicField(this, "isOpen", false);
-      __publicField(this, "closeTimer", null);
-      __publicField(this, "positionFrame", null);
-      __publicField(this, "categoryColorOverrides", {});
-      __publicField(this, "transparencyEnabled", false);
-      __publicField(this, "votingAvailable", true);
-      __publicField(this, "localActionsAvailable", false);
-      __publicField(this, "voteLocked", false);
-      __publicField(this, "handleDocumentPointerDown", (event) => {
-        const target = event.target;
-        if (!target) {
-          return;
-        }
-        if (this.root.contains(target) || this.popover.contains(target)) {
-          return;
-        }
-        this.closePopover();
-      });
-      __publicField(this, "handleViewportChange", () => {
-        if (this.isOpen) {
-          this.schedulePopoverPosition();
-        }
-      });
-      this.root.className = "bsb-tm-title-pill-wrap";
-      this.root.dataset.glassContext = "surface";
-      this.root.hidden = true;
-      this.pillButton.type = "button";
-      this.pillButton.className = "bsb-tm-title-pill";
-      this.pillButton.setAttribute("aria-expanded", "false");
-      this.titleText.className = "bsb-tm-title-pill-label";
-      this.pillButton.append(createSponsorShieldIcon(), this.titleText);
-      this.pillButton.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        this.isOpen ? this.closePopover() : this.openPopover();
-      });
-      this.popover.className = "bsb-tm-title-popover";
-      this.popover.hidden = true;
-      this.description.className = "bsb-tm-title-popover-copy";
-      this.description.textContent = DEFAULT_COPY;
-      this.actions.className = "bsb-tm-title-popover-actions";
-      this.feedbackHint.className = "bsb-tm-title-popover-hint";
-      this.feedbackHint.hidden = true;
-      this.upvoteButton.type = "button";
-      this.upvoteButton.className = "bsb-tm-pill-action positive";
-      this.upvoteButton.append(createThumbIcon("up"), document.createTextNode("\u6807\u8BB0\u6B63\u786E"));
-      this.upvoteButton.addEventListener("click", (event) => __async(this, null, function* () {
-        event.preventDefault();
-        event.stopPropagation();
-        yield this.handleVote(1);
-      }));
-      this.downvoteButton.type = "button";
-      this.downvoteButton.className = "bsb-tm-pill-action negative";
-      this.downvoteButton.append(createThumbIcon("down"), document.createTextNode("\u6807\u8BB0\u6709\u8BEF"));
-      this.downvoteButton.addEventListener("click", (event) => __async(this, null, function* () {
-        event.preventDefault();
-        event.stopPropagation();
-        yield this.handleVote(0);
-      }));
-      this.settingsButton.type = "button";
-      this.settingsButton.className = "bsb-tm-pill-action subtle";
-      this.settingsButton.append(createCogIcon(), document.createTextNode("\u8BBE\u7F6E"));
-      this.settingsButton.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        this.callbacks.onOpenSettings();
-        this.closePopover();
-      });
-      this.actions.append(this.upvoteButton, this.downvoteButton, this.settingsButton);
-      this.popover.append(this.description, this.actions, this.feedbackHint);
-      this.root.append(this.pillButton);
-    }
-    setColorOverrides(overrides) {
-      this.categoryColorOverrides = __spreadValues({}, overrides);
-      if (this.currentSegment) {
-        this.applyAppearance(this.currentSegment);
-      }
-    }
-    setTransparencyEnabled(enabled) {
-      this.transparencyEnabled = enabled;
-      this.root.dataset.transparent = String(enabled);
-      if (this.currentSegment) {
-        this.applyAppearance(this.currentSegment);
-      }
-    }
-    setSegment(segment, options) {
-      var _a;
-      this.currentSegment = segment;
-      this.voteLocked = (_a = options == null ? void 0 : options.voteLocked) != null ? _a : false;
-      if (!segment) {
-        this.closePopover();
-        this.root.hidden = true;
-        return;
-      }
-      this.ensureMounted();
-      this.ensurePopoverMounted();
-      this.root.hidden = false;
-      this.applyAppearance(segment);
-    }
-    clear() {
-      this.setSegment(null);
-    }
-    destroy() {
-      this.clear();
-      this.detachPopoverListeners();
-      if (this.closeTimer !== null) {
-        window.clearTimeout(this.closeTimer);
-        this.closeTimer = null;
-      }
-      if (this.positionFrame !== null) {
-        window.cancelAnimationFrame(this.positionFrame);
-        this.positionFrame = null;
-      }
-      const host = this.root.parentElement;
-      this.root.remove();
-      cleanupVideoTitleAccessoryHost(host);
-      this.popover.remove();
-      this.mountedHost = null;
-    }
-    applyAppearance(segment) {
-      const style = resolveCategoryStyle(segment.category, this.categoryColorOverrides);
-      const glassVariant = this.transparencyEnabled ? style.transparentVariant : "dark";
-      const transparentContrast = "#0f172a";
-      const transparentSurface = style.glassSurface;
-      this.votingAvailable = segment.actionType === "full" && segment.UUID.length > 0 && !segment.UUID.startsWith("video-label:") && !segment.UUID.startsWith("local-signal:");
-      this.localActionsAvailable = segment.UUID.startsWith("local-signal:");
-      this.root.dataset.category = segment.category;
-      this.root.dataset.transparent = String(this.transparencyEnabled);
-      this.root.dataset.glassContext = "surface";
-      this.root.dataset.glassVariant = glassVariant;
-      this.root.style.setProperty("--bsb-category-accent", style.accent);
-      this.root.style.setProperty("--bsb-category-accent-strong", style.accentStrong);
-      this.root.style.setProperty("--bsb-category-display-accent", style.transparentDisplayAccent);
-      this.root.style.setProperty(
-        "--bsb-category-contrast",
-        this.transparencyEnabled ? transparentContrast : style.contrast
-      );
-      this.root.style.setProperty("--bsb-category-soft-surface", style.softSurface);
-      this.root.style.setProperty("--bsb-category-soft-border", style.softBorder);
-      this.root.style.setProperty("--bsb-category-glass-surface", this.transparencyEnabled ? transparentSurface : style.glassSurface);
-      this.root.style.setProperty("--bsb-category-glass-border", style.glassBorder);
-      this.titleText.textContent = CATEGORY_LABELS[segment.category];
-      this.description.textContent = resolveCopy(segment, this.votingAvailable);
-      this.upvoteButton.disabled = this.voteLocked || !this.localActionsAvailable && !this.votingAvailable;
-      this.downvoteButton.disabled = this.voteLocked || !this.localActionsAvailable && !this.votingAvailable;
-      this.upvoteButton.hidden = false;
-      this.downvoteButton.hidden = false;
-      this.upvoteButton.title = this.votingAvailable ? this.voteLocked ? "\u8FD9\u6761\u6574\u89C6\u9891\u6807\u7B7E\u7684\u53CD\u9988\u5DF2\u63D0\u4EA4" : "\u628A\u8FD9\u6761\u6574\u89C6\u9891\u6807\u7B7E\u6807\u8BB0\u4E3A\u6B63\u786E" : this.localActionsAvailable ? this.voteLocked ? "\u672C\u5730\u53CD\u9988\u5DF2\u63D0\u4EA4\uFF0C\u5F53\u524D\u89C6\u9891\u4E0D\u53EF\u91CD\u590D\u64CD\u4F5C" : "\u628A\u8FD9\u6761\u672C\u5730\u6807\u7B7E\u8BB0\u4E3A\u53EF\u4FE1\uFF0C\u5E76\u5728\u540E\u7EED\u7EE7\u7EED\u4FDD\u7559" : "\u5F53\u524D\u6CA1\u6709\u53EF\u76F4\u63A5\u53CD\u9988\u7684 SponsorBlock \u6295\u7968\u8BB0\u5F55";
-      this.downvoteButton.title = this.votingAvailable ? this.voteLocked ? "\u8FD9\u6761\u6574\u89C6\u9891\u6807\u7B7E\u7684\u53CD\u9988\u5DF2\u63D0\u4EA4" : "\u628A\u8FD9\u6761\u6574\u89C6\u9891\u6807\u7B7E\u6807\u8BB0\u4E3A\u6709\u8BEF" : this.localActionsAvailable ? this.voteLocked ? "\u672C\u5730\u53CD\u9988\u5DF2\u63D0\u4EA4\uFF0C\u5F53\u524D\u89C6\u9891\u4E0D\u53EF\u91CD\u590D\u64CD\u4F5C" : "\u5FFD\u7565\u8FD9\u6761\u672C\u5730\u6807\u7B7E\uFF0C\u5E76\u505C\u6B62\u7EE7\u7EED\u63D0\u793A\u5F53\u524D\u89C6\u9891" : "\u5F53\u524D\u6CA1\u6709\u53EF\u76F4\u63A5\u53CD\u9988\u7684 SponsorBlock \u6295\u7968\u8BB0\u5F55";
-      this.upvoteButton.lastChild && (this.upvoteButton.lastChild.textContent = this.votingAvailable ? "\u6807\u8BB0\u6B63\u786E" : this.localActionsAvailable ? "\u4FDD\u7559\u672C\u5730\u6807\u7B7E" : "\u6807\u8BB0\u6B63\u786E");
-      this.downvoteButton.lastChild && (this.downvoteButton.lastChild.textContent = this.votingAvailable ? "\u6807\u8BB0\u6709\u8BEF" : this.localActionsAvailable ? "\u5FFD\u7565\u6B64\u89C6\u9891" : "\u6807\u8BB0\u6709\u8BEF");
-      this.feedbackHint.hidden = this.votingAvailable && !this.localActionsAvailable && !this.voteLocked;
-      this.feedbackHint.textContent = this.localActionsAvailable ? this.voteLocked ? LOCAL_LOCKED_COPY : "\u8FD9\u6761\u63D0\u793A\u6765\u81EA\u672C\u5730\u8BC4\u8BBA\u6216\u9875\u9762\u7EBF\u7D22\u3002\u4F60\u53EF\u4EE5\u4FDD\u7559\u5B83\uFF0C\u4E5F\u53EF\u4EE5\u5FFD\u7565\u5E76\u963B\u6B62\u5F53\u524D\u89C6\u9891\u7EE7\u7EED\u89E6\u53D1\u672C\u5730\u63D0\u793A\u3002\u63D0\u4EA4\u540E\u5F53\u524D\u89C6\u9891\u4E0D\u53EF\u91CD\u590D\u53CD\u9988\u3002" : this.voteLocked ? LOCKED_COPY : "\u8FD9\u6761\u6807\u7B7E\u76EE\u524D\u53EA\u6709\u6574\u89C6\u9891\u6807\u7B7E\u7ED3\u679C\uFF0C\u6CA1\u6709\u53EF\u76F4\u63A5\u6295\u7968\u7684 SponsorBlock UUID\u3002";
-      this.actions.classList.toggle("vote-unavailable", !this.votingAvailable);
-      this.pillButton.setAttribute(
-        "aria-label",
-        this.votingAvailable ? this.voteLocked ? `${CATEGORY_LABELS[segment.category]}\uFF0C\u70B9\u51FB\u67E5\u770B\u8BF4\u660E\uFF0C\u53CD\u9988\u5DF2\u63D0\u4EA4` : `${CATEGORY_LABELS[segment.category]}\uFF0C\u70B9\u51FB\u67E5\u770B\u8BF4\u660E\u548C\u53CD\u9988\u6309\u94AE` : this.localActionsAvailable ? this.voteLocked ? `${CATEGORY_LABELS[segment.category]}\uFF0C\u70B9\u51FB\u67E5\u770B\u672C\u5730\u5B66\u4E60\u8BF4\u660E\uFF0C\u53CD\u9988\u5DF2\u63D0\u4EA4` : `${CATEGORY_LABELS[segment.category]}\uFF0C\u70B9\u51FB\u67E5\u770B\u672C\u5730\u5B66\u4E60\u6309\u94AE` : `${CATEGORY_LABELS[segment.category]}\uFF0C\u70B9\u51FB\u67E5\u770B\u8BF4\u660E\u548C\u4E0D\u53EF\u7528\u53CD\u9988\u6309\u94AE`
-      );
-    }
-    ensureMounted() {
-      const host = ensureVideoTitleAccessoryHost();
-      if (!host) {
-        return;
-      }
-      if (this.mountedHost !== host || this.root.parentElement !== host) {
-        const previousHost = this.mountedHost;
-        host.append(this.root);
-        this.mountedHost = host;
-        if (previousHost && previousHost !== host) {
-          cleanupVideoTitleAccessoryHost(previousHost);
-        }
-      }
-    }
-    ensurePopoverMounted() {
-      if (!this.popover.isConnected) {
-        document.body.appendChild(this.popover);
-      }
-    }
-    openPopover() {
-      if (!this.currentSegment) {
-        return;
-      }
-      if (this.closeTimer !== null) {
-        window.clearTimeout(this.closeTimer);
-        this.closeTimer = null;
-      }
-      this.ensureMounted();
-      this.ensurePopoverMounted();
-      this.isOpen = true;
-      this.pillButton.setAttribute("aria-expanded", "true");
-      this.popover.hidden = false;
-      this.schedulePopoverPosition();
-      requestAnimationFrame(() => {
-        this.popover.classList.add("open");
-      });
-      this.attachPopoverListeners();
-    }
-    closePopover() {
-      this.isOpen = false;
-      this.pillButton.setAttribute("aria-expanded", "false");
-      this.popover.classList.remove("open");
-      this.detachPopoverListeners();
-      if (this.closeTimer !== null) {
-        window.clearTimeout(this.closeTimer);
-      }
-      this.closeTimer = window.setTimeout(() => {
-        if (!this.isOpen) {
-          this.popover.hidden = true;
-        }
-      }, 160);
-    }
-    positionPopover() {
-      var _a, _b, _c, _d;
-      this.positionFrame = null;
-      const viewport = window.visualViewport;
-      const viewportWidth = Math.max(320, Math.floor((_a = viewport == null ? void 0 : viewport.width) != null ? _a : window.innerWidth));
-      const viewportHeight = Math.max(240, Math.floor((_b = viewport == null ? void 0 : viewport.height) != null ? _b : window.innerHeight));
-      const viewportLeft = Math.floor((_c = viewport == null ? void 0 : viewport.offsetLeft) != null ? _c : 0);
-      const viewportTop = Math.floor((_d = viewport == null ? void 0 : viewport.offsetTop) != null ? _d : 0);
-      const maxWidth = Math.min(348, viewportWidth - 24);
-      this.popover.style.maxWidth = `${maxWidth}px`;
-      this.popover.style.width = `${maxWidth}px`;
-      const triggerRect = this.pillButton.getBoundingClientRect();
-      const popoverRect = this.popover.getBoundingClientRect();
-      let left = triggerRect.left + triggerRect.width / 2 - popoverRect.width / 2;
-      left = Math.max(12, Math.min(left, viewportWidth - popoverRect.width - 12));
-      let top = triggerRect.bottom + 12;
-      let placement = "bottom";
-      if (top + popoverRect.height > viewportHeight - 12 && triggerRect.top - popoverRect.height - 12 >= 12) {
-        top = triggerRect.top - popoverRect.height - 12;
-        placement = "top";
-      }
-      this.popover.dataset.placement = placement;
-      this.popover.style.left = `${viewportLeft + Math.round(left)}px`;
-      this.popover.style.top = `${viewportTop + Math.round(top)}px`;
-    }
-    schedulePopoverPosition() {
-      if (!this.isOpen || this.positionFrame !== null) {
-        return;
-      }
-      this.positionFrame = window.requestAnimationFrame(() => {
-        if (!this.isOpen) {
-          this.positionFrame = null;
-          return;
-        }
-        this.positionPopover();
-      });
-    }
-    attachPopoverListeners() {
-      var _a, _b;
-      document.addEventListener("pointerdown", this.handleDocumentPointerDown);
-      window.addEventListener("resize", this.handleViewportChange);
-      window.addEventListener("scroll", this.handleViewportChange, true);
-      (_a = window.visualViewport) == null ? void 0 : _a.addEventListener("resize", this.handleViewportChange);
-      (_b = window.visualViewport) == null ? void 0 : _b.addEventListener("scroll", this.handleViewportChange);
-    }
-    detachPopoverListeners() {
-      var _a, _b;
-      document.removeEventListener("pointerdown", this.handleDocumentPointerDown);
-      window.removeEventListener("resize", this.handleViewportChange);
-      window.removeEventListener("scroll", this.handleViewportChange, true);
-      (_a = window.visualViewport) == null ? void 0 : _a.removeEventListener("resize", this.handleViewportChange);
-      (_b = window.visualViewport) == null ? void 0 : _b.removeEventListener("scroll", this.handleViewportChange);
-    }
-    handleVote(type) {
-      return __async(this, null, function* () {
-        if (!this.currentSegment || this.voteLocked) {
-          return;
-        }
-        const segment = this.currentSegment;
-        this.setBusy(true);
-        try {
-          if (this.votingAvailable) {
-            const result = yield this.callbacks.onVote(segment, type);
-            if (result !== "error") {
-              this.voteLocked = true;
-              this.applyAppearance(segment);
-            }
-          } else if (this.localActionsAvailable) {
-            yield this.callbacks.onLocalDecision(segment, type === 1 ? "confirm" : "dismiss");
-            if (this.currentSegment === segment) {
-              this.voteLocked = true;
-              this.applyAppearance(segment);
-            }
-          } else {
-            return;
-          }
-          this.closePopover();
-        } finally {
-          this.setBusy(false);
-        }
-      });
-    }
-    setBusy(busy) {
-      for (const button of [this.upvoteButton, this.downvoteButton, this.settingsButton]) {
-        if (button === this.upvoteButton || button === this.downvoteButton) {
-          button.disabled = busy || this.voteLocked || !this.localActionsAvailable && !this.votingAvailable;
-        } else {
-          button.disabled = busy;
-        }
-      }
-      this.root.classList.toggle("is-busy", busy);
-    }
-  };
-
-  // src/ui/compact-header.ts
-  var NATIVE_HEADER_HIDDEN_ATTR = "data-bsb-native-header-hidden";
-  var NATIVE_HEADER_ROOT_SELECTORS = [
-    "#biliMainHeader",
-    ".bili-header.fixed-header",
-    ".bili-header__bar.mini-header"
-  ];
-  var GENERIC_PROFILE_LABELS = /* @__PURE__ */ new Set([
-    "",
-    "\u4E2A\u4EBA\u4E3B\u9875",
-    "\u4E2A\u4EBA\u7A7A\u95F4",
-    "\u5927\u4F1A\u5458",
-    "\u6D88\u606F",
-    "\u52A8\u6001",
-    "\u6536\u85CF",
-    "\u5386\u53F2",
-    "\u521B\u4F5C\u4E2D\u5FC3",
-    "\u6295\u7A3F"
-  ]);
-  var SEARCH_INPUT_SELECTORS = [
-    ".bili-header__bar.mini-header .nav-search-input",
-    ".bili-header__bar.mini-header input[type='search']",
-    ".nav-search-input",
-    "input[type='search']"
-  ];
-  var GENERIC_SEARCH_PLACEHOLDERS = /* @__PURE__ */ new Set([
-    "",
-    "\u641C\u7D22 B \u7AD9\u5185\u5BB9",
-    "\u641C\u7D22b\u7AD9\u5185\u5BB9",
-    "\u641C\u7D22\u5185\u5BB9",
-    "\u641C\u7D22\u89C6\u9891\u3001\u756A\u5267\u6216 up \u4E3B",
-    "\u641C\u7D22"
-  ]);
-  var DEFAULT_SEARCH_PLACEHOLDER = "\u641C\u7D22 B \u7AD9\u5185\u5BB9";
-  var PROFILE_ROOT_SELECTORS = [
-    ".bili-header__bar.mini-header .right-entry",
-    ".bili-header .right-entry",
-    ".mini-header .right-entry"
-  ];
-  var PROFILE_SELECTORS = [
-    ".header-entry-avatar a",
-    ".header-avatar-wrap a",
-    ".header-entry-mini a",
-    ".right-entry-item--profile a"
-  ];
-  function normalizeAvatarUrl(value) {
-    if (typeof value !== "string") {
-      return null;
-    }
-    const trimmed = value.trim();
-    if (!trimmed) {
-      return null;
-    }
-    if (trimmed.startsWith("//")) {
-      return `https:${trimmed}`;
-    }
-    return trimmed;
-  }
-  function coerceProfileSeed(candidate) {
-    if (!candidate || typeof candidate !== "object") {
-      return null;
-    }
-    const record = candidate;
-    const avatarSrc = normalizeAvatarUrl(
-      typeof record.face === "string" ? record.face : typeof record.avatar === "string" ? record.avatar : typeof record.avatarUrl === "string" ? record.avatarUrl : typeof record.img_url === "string" ? record.img_url : null
-    );
-    if (!avatarSrc) {
-      return null;
-    }
-    const uid = typeof record.mid === "number" || typeof record.mid === "string" ? String(record.mid) : typeof record.uid === "number" || typeof record.uid === "string" ? String(record.uid) : "";
-    const label = typeof record.uname === "string" ? record.uname.trim() : typeof record.name === "string" ? record.name.trim() : typeof record.nickname === "string" ? record.nickname.trim() : "\u4E2A\u4EBA\u4E3B\u9875";
-    return {
-      href: uid ? `https://space.bilibili.com/${uid}` : "https://space.bilibili.com/",
-      label: label || "\u4E2A\u4EBA\u4E3B\u9875",
-      avatarSrc
-    };
-  }
-  function resolveProfileSeedFromGlobals() {
-    var _a, _b, _c, _d;
-    const scopedWindow = window;
-    const candidates = [
-      scopedWindow.__BILI_USER_INFO__,
-      scopedWindow.__BILI_LOGIN_USER__,
-      scopedWindow.__BILI_HEADER_LOGIN_USER_INFO__,
-      (_a = scopedWindow.__INITIAL_STATE__) == null ? void 0 : _a.headerInfo,
-      (_b = scopedWindow.__INITIAL_STATE__) == null ? void 0 : _b.loginInfo,
-      (_c = scopedWindow.__NAV__) == null ? void 0 : _c.userInfo,
-      (_d = scopedWindow.__NAV__) == null ? void 0 : _d.user
-    ];
-    for (const candidate of candidates) {
-      const seed = coerceProfileSeed(candidate);
-      if (seed) {
-        return seed;
-      }
-    }
-    return null;
-  }
-  function resolveSearchSeed() {
-    var _a, _b;
-    for (const selector of SEARCH_INPUT_SELECTORS) {
-      const input = document.querySelector(selector);
-      if (input instanceof HTMLInputElement) {
-        return {
-          placeholder: ((_a = input.placeholder) == null ? void 0 : _a.trim()) || DEFAULT_SEARCH_PLACEHOLDER,
-          value: ((_b = input.value) == null ? void 0 : _b.trim()) || ""
-        };
-      }
-    }
-    return {
-      placeholder: DEFAULT_SEARCH_PLACEHOLDER,
-      value: ""
-    };
-  }
-  function resolveDisplayedPlaceholder(seed, placeholderVisible) {
-    const rawPlaceholder = seed.placeholder.trim();
-    if (placeholderVisible && rawPlaceholder) {
-      return rawPlaceholder;
-    }
-    return DEFAULT_SEARCH_PLACEHOLDER;
-  }
-  function resolveSearchKeyword(seed, options) {
-    const directKeyword = seed.value.trim();
-    if (directKeyword) {
-      return directKeyword;
-    }
-    if (!options.searchPlaceholderEnabled) {
-      return "";
-    }
-    const placeholder = resolveDisplayedPlaceholder(seed, options.placeholderVisible).trim();
-    if (!placeholder || GENERIC_SEARCH_PLACEHOLDERS.has(placeholder)) {
-      return "";
-    }
-    return placeholder;
-  }
-  function resolveProfileSeed() {
-    var _a, _b;
-    for (const rootSelector of PROFILE_ROOT_SELECTORS) {
-      const root = document.querySelector(rootSelector);
-      if (!(root instanceof HTMLElement)) {
-        continue;
-      }
-      for (const selector of PROFILE_SELECTORS) {
-        const anchor = root.querySelector(selector);
-        if (!(anchor instanceof HTMLAnchorElement)) {
-          continue;
-        }
-        const label = ((_a = anchor.getAttribute("aria-label")) == null ? void 0 : _a.trim()) || ((_b = anchor.textContent) == null ? void 0 : _b.trim()) || "\u4E2A\u4EBA\u4E3B\u9875";
-        if (GENERIC_PROFILE_LABELS.has(label)) {
-          continue;
-        }
-        return {
-          href: anchor.href || "https://www.bilibili.com/",
-          label,
-          avatarSrc: null
-        };
-      }
-    }
-    return {
-      href: "https://www.bilibili.com/",
-      label: "\u4E2A\u4EBA\u4E3B\u9875",
-      avatarSrc: null
-    };
-  }
-  function createSearchForm(seed, options) {
-    const form = document.createElement("form");
-    form.className = "bsb-tm-video-header-fallback-search";
-    const input = document.createElement("input");
-    input.type = "search";
-    input.placeholder = resolveDisplayedPlaceholder(seed, options.placeholderVisible);
-    input.value = seed.value;
-    input.autocomplete = "off";
-    input.spellcheck = false;
-    input.setAttribute("aria-label", "\u641C\u7D22 B \u7AD9\u5185\u5BB9");
-    const button = document.createElement("button");
-    button.type = "submit";
-    button.textContent = "\u641C\u7D22";
-    button.setAttribute("aria-label", "\u6267\u884C\u641C\u7D22");
-    form.append(input, button);
-    form.addEventListener("submit", (event) => {
-      event.preventDefault();
-      const keyword = resolveSearchKeyword(
-        {
-          placeholder: input.placeholder,
-          value: input.value
-        },
-        options
-      );
-      if (!keyword) {
-        return;
-      }
-      window.open(
-        `https://search.bilibili.com/all?keyword=${encodeURIComponent(keyword)}`,
-        "_blank",
-        "noopener,noreferrer"
-      );
-    });
-    return form;
-  }
-  function createProfileLink(seed) {
-    const link = document.createElement("a");
-    link.className = "bsb-tm-video-header-profile-link";
-    link.href = seed.href;
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
-    link.setAttribute("aria-label", seed.label);
-    link.title = seed.label;
-    if (seed.avatarSrc) {
-      const image = document.createElement("img");
-      image.className = "bsb-tm-video-header-avatar";
-      image.alt = seed.label;
-      image.src = seed.avatarSrc;
-      link.appendChild(image);
-      return link;
-    }
-    const fallback = document.createElement("span");
-    fallback.className = "bsb-tm-video-header-profile-fallback";
-    fallback.appendChild(createProfileIcon());
-    link.appendChild(fallback);
-    return link;
-  }
-  var CompactVideoHeader = class {
-    constructor() {
-      __publicField(this, "root", document.createElement("div"));
-      __publicField(this, "bar", document.createElement("div"));
-      __publicField(this, "searchSlot", document.createElement("div"));
-      __publicField(this, "profileSlot", document.createElement("div"));
-      __publicField(this, "retryTimerId", null);
-      __publicField(this, "retriesRemaining", 0);
-      __publicField(this, "mounted", false);
-      __publicField(this, "profileObserver", null);
-      __publicField(this, "lastResolvedProfileSeed", null);
-      __publicField(this, "remoteProfileSeed", null);
-      __publicField(this, "remoteProfilePromise", null);
-      __publicField(this, "options", {
-        placeholderVisible: false,
-        searchPlaceholderEnabled: false
-      });
-      this.root.className = "bsb-tm-video-header-shell";
-      this.bar.className = "bsb-tm-video-header-bar";
-      this.searchSlot.className = "bsb-tm-video-header-search";
-      this.profileSlot.className = "bsb-tm-video-header-profile";
-      this.bar.append(this.searchSlot, this.profileSlot);
-      this.root.appendChild(this.bar);
-    }
-    mount() {
-      this.mounted = true;
-      if (!this.root.isConnected) {
-        document.body.prepend(this.root);
-      }
-      document.documentElement.classList.add("bsb-tm-video-header-compact");
-      this.applyNativeHeaderState(true);
-      this.retriesRemaining = 10;
-      this.sync();
-    }
-    setOptions(next) {
-      this.options = __spreadValues(__spreadValues({}, this.options), next);
-      if (this.mounted) {
-        this.sync();
-      }
-    }
-    sync() {
-      var _a, _b;
-      if (!this.mounted) {
-        return;
-      }
-      this.applyNativeHeaderState(true);
-      const searchSeed = resolveSearchSeed();
-      const resolvedProfileSeed = resolveProfileSeed();
-      const globalProfileSeed = resolveProfileSeedFromGlobals();
-      const authoritativeProfileSeed = (globalProfileSeed == null ? void 0 : globalProfileSeed.avatarSrc) ? globalProfileSeed : ((_a = this.remoteProfileSeed) == null ? void 0 : _a.avatarSrc) ? this.remoteProfileSeed : null;
-      if (authoritativeProfileSeed == null ? void 0 : authoritativeProfileSeed.avatarSrc) {
-        this.lastResolvedProfileSeed = authoritativeProfileSeed;
-      }
-      const profileSeed = (_b = authoritativeProfileSeed != null ? authoritativeProfileSeed : this.lastResolvedProfileSeed) != null ? _b : resolvedProfileSeed;
-      this.searchSlot.replaceChildren(createSearchForm(searchSeed, this.options));
-      this.profileSlot.replaceChildren(createProfileLink(profileSeed));
-      this.syncProfileObserver(profileSeed);
-      void this.ensureRemoteProfileSeed();
-      this.scheduleRetry();
-    }
-    unmount() {
-      var _a;
-      this.mounted = false;
-      if (this.retryTimerId !== null) {
-        window.clearTimeout(this.retryTimerId);
-        this.retryTimerId = null;
-      }
-      (_a = this.profileObserver) == null ? void 0 : _a.disconnect();
-      this.profileObserver = null;
-      this.lastResolvedProfileSeed = null;
-      this.remoteProfileSeed = null;
-      this.remoteProfilePromise = null;
-      this.root.remove();
-      document.documentElement.classList.remove("bsb-tm-video-header-compact");
-      this.applyNativeHeaderState(false);
-    }
-    destroy() {
-      this.unmount();
-    }
-    scheduleRetry() {
-      if (!this.mounted || this.retriesRemaining <= 0 || this.retryTimerId !== null) {
-        return;
-      }
-      this.retriesRemaining -= 1;
-      this.retryTimerId = window.setTimeout(() => {
-        this.retryTimerId = null;
-        if (!this.mounted) {
-          return;
-        }
-        this.sync();
-      }, 400);
-    }
-    applyNativeHeaderState(hidden) {
-      const roots = this.resolveNativeHeaderRoots();
-      for (const root of roots) {
-        if (hidden) {
-          root.setAttribute(NATIVE_HEADER_HIDDEN_ATTR, "true");
-        } else {
-          root.removeAttribute(NATIVE_HEADER_HIDDEN_ATTR);
-        }
-      }
-      if (!hidden) {
-        for (const orphaned of document.querySelectorAll(`[${NATIVE_HEADER_HIDDEN_ATTR}="true"]`)) {
-          orphaned.removeAttribute(NATIVE_HEADER_HIDDEN_ATTR);
-        }
-      }
-    }
-    resolveNativeHeaderRoots() {
-      const found = /* @__PURE__ */ new Set();
-      for (const selector of NATIVE_HEADER_ROOT_SELECTORS) {
-        for (const node of document.querySelectorAll(selector)) {
-          found.add(node);
-        }
-      }
-      return Array.from(found);
-    }
-    syncProfileObserver(profileSeed) {
-      var _a;
-      if (!this.mounted) {
-        return;
-      }
-      if (profileSeed.avatarSrc) {
-        (_a = this.profileObserver) == null ? void 0 : _a.disconnect();
-        this.profileObserver = null;
-        return;
-      }
-      if (this.profileObserver) {
-        return;
-      }
-      this.profileObserver = new MutationObserver(() => {
-        var _a2, _b, _c, _d;
-        if (!this.mounted) {
-          return;
-        }
-        const nextSeed = resolveProfileSeed();
-        const mergedSeed = nextSeed.avatarSrc ? nextSeed : (_c = (_b = (_a2 = resolveProfileSeedFromGlobals()) != null ? _a2 : this.remoteProfileSeed) != null ? _b : this.lastResolvedProfileSeed) != null ? _c : nextSeed;
-        if (!(mergedSeed == null ? void 0 : mergedSeed.avatarSrc)) {
-          return;
-        }
-        (_d = this.profileObserver) == null ? void 0 : _d.disconnect();
-        this.profileObserver = null;
-        this.lastResolvedProfileSeed = mergedSeed;
-        this.profileSlot.replaceChildren(createProfileLink(mergedSeed));
-      });
-      this.profileObserver.observe(document.body, {
-        childList: true,
-        subtree: true,
-        attributes: true,
-        attributeFilter: ["src", "href", "aria-label", "alt"]
-      });
-    }
-    ensureRemoteProfileSeed() {
-      return __async(this, null, function* () {
-        var _a;
-        if (((_a = this.remoteProfileSeed) == null ? void 0 : _a.avatarSrc) || this.remoteProfilePromise || !this.mounted || typeof fetch !== "function") {
-          return;
-        }
-        this.remoteProfilePromise = (() => __async(this, null, function* () {
-          try {
-            const response = yield fetch("https://api.bilibili.com/x/web-interface/nav", {
-              credentials: "include",
-              headers: {
-                Accept: "application/json"
-              }
-            });
-            if (!response.ok) {
-              return;
-            }
-            const payload = yield response.json();
-            if (payload.code !== 0) {
-              return;
-            }
-            const seed = coerceProfileSeed(payload.data);
-            if (!(seed == null ? void 0 : seed.avatarSrc)) {
-              return;
-            }
-            this.remoteProfileSeed = seed;
-            this.lastResolvedProfileSeed = seed;
-            if (!this.mounted) {
-              return;
-            }
-            const currentSeed = resolveProfileSeed();
-            const currentAvatar = normalizeAvatarUrl(currentSeed.avatarSrc);
-            const remoteAvatar = normalizeAvatarUrl(seed.avatarSrc);
-            if (!currentAvatar || !remoteAvatar || currentAvatar !== remoteAvatar) {
-              this.profileSlot.replaceChildren(createProfileLink(seed));
-            }
-          } catch (_error) {
-          } finally {
-            this.remoteProfilePromise = null;
-          }
-        }))();
-        yield this.remoteProfilePromise;
-      });
-    }
-  };
-
-  // src/utils/mutation.ts
-  function asRelevantElement(node) {
-    if (!node) {
-      return null;
-    }
-    if (node instanceof Element) {
-      return node;
-    }
-    return node.parentElement;
-  }
-  function matchesDeep(element, selectors) {
-    return selectors.some((selector) => element.matches(selector) || element.querySelector(selector));
-  }
-  function isIgnored(element, selectors) {
-    return selectors.some((selector) => element.matches(selector) || element.closest(selector));
-  }
-  function nodeListTouchesSelectors(nodes, relevantSelectors, ignoredSelectors) {
-    for (const node of Array.from(nodes)) {
-      const element = asRelevantElement(node);
-      if (!element || isIgnored(element, ignoredSelectors)) {
-        continue;
-      }
-      if (matchesDeep(element, relevantSelectors)) {
-        return true;
-      }
-    }
-    return false;
-  }
-  function mutationsTouchSelectors(records, relevantSelectors, ignoredSelectors = []) {
-    return records.some(
-      (record) => nodeListTouchesSelectors(record.addedNodes, relevantSelectors, ignoredSelectors) || nodeListTouchesSelectors(record.removedNodes, relevantSelectors, ignoredSelectors)
-    );
-  }
-
-  // src/utils/navigation.ts
-  var listeners = /* @__PURE__ */ new Set();
-  var originalHistoryMethods = /* @__PURE__ */ new Map();
-  var currentHref = window.location.href;
-  var fallbackIntervalId = null;
-  var navigationListener = null;
-  function emitUrlChange() {
-    const nextHref = window.location.href;
-    if (nextHref === currentHref) {
-      return;
-    }
-    const previousHref = currentHref;
-    currentHref = nextHref;
-    for (const listener of listeners) {
-      listener(nextHref, previousHref);
-    }
-  }
-  function patchHistoryMethod(name) {
-    if (originalHistoryMethods.has(name)) {
-      return;
-    }
-    const original = history[name];
-    originalHistoryMethods.set(name, original);
-    history[name] = function patchedHistoryMethod(...args) {
-      const result = original.apply(this, args);
-      queueMicrotask(() => {
-        emitUrlChange();
-      });
-      return result;
-    };
-  }
-  function restoreHistoryMethods() {
-    for (const [name, original] of originalHistoryMethods) {
-      history[name] = original;
-    }
-    originalHistoryMethods.clear();
-  }
-  function ensureStarted() {
-    if (listeners.size !== 1) {
-      return;
-    }
-    currentHref = window.location.href;
-    patchHistoryMethod("pushState");
-    patchHistoryMethod("replaceState");
-    window.addEventListener("popstate", emitUrlChange);
-    window.addEventListener("hashchange", emitUrlChange);
-    if ("navigation" in window) {
-      navigationListener = () => {
-        queueMicrotask(() => {
-          emitUrlChange();
-        });
-      };
-      window.navigation.addEventListener("navigate", navigationListener);
-    }
-    fallbackIntervalId = window.setInterval(() => {
-      emitUrlChange();
-    }, 1200);
-  }
-  function maybeStop() {
-    if (listeners.size > 0) {
-      return;
-    }
-    if (fallbackIntervalId !== null) {
-      window.clearInterval(fallbackIntervalId);
-      fallbackIntervalId = null;
-    }
-    window.removeEventListener("popstate", emitUrlChange);
-    window.removeEventListener("hashchange", emitUrlChange);
-    if ("navigation" in window && navigationListener) {
-      window.navigation.removeEventListener("navigate", navigationListener);
-      navigationListener = null;
-    }
-    restoreHistoryMethods();
-  }
-  function observeUrlChanges(listener) {
-    listeners.add(listener);
-    ensureStarted();
-    return () => {
-      listeners.delete(listener);
-      maybeStop();
-    };
-  }
 
   // src/ui/surface-frosted-glass.ts
   function createSurfaceFrostedGlassMaterial(options) {
@@ -4804,6 +2875,2690 @@ ${inlineSurfaceFrostedGlass.overlay}
     button.dataset.state = state;
     button.setAttribute("aria-pressed", String(state === "shown"));
     button.textContent = state === "shown" ? labels.shown : labels.hidden;
+  }
+
+  // src/ui/panel.ts
+  var TAB_LABELS = {
+    overview: "\u6982\u89C8",
+    behavior: "\u7247\u6BB5\u4E0E\u6807\u7B7E",
+    transparency: "\u6807\u7B7E\u900F\u660E\u5EA6",
+    filters: "\u52A8\u6001 / \u8BC4\u8BBA",
+    mbga: "\u751F\u6001\u51C0\u5316 (MBGA)",
+    help: "\u5E2E\u52A9 / \u53CD\u9988"
+  };
+  var TAB_DESCRIPTIONS = {
+    overview: "\u72B6\u6001\u3001\u6458\u8981\u4E0E\u7EF4\u62A4\u5DE5\u5177",
+    behavior: "\u7247\u6BB5\u3001\u6807\u7B7E\u4E0E\u663E\u793A\u7B56\u7565",
+    transparency: "\u80F6\u56CA\u900F\u660E\u5EA6\u4E0E\u964D\u566A\u7B56\u7565",
+    filters: "\u52A8\u6001\u548C\u8BC4\u8BBA\u533A\u589E\u5F3A",
+    mbga: "\u5C4F\u853D\u8FFD\u8E2A\u3001\u539F\u753B\u9501\u5B9A\u4E0E\u6C89\u6D78\u5316",
+    help: "\u5E2E\u52A9\u94FE\u63A5\u4E0E\u4F7F\u7528\u8BF4\u660E"
+  };
+  var SettingsPanel = class {
+    constructor(config, stats, callbacks) {
+      this.callbacks = callbacks;
+      __publicField(this, "backdrop", document.createElement("div"));
+      __publicField(this, "panel", document.createElement("aside"));
+      __publicField(this, "body", document.createElement("div"));
+      __publicField(this, "nav", document.createElement("nav"));
+      __publicField(this, "content", document.createElement("div"));
+      __publicField(this, "statsEl", document.createElement("div"));
+      __publicField(this, "form", document.createElement("div"));
+      __publicField(this, "transparencyForm", document.createElement("div"));
+      __publicField(this, "filterForm", document.createElement("div"));
+      __publicField(this, "categoryForm", document.createElement("div"));
+      __publicField(this, "mbgaForm", document.createElement("div"));
+      __publicField(this, "sections", /* @__PURE__ */ new Map());
+      __publicField(this, "panelId", "bsb-tm-panel");
+      __publicField(this, "contentScrollByTab", {});
+      __publicField(this, "activeTab", "overview");
+      __publicField(this, "filterValidationMessage", null);
+      __publicField(this, "diagnosticEvents", getDiagnosticEvents());
+      __publicField(this, "config");
+      __publicField(this, "stats");
+      __publicField(this, "fullVideoLabels", []);
+      __publicField(this, "runtimeStatus", {
+        kind: "idle",
+        message: "\u7B49\u5F85\u9875\u9762\u5339\u914D",
+        bvid: null,
+        segmentCount: null
+      });
+      __publicField(this, "activeFeedbacks", /* @__PURE__ */ new Map());
+      // id -> originalText
+      __publicField(this, "pendingConfirmations", /* @__PURE__ */ new Set());
+      // id
+      __publicField(this, "inlineControlUpdateDepth", 0);
+      __publicField(this, "unsubscribeDiagnostics", null);
+      __publicField(this, "handleKeydown", (event) => {
+        if (event.key === "Escape" && !this.backdrop.hidden) {
+          this.close("user");
+        }
+      });
+      __publicField(this, "handleViewportResize", () => {
+        this.syncViewportMetrics();
+      });
+      __publicField(this, "viewportListenersAttached", false);
+      this.config = config;
+      this.stats = stats;
+      this.backdrop.className = "bsb-tm-panel-backdrop";
+      this.backdrop.hidden = true;
+      this.backdrop.addEventListener("click", (event) => {
+        if (event.target === this.backdrop) {
+          this.close("user");
+        }
+      });
+      this.panel.className = "bsb-tm-panel";
+      this.panel.id = this.panelId;
+      this.panel.setAttribute("role", "dialog");
+      this.panel.setAttribute("aria-modal", "true");
+      this.panel.setAttribute("aria-labelledby", "bsb-tm-panel-title");
+      this.body.className = "bsb-tm-panel-body";
+      this.nav.className = "bsb-tm-panel-nav";
+      this.content.className = "bsb-tm-panel-content";
+      this.statsEl.className = "bsb-tm-stats";
+      this.form.className = "bsb-tm-form";
+      this.transparencyForm.className = "bsb-tm-form";
+      this.filterForm.className = "bsb-tm-form";
+      this.categoryForm.className = "bsb-tm-categories";
+      this.mbgaForm.className = "bsb-tm-form";
+      this.panel.append(this.createHeader(), this.body);
+      this.body.append(this.nav, this.content);
+      for (const tab of Object.keys(TAB_LABELS)) {
+        this.nav.appendChild(this.createTabButton(tab));
+        const section = this.createSection(tab);
+        this.sections.set(tab, section);
+        this.content.appendChild(section);
+      }
+      this.backdrop.appendChild(this.panel);
+      this.render();
+      this.setActiveTab("overview");
+      this.unsubscribeDiagnostics = subscribeDiagnostics((events) => {
+        this.diagnosticEvents = events;
+        if (this.activeTab === "help") {
+          this.renderHelp();
+        }
+      });
+    }
+    mount() {
+      if (!this.backdrop.isConnected) {
+        document.documentElement.appendChild(this.backdrop);
+      }
+      this.syncViewportMetrics();
+    }
+    toggle() {
+      if (this.backdrop.hidden) {
+        this.open();
+        return;
+      }
+      this.close("user");
+    }
+    isOpen() {
+      return !this.backdrop.hidden;
+    }
+    getActiveTab() {
+      return this.activeTab;
+    }
+    open(tab = this.activeTab) {
+      var _a;
+      const wasHidden = this.backdrop.hidden;
+      this.mount();
+      this.attachViewportListeners();
+      this.syncViewportMetrics();
+      this.setActiveTab(tab, { preserveScroll: true, scrollTop: (_a = this.contentScrollByTab[tab]) != null ? _a : 0, skipRemember: wasHidden });
+      this.backdrop.hidden = false;
+      document.documentElement.classList.add("bsb-tm-panel-open");
+      document.addEventListener("keydown", this.handleKeydown);
+    }
+    close(reason = "user") {
+      var _a, _b;
+      const wasOpen = !this.backdrop.hidden;
+      if (wasOpen) {
+        this.rememberActiveScroll();
+      }
+      this.backdrop.hidden = true;
+      this.detachViewportListeners();
+      document.documentElement.classList.remove("bsb-tm-panel-open");
+      document.removeEventListener("keydown", this.handleKeydown);
+      if (wasOpen) {
+        (_b = (_a = this.callbacks).onClose) == null ? void 0 : _b.call(_a, reason);
+      }
+    }
+    unmount() {
+      var _a;
+      this.close("system");
+      (_a = this.unsubscribeDiagnostics) == null ? void 0 : _a.call(this);
+      this.unsubscribeDiagnostics = null;
+      this.backdrop.remove();
+    }
+    updateConfig(config) {
+      this.config = config;
+      this.filterValidationMessage = null;
+      if (this.inlineControlUpdateDepth > 0 && !this.backdrop.hidden) {
+        return;
+      }
+      this.rememberActiveScroll();
+      this.render(true);
+    }
+    updateStats(stats) {
+      this.rememberActiveScroll();
+      this.stats = stats;
+      this.renderOverview();
+      this.restoreActiveScroll();
+    }
+    updateRuntimeStatus(status) {
+      this.rememberActiveScroll();
+      this.runtimeStatus = status;
+      this.renderOverview();
+      this.restoreActiveScroll();
+    }
+    setFullVideoLabels(segments) {
+      this.rememberActiveScroll();
+      this.fullVideoLabels = [...new Set(segments.map((segment) => CATEGORY_LABELS[segment.category]))];
+      this.renderOverview();
+      this.restoreActiveScroll();
+    }
+    render(preserveScroll = false) {
+      var _a;
+      const nextScrollTop = preserveScroll ? (_a = this.contentScrollByTab[this.activeTab]) != null ? _a : this.content.scrollTop : 0;
+      this.renderOverview();
+      this.renderBehavior();
+      this.renderTransparency();
+      this.renderFilters();
+      this.renderMbga();
+      this.renderHelp();
+      this.setActiveTab(this.activeTab, { preserveScroll, scrollTop: nextScrollTop });
+    }
+    renderOverview() {
+      var _a;
+      const labels = this.fullVideoLabels.length > 0 ? this.fullVideoLabels.join(" / ") : "\u5F53\u524D\u89C6\u9891\u65E0\u6574\u89C6\u9891\u6807\u7B7E";
+      const thumbnailStatus = this.config.thumbnailLabelMode === "off" ? "\u5DF2\u5173\u95ED" : "\u5DF2\u5F00\u542F";
+      const titleLabelStatus = this.fullVideoLabels.length > 0 ? "\u5DF2\u8BC6\u522B" : "\u7B49\u5F85\u4E2D";
+      const compactHeaderStatus = this.config.compactVideoHeader ? "\u5DF2\u5F00\u542F" : "\u5DF2\u5173\u95ED";
+      const commentFilterStatus = this.config.commentFilterMode === "off" ? "\u5DF2\u5173\u95ED" : "\u5DF2\u5F00\u542F";
+      const commentLocationStatus = this.config.commentLocationEnabled ? "\u5DF2\u5F00\u542F" : "\u5DF2\u5173\u95ED";
+      this.statsEl.replaceChildren(
+        this.createSummaryLine("\u811A\u672C\u72B6\u6001", this.config.enabled ? "\u5DF2\u542F\u7528" : "\u5DF2\u505C\u7528"),
+        this.createSummaryLine("\u5F53\u524D\u89C6\u9891", (_a = this.runtimeStatus.bvid) != null ? _a : "\u5F53\u524D\u4E0D\u662F\u89C6\u9891\u9875"),
+        this.createSummaryLine("\u7247\u6BB5\u72B6\u6001", this.runtimeStatus.message),
+        this.createSummaryLine("\u6574\u89C6\u9891\u6807\u7B7E", labels),
+        this.createSummaryLine("\u7D2F\u8BA1\u8DF3\u8FC7", `${this.stats.skipCount} \u6B21`),
+        this.createSummaryLine("\u7D2F\u8BA1\u8282\u7701", `${this.stats.minutesSaved.toFixed(2)} \u5206\u949F`)
+      );
+      const section = this.sections.get("overview");
+      if (!section) {
+        return;
+      }
+      section.replaceChildren(
+        this.createSectionHeading(
+          "\u5F53\u524D\u72B6\u6001",
+          "\u8FD9\u4E00\u9875\u96C6\u4E2D\u5C55\u793A\u811A\u672C\u662F\u5426\u751F\u6548\u3001\u5F53\u524D\u89C6\u9891\u8BC6\u522B\u7ED3\u679C\uFF0C\u4EE5\u53CA\u4F60\u5728\u7AD9\u5185\u4F1A\u770B\u5230\u54EA\u4E9B\u589E\u5F3A\u5143\u7D20\u3002"
+        ),
+        this.statsEl,
+        this.createFeatureGrid(
+          [
+            {
+              title: "\u9996\u9875 / \u641C\u7D22\u5361\u7247\u6807\u7B7E",
+              value: thumbnailStatus,
+              description: "\u5728\u6574\u89C6\u9891\u88AB\u6807\u8BB0\u4E3A\u5546\u4E1A\u5185\u5BB9\u65F6\uFF0C\u4E8E\u5C01\u9762\u4E0A\u65B9\u5C45\u4E2D\u663E\u793A\u7B80\u5199\u6807\u7B7E\uFF0C\u60AC\u505C\u540E\u5C55\u5F00\u5B8C\u6574\u5206\u7C7B\u540D\u3002"
+            },
+            {
+              title: "\u89C6\u9891\u6807\u9898\u5546\u4E1A\u6807\u7B7E",
+              value: titleLabelStatus,
+              description: "\u5728\u89C6\u9891\u6807\u9898\u524D\u663E\u793A\u5206\u7C7B\u80F6\u56CA\uFF0C\u5E76\u63D0\u4F9B\u201C\u6807\u8BB0\u6B63\u786E / \u6807\u8BB0\u6709\u8BEF\u201D\u7684\u53CD\u9988\u5165\u53E3\u3002"
+            },
+            {
+              title: "\u7D27\u51D1\u89C6\u9891\u9876\u90E8\u680F",
+              value: compactHeaderStatus,
+              description: "\u4EC5\u5728\u89C6\u9891\u64AD\u653E\u9875\u6536\u8D77\u5DE6\u4FA7\u5BFC\u822A\uFF0C\u4FDD\u7559\u641C\u7D22\u4E0E\u4E2A\u4EBA\u5165\u53E3\uFF0C\u51CF\u5C11\u9876\u90E8\u5360\u9AD8\u3002"
+            },
+            {
+              title: "\u8BC4\u8BBA\u533A\u5546\u54C1\u8FC7\u6EE4",
+              value: commentFilterStatus,
+              description: "\u8BC6\u522B\u5E26\u8D27\u8BC4\u8BBA\u65F6\uFF0C\u4F1A\u7ED9\u51FA\u66F4\u660E\u786E\u7684\u9690\u85CF / \u663E\u793A\u53CD\u9988\uFF0C\u800C\u4E0D\u662F\u76F4\u63A5\u9759\u9ED8\u5904\u7406\u3002"
+            },
+            {
+              title: "\u8BC4\u8BBA\u533A\u5C5E\u5730\u663E\u793A\uFF08\u5F00\u76D2\uFF09",
+              value: commentLocationStatus,
+              description: "\u9ED8\u8BA4\u5F00\u542F\uFF0C\u76F4\u63A5\u663E\u793A B \u7AD9\u8BC4\u8BBA payload \u81EA\u5E26\u7684 IP \u5C5E\u5730\u4FE1\u606F\uFF0C\u5E76\u517C\u5BB9\u65B0\u7248\u8BC4\u8BBA\u7ED3\u6784\u3002"
+            }
+          ],
+          "bsb-tm-overview-grid"
+        ),
+        this.createFormGroup(
+          "\u7EF4\u62A4\u5DE5\u5177",
+          "\u6392\u969C\u6216\u60F3\u56DE\u5230\u521D\u59CB\u72B6\u6001\u65F6\uFF0C\u518D\u4F7F\u7528\u8FD9\u4E9B\u52A8\u4F5C\u3002\u7F13\u5B58\u6E05\u7406\u53EA\u4F1A\u5F71\u54CD SponsorBlock \u6570\u636E\uFF0C\u4E0D\u4F1A\u5220\u9664\u4F60\u7684\u5176\u4ED6\u811A\u672C\u8BBE\u7F6E\u3002",
+          this.createActionRow(
+            this.createActionButton("\u6E05\u7406\u7F13\u5B58", "secondary", () => __async(this, null, function* () {
+              yield this.callbacks.onClearCache();
+            }), { id: "clear-cache" }),
+            this.createActionButton("\u6062\u590D\u9ED8\u8BA4\u8BBE\u7F6E", "danger", () => __async(this, null, function* () {
+              yield this.callbacks.onReset();
+            }), { id: "reset-settings", confirmText: "\u786E\u5B9A\u6062\u590D\u5417\uFF1F" })
+          )
+        )
+      );
+    }
+    renderBehavior() {
+      this.form.replaceChildren(
+        this.createFormGroup(
+          "\u57FA\u7840\u5F00\u5173",
+          "\u5148\u51B3\u5B9A\u811A\u672C\u662F\u5426\u5DE5\u4F5C\uFF0C\u518D\u63A7\u5236\u7F13\u5B58\u548C\u64AD\u653E\u5668\u53EF\u89C6\u5316\u589E\u5F3A\u3002",
+          this.createFieldGrid(
+            [
+              this.createCheckbox(
+                "\u542F\u7528 Bilibili QoL Core",
+                "\u5173\u95ED\u540E\u5C06\u505C\u6B62\u7247\u6BB5\u8BF7\u6C42\u3001\u6807\u9898\u6807\u7B7E\u3001\u7F29\u7565\u56FE\u6807\u7B7E\u548C\u64AD\u653E\u5668\u589E\u5F3A\u3002",
+                this.config.enabled,
+                (checked) => __async(this, null, function* () {
+                  yield this.callbacks.onPatchConfig({ enabled: checked });
+                })
+              ),
+              this.createCheckbox(
+                "\u542F\u7528\u7F13\u5B58",
+                "\u7F13\u5B58 SponsorBlock \u7247\u6BB5\u548C\u6574\u89C6\u9891\u6807\u7B7E\uFF0C\u51CF\u5C11\u91CD\u590D\u8BF7\u6C42\u5E76\u63D0\u5347\u9875\u9762\u5207\u6362\u901F\u5EA6\u3002",
+                this.config.enableCache,
+                (checked) => __async(this, null, function* () {
+                  yield this.callbacks.onPatchConfig({ enableCache: checked });
+                })
+              ),
+              this.createCheckbox(
+                "\u663E\u793A\u64AD\u653E\u5668\u8FDB\u5EA6\u6761\u6807\u7B7E",
+                "\u5728\u8FDB\u5EA6\u6761\u4E0A\u663E\u793A\u4E0D\u540C\u7C7B\u522B\u7684\u5F69\u8272\u7247\u6BB5\u6807\u8BB0\u3002",
+                this.config.showPreviewBar,
+                (checked) => __async(this, null, function* () {
+                  yield this.callbacks.onPatchConfig({ showPreviewBar: checked });
+                })
+              ),
+              this.createCheckbox(
+                "\u542F\u7528\u7D27\u51D1\u89C6\u9891\u9876\u90E8\u680F",
+                "\u4EC5\u5728\u89C6\u9891\u64AD\u653E\u9875\u4FDD\u7559\u641C\u7D22\u680F\u548C\u4E2A\u4EBA\u5165\u53E3\uFF0C\u6536\u8D77\u5DE6\u4FA7\u5BFC\u822A\u5E76\u51CF\u5C11\u9876\u90E8\u7A7A\u767D\u3002",
+                this.config.compactVideoHeader,
+                (checked) => __async(this, null, function* () {
+                  yield this.callbacks.onPatchConfig({ compactVideoHeader: checked });
+                })
+              ),
+              this.createCheckbox(
+                "\u663E\u793A\u7070\u5B57\u5E7F\u544A\u6587\u6848",
+                "\u9ED8\u8BA4\u5173\u95ED\u3002\u5173\u95ED\u540E\uFF0C\u7D27\u51D1\u9876\u90E8\u680F\u53EA\u663E\u793A\u901A\u7528\u5360\u4F4D\u63D0\u793A\uFF0C\u4E0D\u5C55\u793A\u539F\u751F\u641C\u7D22\u6846\u91CC\u7684\u7070\u5B57\u5E7F\u544A\u5185\u5BB9\u3002",
+                this.config.compactHeaderPlaceholderVisible,
+                (checked) => __async(this, null, function* () {
+                  yield this.callbacks.onPatchConfig({ compactHeaderPlaceholderVisible: checked });
+                })
+              ),
+              this.createCheckbox(
+                "\u5141\u8BB8\u641C\u7D22\u7070\u5B57\u5E7F\u544A\u6587\u6848",
+                "\u9ED8\u8BA4\u5173\u95ED\u3002\u5F00\u542F\u540E\uFF0C\u82E5\u7D27\u51D1\u9876\u90E8\u680F\u641C\u7D22\u6846\u4E3A\u7A7A\uFF0C\u4E14\u5F53\u524D\u5B9E\u9645\u663E\u793A\u7684\u662F\u975E\u901A\u7528\u7070\u5B57\u5E7F\u544A\u6587\u6848\uFF0C\u70B9\u51FB\u641C\u7D22\u6216\u6309\u56DE\u8F66\u4F1A\u76F4\u63A5\u641C\u7D22\u8BE5\u6587\u6848\u3002",
+                this.config.compactHeaderSearchPlaceholderEnabled,
+                (checked) => __async(this, null, function* () {
+                  yield this.callbacks.onPatchConfig({ compactHeaderSearchPlaceholderEnabled: checked });
+                })
+              )
+            ],
+            "single-column"
+          )
+        ),
+        this.createFormGroup(
+          "\u663E\u793A\u4E0E\u8BC6\u522B",
+          "\u8FD9\u91CC\u7684\u9009\u9879\u51B3\u5B9A\u5361\u7247\u6807\u7B7E\u3001\u63D0\u793A\u7B56\u7565\u548C SponsorBlock \u8BF7\u6C42\u7684\u57FA\u7840\u884C\u4E3A\u3002",
+          this.createFieldGrid([
+            this.createSelect(
+              "\u9996\u9875 / \u5217\u8868\u5361\u7247\u6807\u7B7E",
+              this.config.thumbnailLabelMode,
+              THUMBNAIL_LABEL_MODE_LABELS,
+              (value) => __async(this, null, function* () {
+                yield this.callbacks.onPatchConfig({ thumbnailLabelMode: value });
+              }),
+              "\u6574\u89C6\u9891\u88AB\u6807\u8BB0\u4E3A\u5546\u4E1A\u5185\u5BB9\u65F6\uFF0C\u5982\u4F55\u5728\u63A8\u8350\u5361\u7247\u4E0A\u5C55\u793A\u3002"
+            ),
+            this.createInput(
+              "SponsorBlock \u670D\u52A1\u5668\u5730\u5740",
+              "\u9ED8\u8BA4\u4FDD\u6301 https://www.bsbsb.top \u5373\u53EF\u3002\u53EA\u6709\u5728\u4F60\u660E\u786E\u77E5\u9053\u5907\u7528\u670D\u52A1\u53EF\u7528\u65F6\u518D\u4FEE\u6539\u3002",
+              this.config.serverAddress,
+              (value) => __async(this, null, function* () {
+                yield this.callbacks.onPatchConfig({ serverAddress: value });
+              })
+            ),
+            this.createNumberInput(
+              "\u63D0\u793A\u505C\u7559\u65F6\u95F4\uFF08\u79D2\uFF09",
+              "\u81EA\u52A8\u8DF3\u8FC7\u3001\u9519\u8BEF\u63D0\u793A\u548C\u9AD8\u5149\u70B9\u63D0\u793A\u7684\u9ED8\u8BA4\u505C\u7559\u65F6\u95F4\u3002",
+              this.config.noticeDurationSec,
+              (value) => __async(this, null, function* () {
+                yield this.callbacks.onPatchConfig({ noticeDurationSec: value });
+              })
+            ),
+            this.createNumberInput(
+              "\u6700\u77ED\u5904\u7406\u65F6\u957F\uFF08\u79D2\uFF09",
+              "\u77ED\u4E8E\u8BE5\u957F\u5EA6\u7684\u666E\u901A\u7247\u6BB5\u4E0D\u4F1A\u81EA\u52A8\u5904\u7406\uFF0C\u53EF\u7528\u4E8E\u51CF\u5C11\u8BEF\u89E6\u53D1\u3002",
+              this.config.minDurationSec,
+              (value) => __async(this, null, function* () {
+                yield this.callbacks.onPatchConfig({ minDurationSec: value });
+              })
+            )
+          ])
+        )
+      );
+      this.categoryForm.replaceChildren();
+      for (const category of CATEGORY_ORDER) {
+        const row = document.createElement("label");
+        row.className = "bsb-tm-category-row";
+        const copy = document.createElement("div");
+        copy.className = "bsb-tm-field-copy";
+        const label = document.createElement("span");
+        label.className = "bsb-tm-field-title";
+        label.textContent = CATEGORY_LABELS[category];
+        const help = document.createElement("small");
+        help.className = "bsb-tm-field-help";
+        help.textContent = CATEGORY_DESCRIPTIONS[category];
+        copy.append(label, help);
+        const select = document.createElement("select");
+        for (const mode of Object.keys(MODE_LABELS)) {
+          const option = document.createElement("option");
+          option.value = mode;
+          option.textContent = MODE_LABELS[mode];
+          option.selected = this.config.categoryModes[category] === mode;
+          select.appendChild(option);
+        }
+        let pointerDrivenSelection = false;
+        select.addEventListener("pointerdown", () => {
+          pointerDrivenSelection = true;
+        });
+        this.bindPointerFocusSuppression(row, select);
+        select.addEventListener("change", () => __async(this, null, function* () {
+          const finishInlineUpdate = this.beginInlineControlUpdate();
+          try {
+            yield this.callbacks.onCategoryModeChange(category, select.value);
+            if (pointerDrivenSelection) {
+              select.blur();
+            }
+          } catch (error) {
+            select.value = this.config.categoryModes[category];
+            this.markControlError(row);
+            reportDiagnostic({
+              severity: "warn",
+              area: "storage",
+              message: `${CATEGORY_LABELS[category]} \u5206\u7C7B\u7B56\u7565\u4FDD\u5B58\u5931\u8D25\uFF0C\u5DF2\u56DE\u9000`,
+              detail: error
+            });
+          } finally {
+            pointerDrivenSelection = false;
+            finishInlineUpdate();
+          }
+        }));
+        row.append(copy, select);
+        this.categoryForm.appendChild(row);
+      }
+      const section = this.sections.get("behavior");
+      if (!section) {
+        return;
+      }
+      section.replaceChildren(
+        this.createSectionHeading("\u7247\u6BB5\u4E0E\u6807\u7B7E", "\u8FD9\u91CC\u7684\u9009\u9879\u51B3\u5B9A\u89C6\u9891\u9875\u3001\u8FDB\u5EA6\u6761\u548C\u9996\u9875\u5361\u7247\u5982\u4F55\u5C55\u793A SponsorBlock \u6570\u636E\u3002"),
+        this.form,
+        this.createFormGroup(
+          "\u6807\u7B7E\u914D\u8272",
+          "\u9ED8\u8BA4\u914D\u8272\u5C3D\u91CF\u8D34\u8FD1\u4EBA\u7684\u76F4\u89C9\uFF1A\u7EA2\u8272\u504F\u8B66\u793A\u3001\u7EFF\u8272\u504F\u5B89\u5FC3\u3001\u9EC4\u8272\u504F\u81EA\u8350\u3002\u4F60\u53EF\u4EE5\u6309\u81EA\u5DF1\u7684\u5224\u65AD\u5FAE\u8C03\u3002",
+          this.createColorPalette(this.config.categoryColorOverrides)
+        ),
+        this.createFormGroup(
+          "\u7247\u6BB5\u5206\u7C7B\u7B56\u7565",
+          "\u4FDD\u6301\u4E0A\u6E38\u5E38\u89C1\u8BED\u4E49\uFF1A\u81EA\u52A8\u3001\u624B\u52A8\u3001\u4EC5\u63D0\u793A\u3001\u5173\u95ED\u3002\u6574\u89C6\u9891\u6807\u7B7E\u4F1A\u540C\u6B65\u5F71\u54CD\u6807\u9898\u80F6\u56CA\u4E0E\u5C01\u9762\u9876\u90E8\u77ED\u6807\u7B7E\u3002",
+          this.categoryForm
+        )
+      );
+    }
+    renderFilters() {
+      var _a, _b, _c;
+      const dynamicFields = [
+        this.createSelect(
+          "\u52A8\u6001\u8FC7\u6EE4\u6A21\u5F0F",
+          this.config.dynamicFilterMode,
+          CONTENT_FILTER_MODE_LABELS,
+          (value) => __async(this, null, function* () {
+            yield this.callbacks.onPatchConfig({ dynamicFilterMode: value });
+          }),
+          "\u9009\u62E9\u662F\u9690\u85CF\u52A8\u6001\u5185\u5BB9\u3001\u4EC5\u4FDD\u7559\u6807\u7B7E\u63D0\u793A\uFF0C\u8FD8\u662F\u5B8C\u5168\u5173\u95ED\u8FD9\u90E8\u5206\u589E\u5F3A\u3002"
+        ),
+        this.createRegexPatternInput(),
+        this.createNumberInput(
+          "\u52A8\u6001\u6700\u5C11\u547D\u4E2D\u6570",
+          "\u4EC5\u5F53\u7591\u4F3C\u5E7F\u544A\u8BCD\u547D\u4E2D\u6570\u8FBE\u5230\u8FD9\u4E2A\u9608\u503C\u65F6\uFF0C\u624D\u5BF9\u5185\u5BB9\u505A\u6807\u8BB0\u6216\u9690\u85CF\u3002",
+          this.config.dynamicRegexKeywordMinMatches,
+          (value) => __async(this, null, function* () {
+            yield this.callbacks.onPatchConfig({ dynamicRegexKeywordMinMatches: value });
+          })
+        )
+      ];
+      if (this.filterValidationMessage) {
+        dynamicFields.splice(2, 0, this.createValidationMessage(this.filterValidationMessage));
+      }
+      const commentFields = [
+        this.createCheckbox(
+          "\u663E\u793A\u8BC4\u8BBA\u533A\u5C5E\u5730\uFF08\u5F00\u76D2\uFF09",
+          "\u9ED8\u8BA4\u5F00\u542F\u3002\u590D\u523B\u81EA\u300CB\u7AD9\u8BC4\u8BBA\u533A\u5F00\u76D2\u300D\u7684\u6838\u5FC3\u80FD\u529B\uFF0C\u76F4\u63A5\u5C55\u793A\u8BC4\u8BBA payload \u81EA\u5E26\u7684 IP \u5C5E\u5730\u4FE1\u606F\u3002",
+          this.config.commentLocationEnabled,
+          (checked) => __async(this, null, function* () {
+            yield this.callbacks.onPatchConfig({ commentLocationEnabled: checked });
+          })
+        ),
+        this.createCheckbox(
+          "\u540C\u65F6\u9690\u85CF\u547D\u4E2D\u8BC4\u8BBA\u7684\u56DE\u590D",
+          "\u5F00\u542F\u540E\uFF0C\u5982\u679C\u4E3B\u8BC4\u8BBA\u547D\u4E2D\u5E7F\u544A\u89C4\u5219\uFF0C\u5176\u56DE\u590D\u697C\u5C42\u4E5F\u4F1A\u4E00\u5E76\u9690\u85CF\u3002",
+          this.config.commentHideReplies,
+          (checked) => __async(this, null, function* () {
+            yield this.callbacks.onPatchConfig({ commentHideReplies: checked });
+          })
+        ),
+        this.createSelect(
+          "\u8BC4\u8BBA\u8FC7\u6EE4\u6A21\u5F0F",
+          this.config.commentFilterMode,
+          CONTENT_FILTER_MODE_LABELS,
+          (value) => __async(this, null, function* () {
+            yield this.callbacks.onPatchConfig({ commentFilterMode: value });
+          }),
+          "\u9009\u62E9\u662F\u9690\u85CF\u547D\u4E2D\u8BC4\u8BBA\u3001\u4EC5\u4FDD\u7559\u8BC4\u8BBA\u6807\u7B7E\u63D0\u793A\uFF0C\u8FD8\u662F\u5B8C\u5168\u5173\u95ED\u8BC4\u8BBA\u8FC7\u6EE4\u3002"
+        ),
+        this.createCustomColorInput(
+          "IP \u5C5E\u5730\u6807\u7B7E\u989C\u8272",
+          "\u81EA\u5B9A\u4E49\u8BC4\u8BBA\u533A IP \u5C5E\u5730\u80F6\u56CA\u6807\u7B7E\u7684\u4E3B\u9898\u989C\u8272\u3002",
+          (_a = this.config.commentIpColor) != null ? _a : "#60a5fa",
+          (value) => __async(this, null, function* () {
+            yield this.callbacks.onPatchConfig({ commentIpColor: value });
+          })
+        ),
+        this.createCustomColorInput(
+          "\u8BC4\u8BBA\u5E7F\u544A\u6807\u7B7E\u989C\u8272",
+          "\u81EA\u5B9A\u4E49\u8BC4\u8BBA\u533A\u8BC6\u522B\u5230\u7684\u5E7F\u544A\u3001\u5E26\u8D27\u6216\u53EF\u7591\u4FC3\u9500\u6807\u7B7E\u7684\u4E3B\u9898\u989C\u8272\u3002",
+          (_b = this.config.commentAdColor) != null ? _b : "#ff6b66",
+          (value) => __async(this, null, function* () {
+            yield this.callbacks.onPatchConfig({ commentAdColor: value });
+          })
+        )
+      ];
+      this.filterForm.replaceChildren(
+        this.createFormGroup(
+          "\u52A8\u6001\u9875\u5546\u4E1A\u5185\u5BB9\u8FC7\u6EE4",
+          "\u9ED8\u8BA4\u5173\u95ED\uFF0C\u907F\u514D\u8BEF\u4F24\u6B63\u5E38\u52A8\u6001\u3002\u53EA\u6709\u5728\u4F60\u786E\u5B9E\u9700\u8981\u5C4F\u853D\u5546\u4E1A\u52A8\u6001\u65F6\u518D\u542F\u7528\u3002",
+          this.createFieldGrid(dynamicFields)
+        ),
+        this.createFormGroup(
+          "\u8BC4\u8BBA\u533A\u5546\u54C1 / \u5E26\u8D27\u8FC7\u6EE4",
+          "\u7528\u4E8E\u8BC6\u522B\u8BC4\u8BBA\u533A\u5546\u54C1\u5361\u5E7F\u544A\u3001\u5E26\u8D27\u7559\u8A00\u548C\u53EF\u7591\u4FC3\u9500\u8BC4\u8BBA\u3002",
+          this.createFieldGrid(commentFields)
+        )
+      );
+      (_c = this.sections.get("filters")) == null ? void 0 : _c.replaceChildren(
+        this.createSectionHeading("\u52A8\u6001 / \u8BC4\u8BBA\u589E\u5F3A", "\u8FD9\u90E8\u5206\u4E0D\u662F SponsorBlock \u539F\u59CB\u7247\u6BB5\u63A5\u53E3\uFF0C\u800C\u662F\u5BF9 B \u7AD9\u7AD9\u5185\u5546\u4E1A\u5185\u5BB9\u7684\u9644\u52A0\u589E\u5F3A\u3002"),
+        this.filterForm
+      );
+    }
+    renderTransparency() {
+      const transparency = this.config.labelTransparency;
+      const section = this.sections.get("transparency");
+      if (!section) {
+        return;
+      }
+      this.transparencyForm.replaceChildren(
+        this.createFormGroup(
+          "\u89C6\u9891\u4E3B\u7EBF\u6807\u7B7E",
+          "\u8FD9\u4E24\u7C7B\u6807\u7B7E\u5C5E\u4E8E QoL Core \u4E3B\u7EBF\u80FD\u529B\u3002\u900F\u660E\u6A21\u5F0F\u4F1A\u4ECE\u9AD8\u7EAF\u5EA6\u80F6\u56CA\u6539\u6210\u66F4\u514B\u5236\u7684 Liquid Glass \u8868\u73B0\uFF0C\u9ED8\u8BA4\u4FDD\u6301\u5173\u95ED\uFF0C\u786E\u4FDD\u5347\u7EA7\u540E\u73B0\u6709\u89C6\u89C9\u4E0D\u53D8\u3002",
+          this.createFieldGrid([
+            this.createCheckbox(
+              "\u6807\u9898\u5546\u4E1A\u6807\u7B7E\u4F7F\u7528\u900F\u660E\u6A21\u5F0F",
+              "\u7528\u4E8E\u89C6\u9891\u6807\u9898\u524D\u7684\u6574\u89C6\u9891\u80F6\u56CA\u3002\u5F00\u542F\u540E\u4F1A\u4FDD\u7559\u5206\u7C7B\u8272\u503E\u5411\uFF0C\u4F46\u628A\u7EAF\u8272\u586B\u5145\u6539\u4E3A\u66F4\u8F7B\u7684\u73BB\u7483\u67D3\u8272\uFF0C\u51CF\u5C11\u5BF9\u6807\u9898\u9605\u8BFB\u7684\u5E72\u6270\u3002",
+              transparency.titleBadge,
+              (checked) => __async(this, null, function* () {
+                yield this.callbacks.onPatchConfig({
+                  labelTransparency: __spreadProps(__spreadValues({}, this.config.labelTransparency), {
+                    titleBadge: checked
+                  })
+                });
+              })
+            ),
+            this.createCheckbox(
+              "\u5C01\u9762\u80F6\u56CA\u6807\u7B7E\u4F7F\u7528\u900F\u660E\u6A21\u5F0F",
+              "\u7528\u4E8E\u9996\u9875\u3001\u641C\u7D22\u3001\u4FA7\u680F\u5361\u7247\u4E0A\u7684\u6574\u89C6\u9891\u6807\u7B7E\u3002\u5F00\u542F\u540E\u4ECD\u4FDD\u7559\u60AC\u6D6E\u5C55\u5F00\u4E0E\u53EF\u8BFB\u6027\uFF0C\u4F46\u4F1A\u964D\u4F4E\u5BF9\u5C01\u9762\u4E3B\u4F53\u7684\u89C6\u89C9\u538B\u5236\u3002",
+              transparency.thumbnailLabel,
+              (checked) => __async(this, null, function* () {
+                yield this.callbacks.onPatchConfig({
+                  labelTransparency: __spreadProps(__spreadValues({}, this.config.labelTransparency), {
+                    thumbnailLabel: checked
+                  })
+                });
+              })
+            )
+          ])
+        ),
+        this.createFormGroup(
+          "\u7AD9\u5185\u589E\u5F3A\u6807\u7B7E",
+          "\u8FD9\u4E09\u7C7B\u6807\u7B7E\u66F4\u504F\u63D0\u793A\u6027\u8D28\uFF0C\u4E0D\u5EFA\u8BAE\u5F3A\u7ED1\u6210\u4E00\u4E2A\u603B\u5F00\u5173\u3002\u5206\u9879\u63A7\u5236\u53EF\u4EE5\u8BA9\u4F60\u53EA\u7ED9\u201C\u8FC7\u4E8E\u663E\u773C\u201D\u7684\u6807\u7B7E\u964D\u566A\uFF0C\u800C\u4E0D\u727A\u7272\u5176\u4ED6\u63D0\u9192\u80FD\u529B\u3002",
+          this.createFieldGrid([
+            this.createCheckbox(
+              "\u8BC4\u8BBA\u5E7F\u544A\u6807\u7B7E\u4F7F\u7528\u900F\u660E\u6A21\u5F0F",
+              "\u7528\u4E8E\u8BC4\u8BBA\u533A\u5E26\u8D27\u3001\u4FC3\u9500\u3001\u7591\u4F3C\u5E7F\u544A\u7B49\u6807\u7B7E\u3002\u5F00\u542F\u540E\u4F1A\u5F31\u5316\u6574\u5757\u80CC\u666F\u5B58\u5728\u611F\uFF0C\u628A\u6CE8\u610F\u529B\u66F4\u591A\u8FD8\u7ED9\u8BC4\u8BBA\u6B63\u6587\u3002",
+              transparency.commentBadge,
+              (checked) => __async(this, null, function* () {
+                yield this.callbacks.onPatchConfig({
+                  labelTransparency: __spreadProps(__spreadValues({}, this.config.labelTransparency), {
+                    commentBadge: checked
+                  })
+                });
+              })
+            ),
+            this.createCheckbox(
+              "\u8BC4\u8BBA\u5C5E\u5730\u6807\u7B7E\u4F7F\u7528\u900F\u660E\u6A21\u5F0F",
+              "\u7528\u4E8E\u8BC4\u8BBA\u53D1\u5E03\u65F6\u95F4\u65C1\u7684 IP \u5C5E\u5730\u80F6\u56CA\u3002\u8FD9\u4E2A\u573A\u666F\u6700\u5BB9\u6613\u6253\u65AD\u6B63\u6587\u9605\u8BFB\uFF0C\u6240\u4EE5\u5355\u72EC\u7ED9\u5F00\u5173\uFF0C\u9ED8\u8BA4\u5173\u95ED\u3002",
+              transparency.commentLocation,
+              (checked) => __async(this, null, function* () {
+                yield this.callbacks.onPatchConfig({
+                  labelTransparency: __spreadProps(__spreadValues({}, this.config.labelTransparency), {
+                    commentLocation: checked
+                  })
+                });
+              })
+            ),
+            this.createCheckbox(
+              "\u52A8\u6001\u9875\u5546\u4E1A\u6807\u7B7E\u4F7F\u7528\u900F\u660E\u6A21\u5F0F",
+              "\u7528\u4E8E\u52A8\u6001\u9875\u201C\u5E26\u8D27\u52A8\u6001 / \u7591\u4F3C\u5E7F\u544A\u201D\u7B49\u6807\u7B7E\u3002\u5F00\u542F\u540E\u4ECD\u4FDD\u7559\u5F3A\u8C03\u70B9\u4E0E\u8F6E\u5ED3\uFF0C\u4F46\u4F1A\u660E\u663E\u964D\u4F4E\u7EAF\u8272\u5757\u5E26\u6765\u7684\u62A2\u773C\u611F\u3002",
+              transparency.dynamicBadge,
+              (checked) => __async(this, null, function* () {
+                yield this.callbacks.onPatchConfig({
+                  labelTransparency: __spreadProps(__spreadValues({}, this.config.labelTransparency), {
+                    dynamicBadge: checked
+                  })
+                });
+              })
+            )
+          ])
+        ),
+        this.createInfoBox(
+          "\u8BBE\u8BA1\u8BF4\u660E",
+          "\u8FD9\u91CC\u7684\u201C\u900F\u660E\u201D\u4E0D\u662F\u7B80\u5355\u8C03\u4F4E opacity\uFF0C\u800C\u662F\u6539\u4E3A\u66F4\u4F4E\u4FB5\u5165\u7684 Liquid Glass\uFF1A\u8F7B\u67D3\u8272\u3001\u9AD8\u5149\u3001\u8FB9\u7F18\u63CF\u7EBF\u3001\u53D7\u63A7\u6A21\u7CCA\uFF0C\u5E76\u4F18\u5148\u4FDD\u8BC1\u6587\u5B57\u53EF\u8BFB\u6027\u3002"
+        )
+      );
+      section.replaceChildren(
+        this.createSectionHeading(
+          "\u6807\u7B7E\u900F\u660E\u5EA6",
+          "\u96C6\u4E2D\u7BA1\u7406\u6240\u6709\u80F6\u56CA\u6807\u7B7E\u7684\u900F\u660E\u6A21\u5F0F\u3002\u9ED8\u8BA4\u5168\u90E8\u5173\u95ED\uFF0C\u4FDD\u8BC1\u73B0\u6709\u7528\u6237\u5347\u7EA7\u540E\u4E0D\u4F1A\u88AB\u5F3A\u5236\u6539\u53D8\u89C6\u89C9\u98CE\u683C\u3002"
+        ),
+        this.transparencyForm
+      );
+    }
+    renderMbga() {
+      const mbgaFields = [
+        this.createCheckbox(
+          "\u542F\u7528\u751F\u6001\u51C0\u5316 (MBGA)",
+          "\u603B\u5F00\u5173\u3002\u5F00\u542F\u540E\u5C06\u6CE8\u5165\u7F51\u7EDC\u62E6\u622A\u5C42\u53CA\u6837\u5F0F\u4F18\u5316\u8865\u4E01\uFF0C\u8FD8\u4F60\u4E00\u4E2A\u66F4\u5E72\u51C0\u3001\u9AD8\u6548\u7684 B \u7AD9\u3002",
+          this.config.mbgaEnabled,
+          (checked) => __async(this, null, function* () {
+            yield this.callbacks.onPatchConfig({ mbgaEnabled: checked });
+          }),
+          true
+        ),
+        this.createCheckbox(
+          "\u5C4F\u853D\u9690\u79C1\u8FFD\u8E2A\u4E0E\u884C\u4E3A\u4E0A\u62A5",
+          "\u62E6\u622A data.bilibili.com / cm.bilibili.com \u7B49\u9065\u6D4B\u8BF7\u6C42\uFF0C\u4FDD\u62A4\u4E2A\u4EBA\u9690\u79C1\u3002",
+          this.config.mbgaBlockTracking,
+          (checked) => __async(this, null, function* () {
+            yield this.callbacks.onPatchConfig({ mbgaBlockTracking: checked });
+          }),
+          true
+        ),
+        this.createCheckbox(
+          "\u9501\u5B9A\u6700\u9AD8\u753B\u8D28\u4E0E\u76F4\u8FDE\u5B98\u65B9\u6E90",
+          "\u5F3A\u5236\u76F4\u64AD\u539F\u753B\uFF0C\u5E76\u7981\u7528 Mcdn / P2P \u6280\u672F\uFF0C\u51CF\u5C11\u672C\u5730\u8D44\u6E90\u5360\u7528\u4E0E\u53D1\u70ED\u3002",
+          this.config.mbgaDisablePcdn,
+          (checked) => __async(this, null, function* () {
+            yield this.callbacks.onPatchConfig({ mbgaDisablePcdn: checked });
+          }),
+          true
+        ),
+        this.createCheckbox(
+          "\u6E05\u7406\u5730\u5740\u680F\u8FFD\u8E2A\u53C2\u6570",
+          "\u81EA\u52A8\u79FB\u9664 URL \u4E2D spm_id_from, vd_source \u7B49\u8FFD\u8E2A\u53C2\u6570\u3002",
+          this.config.mbgaCleanUrl,
+          (checked) => __async(this, null, function* () {
+            yield this.callbacks.onPatchConfig({ mbgaCleanUrl: checked });
+          }),
+          true
+        ),
+        this.createCheckbox(
+          "\u6DF1\u5EA6\u7F51\u9875\u51C0\u5316\u4E0E\u7B80\u5316",
+          "\u79FB\u9664\u5E7F\u544A\u63D0\u793A\u3001\u9ED1\u767D\u6EE4\u955C\u3001\u89E3\u9664\u590D\u5236\u9650\u5236\u3001\u52A8\u6001\u5BBD\u5C4F\u9002\u914D\u7B49 UI \u8865\u4E01\u3002",
+          this.config.mbgaSimplifyUi,
+          (checked) => __async(this, null, function* () {
+            yield this.callbacks.onPatchConfig({ mbgaSimplifyUi: checked });
+          }),
+          true
+        )
+      ];
+      const section = this.sections.get("mbga");
+      if (!section) {
+        return;
+      }
+      section.replaceChildren(
+        this.createSectionHeading(
+          "\u751F\u6001\u51C0\u5316 (MBGA)",
+          "\u590D\u523B\u81EA\u7ECF\u5178\u7684 MBGA \u811A\u672C\uFF0C\u65E8\u5728\u901A\u8FC7\u7F51\u7EDC\u5C42\u52AB\u6301\u4E0E\u539F\u751F\u7F51\u9875\u91CD\u6784\uFF0C\u8FD8\u4F60\u4E00\u4E2A\u5E72\u51C0\u3001\u9AD8\u6548\u4E14\u79C1\u5BC6\u7684 B \u7AD9\u3002"
+        ),
+        this.createFormGroup(
+          "\u529F\u80FD\u5F00\u5173",
+          "\u6240\u6709\u6539\u52A8\u5747\u7ECF\u8FC7\u5B89\u5168\u5BA1\u8BA1\uFF0C\u65E8\u5728\u4FDD\u8BC1 QoL Core \u6838\u5FC3\u529F\u80FD\u4E0D\u88AB\u5E72\u6270\u7684\u524D\u63D0\u4E0B\uFF0C\u6700\u5927\u9650\u5EA6\u91CA\u653E\u672C\u5730\u7B97\u529B\u3002\u5F00\u542F\u540E\u8BF7\u5237\u65B0\u9875\u9762\u4EE5\u5B8C\u5168\u751F\u6548\u3002",
+          this.createFieldGrid(mbgaFields)
+        )
+      );
+    }
+    renderHelp() {
+      var _a;
+      const children = [
+        this.createSectionHeading("\u5E2E\u52A9\u4E0E\u53CD\u9988", "\u8FD9\u91CC\u8BF4\u660E\u811A\u672C\u5728\u9875\u9762\u4E0A\u4F1A\u770B\u5230\u4EC0\u4E48\uFF0C\u4EE5\u53CA\u5982\u4F55\u5224\u65AD\u6807\u7B7E\u662F\u5426\u5DE5\u4F5C\u6B63\u5E38\u3002"),
+        this.createFeatureGrid(
+          [
+            {
+              title: "\u6807\u9898\u524D\u5546\u4E1A\u6807\u7B7E",
+              value: "\u89C6\u9891\u9875",
+              description: "\u5F53\u6574\u4E2A\u89C6\u9891\u6709\u793E\u533A full \u6807\u7B7E\u3001\u6574\u89C6\u9891\u6807\u7B7E\u63A5\u53E3\u7ED3\u679C\u6216\u672C\u5730\u63A8\u7406\u7ED3\u679C\u65F6\uFF0C\u4F1A\u5728\u6807\u9898\u524D\u663E\u793A\u5F69\u8272\u80F6\u56CA\uFF1B\u53EA\u6709\u5E26\u771F\u5B9E UUID \u7684\u793E\u533A full \u6807\u7B7E\u53EF\u63D0\u4EA4\u4E0A\u6E38\u53CD\u9988\u3002"
+            },
+            {
+              title: "\u7F29\u7565\u56FE\u9876\u90E8\u5C45\u4E2D\u6807\u7B7E",
+              value: "\u9996\u9875 / \u641C\u7D22 / \u4FA7\u680F",
+              description: "\u5BF9\u6574\u89C6\u9891\u5546\u4E1A\u6807\u7B7E\u7684\u89C6\u9891\u5361\u7247\u663E\u793A\u77ED\u6807\u7B7E\uFF0C\u60AC\u6D6E\u65F6\u4EE5\u66F4\u5B8C\u6574\u7684\u80F6\u56CA\u5F62\u5F0F\u5C55\u5F00\u3002"
+            },
+            {
+              title: "\u7D27\u51D1\u89C6\u9891\u9876\u90E8\u680F",
+              value: "\u89C6\u9891\u9875",
+              description: "\u7528\u4E8E\u5728\u89C6\u9891\u9875\u4FDD\u7559\u641C\u7D22\u4E0E\u4E2A\u4EBA\u5165\u53E3\uFF0C\u907F\u514D\u539F\u751F\u9876\u90E8\u680F\u8FC7\u9AD8\u6216\u7559\u51FA\u4E0D\u5FC5\u8981\u7684\u7A7A\u767D\u3002"
+            },
+            {
+              title: "\u8BC4\u8BBA\u533A\u5C5E\u5730\u663E\u793A\uFF08\u5F00\u76D2\uFF09",
+              value: "\u8BC4\u8BBA\u533A",
+              description: "\u5F53\u8BC4\u8BBA\u6570\u636E\u672C\u8EAB\u643A\u5E26 IP \u5C5E\u5730\u65F6\uFF0C\u4F1A\u5728\u8BC4\u8BBA\u53D1\u5E03\u65F6\u95F4\u65C1\u76F4\u63A5\u5C55\u793A\u3002\u8BE5\u529F\u80FD\u57FA\u4E8E mscststs \u7684\u300CB\u7AD9\u8BC4\u8BBA\u533A\u5F00\u76D2\u300D\u601D\u8DEF\u9002\u914D\u3002"
+            }
+          ],
+          "bsb-tm-help-grid"
+        ),
+        this.createLinkGroup([
+          {
+            label: "\u5F53\u524D\u811A\u672C\u4ED3\u5E93",
+            href: "https://github.com/FilfTeen/bilibili-sponsorblock-userscript"
+          },
+          {
+            label: "\u4E0A\u6E38\u9879\u76EE hanydd/BilibiliSponsorBlock",
+            href: "https://github.com/hanydd/BilibiliSponsorBlock"
+          },
+          {
+            label: "\u53C2\u8003\u811A\u672C mscststs/B\u7AD9\u8BC4\u8BBA\u533A\u5F00\u76D2",
+            href: "https://greasyfork.org/zh-CN/scripts/448434-b\u7AD9\u8BC4\u8BBA\u533A\u5F00\u76D2"
+          },
+          {
+            label: "SponsorBlock \u670D\u52A1\u5668",
+            href: "https://www.bsbsb.top"
+          }
+        ])
+      ];
+      children.push(this.createDeveloperDiagnosticsCard());
+      children.push(
+        this.createInfoBox(
+          "\u81F4\u8C22\u4E0E\u514D\u8D23\u58F0\u660E",
+          `Bilibili QoL Core \u7531 ${AUTHOR_NAME} \u7EF4\u62A4\u3002\u672C\u811A\u672C\u57FA\u4E8E GPL-3.0 \u7684 BilibiliSponsorBlock \u4E0A\u6E38\u5B9E\u73B0\u601D\u8DEF\u79FB\u690D\u800C\u6765\uFF1B\u8BC4\u8BBA\u533A\u5C5E\u5730\u663E\u793A\u529F\u80FD\u53C2\u8003\u5E76\u9002\u914D\u4E86 mscststs \u7684 ISC \u811A\u672C\u300CB\u7AD9\u8BC4\u8BBA\u533A\u5F00\u76D2\u300D\u3002\u6240\u6709\u7247\u6BB5\u548C\u793E\u533A full \u6807\u7B7E\u6765\u81EA\u4E0A\u6E38\u793E\u533A\u8BB0\u5F55\uFF0C\u672C\u5730\u63A8\u7406\u53EA\u4F5C\u4E3A\u8F85\u52A9\u5224\u65AD\uFF0C\u7ED3\u679C\u4EC5\u4F9B\u53C2\u8003\u3002`
+        )
+      );
+      (_a = this.sections.get("help")) == null ? void 0 : _a.replaceChildren(...children);
+    }
+    createDeveloperDiagnosticsCard() {
+      const events = this.diagnosticEvents.slice(-8).reverse();
+      const warnCount = this.diagnosticEvents.filter((event) => event.severity === "warn").length;
+      const errorCount = this.diagnosticEvents.filter((event) => event.severity === "error").length;
+      const card = document.createElement("div");
+      card.className = "bsb-tm-diagnostics-card";
+      const heading = document.createElement("div");
+      heading.className = "bsb-tm-diagnostics-heading";
+      const title = document.createElement("strong");
+      title.textContent = "\u5F00\u53D1\u8005\u8BCA\u65AD";
+      const badge = document.createElement("span");
+      badge.className = "bsb-tm-diagnostics-count";
+      badge.textContent = `${this.diagnosticEvents.length} \u6761 \xB7 ${warnCount} \u8B66\u544A \xB7 ${errorCount} \u9519\u8BEF`;
+      heading.append(title, badge);
+      const debugToggle = document.createElement("label");
+      debugToggle.className = "bsb-tm-diagnostics-debug-toggle";
+      const debugCopy = document.createElement("span");
+      debugCopy.className = "bsb-tm-diagnostics-debug-copy";
+      const debugTitle = document.createElement("strong");
+      debugTitle.textContent = "\u8BE6\u7EC6\u65E5\u5FD7";
+      const debugStatus = document.createElement("small");
+      debugCopy.append(debugTitle, debugStatus);
+      const debugSwitch = document.createElement("input");
+      debugSwitch.type = "checkbox";
+      debugSwitch.className = "bsb-tm-switch";
+      debugSwitch.setAttribute("data-bsb-diagnostics-debug", "true");
+      const updateDebugStatus = () => {
+        const enabled = isDiagnosticDebugEnabled();
+        debugSwitch.checked = enabled;
+        debugStatus.textContent = enabled ? "\u8BE6\u7EC6\u65E5\u5FD7\u5DF2\u5F00\u542F\uFF0C\u4F1A\u8F93\u51FA\u66F4\u591A\u63A7\u5236\u53F0\u8C03\u8BD5\u4FE1\u606F\u3002" : "\u9ED8\u8BA4\u5173\u95ED\u3002\u666E\u901A\u4F7F\u7528\u65E0\u9700\u5F00\u542F\uFF0C\u6392\u67E5\u95EE\u9898\u65F6\u518D\u6253\u5F00\u3002";
+      };
+      debugSwitch.addEventListener("change", () => {
+        setDiagnosticDebugEnabled(debugSwitch.checked);
+        updateDebugStatus();
+      });
+      updateDebugStatus();
+      debugToggle.append(debugCopy, debugSwitch);
+      const description = document.createElement("p");
+      description.className = "bsb-tm-section-description";
+      description.textContent = "\u8BCA\u65AD\u62A5\u544A\u53EA\u4FDD\u7559\u6700\u8FD1\u4E8B\u4EF6\uFF0C\u5E76\u4F1A\u81EA\u52A8\u6E05\u6D17\u7528\u6237 ID\u3001\u8BC4\u8BBA\u539F\u6587\u3001token \u7B49\u654F\u611F\u5B57\u6BB5\u3002";
+      const list = document.createElement("div");
+      list.className = "bsb-tm-diagnostics-list";
+      if (events.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "bsb-tm-diagnostics-empty";
+        empty.textContent = "\u6682\u65E0\u8BCA\u65AD\u4E8B\u4EF6\u3002\u590D\u5236\u62A5\u544A\u4ECD\u4F1A\u5305\u542B\u7248\u672C\u3001\u9875\u9762\u3001\u6D4F\u89C8\u5668\u548C debug \u72B6\u6001\u3002";
+        list.appendChild(empty);
+      } else {
+        for (const event of events) {
+          const item = document.createElement("article");
+          item.className = "bsb-tm-diagnostics-item";
+          item.dataset.severity = event.severity;
+          const meta = document.createElement("small");
+          meta.textContent = `${event.severity} / ${event.area} \xB7 ${new Date(event.at).toLocaleTimeString()}`;
+          const message = document.createElement("strong");
+          message.textContent = event.message;
+          item.append(meta, message);
+          if (event.detail) {
+            const detail = document.createElement("code");
+            detail.textContent = event.detail;
+            item.appendChild(detail);
+          }
+          list.appendChild(item);
+        }
+      }
+      const actions = document.createElement("div");
+      actions.className = "bsb-tm-diagnostics-actions";
+      const copyButton = document.createElement("button");
+      copyButton.type = "button";
+      copyButton.className = "bsb-tm-button secondary compact";
+      copyButton.textContent = "\u590D\u5236\u8BCA\u65AD\u62A5\u544A";
+      copyButton.setAttribute("data-bsb-diagnostics-copy", "true");
+      copyButton.addEventListener("click", () => {
+        void this.copyDiagnosticReport(copyButton);
+      });
+      const clearButton = document.createElement("button");
+      clearButton.type = "button";
+      clearButton.className = "bsb-tm-button secondary compact";
+      clearButton.textContent = "\u6E05\u7A7A";
+      clearButton.setAttribute("data-bsb-diagnostics-clear", "true");
+      clearButton.disabled = this.diagnosticEvents.length === 0;
+      clearButton.addEventListener("click", () => {
+        clearDiagnostics();
+        this.renderHelp();
+      });
+      actions.append(copyButton, clearButton);
+      card.append(heading, debugToggle, description, list, actions);
+      return card;
+    }
+    copyDiagnosticReport(button) {
+      return __async(this, null, function* () {
+        var _a;
+        const originalText = (_a = button.textContent) != null ? _a : "\u590D\u5236\u8BCA\u65AD\u62A5\u544A";
+        try {
+          const clipboard = navigator.clipboard;
+          if (!clipboard || typeof clipboard.writeText !== "function") {
+            throw new Error("Clipboard API unavailable");
+          }
+          yield clipboard.writeText(formatDiagnosticReport());
+          button.textContent = "\u5DF2\u590D\u5236";
+        } catch (error) {
+          button.textContent = "\u590D\u5236\u5931\u8D25";
+          reportDiagnostic({
+            severity: "warn",
+            area: "ui",
+            message: "\u8BCA\u65AD\u62A5\u544A\u590D\u5236\u5931\u8D25",
+            detail: error
+          });
+        } finally {
+          window.setTimeout(() => {
+            button.textContent = originalText;
+          }, 1400);
+        }
+      });
+    }
+    setActiveTab(tab, options) {
+      var _a, _b;
+      if (!(options == null ? void 0 : options.skipRemember)) {
+        this.rememberActiveScroll();
+      }
+      this.activeTab = tab;
+      for (const button of this.nav.querySelectorAll("[data-tab]")) {
+        const active = button.dataset.tab === tab;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-selected", String(active));
+      }
+      for (const [sectionTab, section] of this.sections) {
+        const active = sectionTab === tab;
+        section.hidden = !active;
+        section.setAttribute("aria-hidden", String(!active));
+        section.dataset.active = String(active);
+      }
+      this.content.scrollTop = (options == null ? void 0 : options.preserveScroll) ? (_b = (_a = options.scrollTop) != null ? _a : this.contentScrollByTab[tab]) != null ? _b : 0 : 0;
+    }
+    beginInlineControlUpdate() {
+      this.inlineControlUpdateDepth += 1;
+      return () => {
+        this.inlineControlUpdateDepth = Math.max(0, this.inlineControlUpdateDepth - 1);
+      };
+    }
+    createTabButton(tab) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "bsb-tm-tab-button";
+      button.dataset.tab = tab;
+      button.setAttribute("aria-controls", `${this.panelId}-section-${tab}`);
+      const title = document.createElement("strong");
+      title.className = "bsb-tm-tab-title";
+      title.textContent = TAB_LABELS[tab];
+      const description = document.createElement("small");
+      description.className = "bsb-tm-tab-description";
+      description.textContent = TAB_DESCRIPTIONS[tab];
+      button.append(title, description);
+      let pointerDrivenActivation = false;
+      button.addEventListener("pointerdown", () => {
+        pointerDrivenActivation = true;
+        button.dataset.pointerFocus = "true";
+      });
+      button.addEventListener("keydown", () => {
+        pointerDrivenActivation = false;
+        delete button.dataset.pointerFocus;
+      });
+      button.addEventListener("blur", () => {
+        pointerDrivenActivation = false;
+        delete button.dataset.pointerFocus;
+      });
+      button.addEventListener("click", () => {
+        var _a;
+        this.setActiveTab(tab, { preserveScroll: true, scrollTop: (_a = this.contentScrollByTab[tab]) != null ? _a : 0 });
+        if (pointerDrivenActivation) {
+          button.blur();
+          pointerDrivenActivation = false;
+          delete button.dataset.pointerFocus;
+        }
+      });
+      return button;
+    }
+    bindPointerFocusSuppression(container, control) {
+      const group = container.closest(".bsb-tm-form-group");
+      const markPointerFocus = () => {
+        container.dataset.pointerFocus = "true";
+        if (group) {
+          group.dataset.pointerFocus = "true";
+        }
+      };
+      const clearPointerFocus = () => {
+        delete container.dataset.pointerFocus;
+        if (group) {
+          delete group.dataset.pointerFocus;
+        }
+      };
+      control.addEventListener("pointerdown", markPointerFocus);
+      control.addEventListener("mousedown", markPointerFocus);
+      control.addEventListener("keydown", clearPointerFocus);
+      control.addEventListener("blur", clearPointerFocus);
+    }
+    createCheckbox(labelText, helpText, checked, onChange, needsRefresh = false) {
+      const label = document.createElement("label");
+      label.className = "bsb-tm-field bsb-tm-field-toggle";
+      label.dataset.controlState = checked ? "on" : "off";
+      const copy = document.createElement("div");
+      copy.className = "bsb-tm-field-copy";
+      const title = document.createElement("span");
+      title.className = "bsb-tm-field-title";
+      title.textContent = labelText;
+      if (needsRefresh) {
+        const hint = document.createElement("span");
+        hint.className = "bsb-tm-refresh-hint";
+        hint.textContent = "\u9700\u5237\u65B0";
+        title.appendChild(hint);
+      }
+      const help = document.createElement("small");
+      help.className = "bsb-tm-field-help";
+      help.textContent = helpText;
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.className = "bsb-tm-switch";
+      input.setAttribute("role", "switch");
+      input.checked = checked;
+      this.bindPointerFocusSuppression(label, input);
+      let saving = false;
+      let savingChecked = checked;
+      input.addEventListener("change", () => __async(this, null, function* () {
+        if (saving) {
+          input.checked = savingChecked;
+          return;
+        }
+        const nextChecked = input.checked;
+        const previousChecked = !nextChecked;
+        saving = true;
+        savingChecked = nextChecked;
+        label.dataset.controlState = nextChecked ? "on" : "off";
+        label.dataset.controlSaving = "true";
+        input.setAttribute("aria-busy", "true");
+        const finishInlineUpdate = this.beginInlineControlUpdate();
+        try {
+          yield onChange(nextChecked);
+        } catch (error) {
+          input.checked = previousChecked;
+          savingChecked = previousChecked;
+          label.dataset.controlState = previousChecked ? "on" : "off";
+          this.markControlError(label);
+          reportDiagnostic({
+            severity: "warn",
+            area: "storage",
+            message: `${labelText} \u4FDD\u5B58\u5931\u8D25\uFF0C\u5DF2\u56DE\u9000`,
+            detail: error
+          });
+        } finally {
+          finishInlineUpdate();
+          saving = false;
+          label.removeAttribute("data-control-saving");
+          input.removeAttribute("aria-busy");
+        }
+      }));
+      copy.append(title, help);
+      label.append(copy, input);
+      return label;
+    }
+    createInput(labelText, helpText, value, onCommit) {
+      const wrapper = document.createElement("label");
+      wrapper.className = "bsb-tm-field stacked";
+      wrapper.append(this.createInputLabel(labelText, helpText));
+      const input = document.createElement("input");
+      input.type = "text";
+      input.value = value;
+      input.spellcheck = false;
+      input.addEventListener("change", () => __async(this, null, function* () {
+        yield onCommit(input.value.trim());
+      }));
+      wrapper.append(input);
+      return wrapper;
+    }
+    createRegexPatternInput() {
+      const wrapper = document.createElement("label");
+      wrapper.className = "bsb-tm-field stacked";
+      wrapper.append(
+        this.createInputLabel("\u52A8\u6001\u5173\u952E\u8BCD\u6B63\u5219", "\u7528\u4E8E\u8BC6\u522B\u5E26\u8D27\u3001\u4FC3\u9500\u6216\u7591\u4F3C\u5E7F\u544A\u63AA\u8F9E\u3002\u4FDD\u7559\u9ED8\u8BA4\u503C\u901A\u5E38\u66F4\u7A33\u3002")
+      );
+      const input = document.createElement("input");
+      input.type = "text";
+      input.value = this.config.dynamicRegexPattern;
+      input.spellcheck = false;
+      if (this.filterValidationMessage) {
+        input.setAttribute("aria-invalid", "true");
+      }
+      input.addEventListener("change", () => __async(this, null, function* () {
+        var _a;
+        const nextValue = input.value.trim();
+        const validation = validateStoredPattern(nextValue);
+        if (!validation.valid) {
+          this.filterValidationMessage = (_a = validation.error) != null ? _a : "\u6B63\u5219\u683C\u5F0F\u65E0\u6548";
+          this.renderFilters();
+          return;
+        }
+        this.filterValidationMessage = null;
+        try {
+          yield this.callbacks.onPatchConfig({ dynamicRegexPattern: nextValue });
+        } catch (_error) {
+          this.filterValidationMessage = "\u6B63\u5219\u4FDD\u5B58\u5931\u8D25";
+          this.renderFilters();
+        }
+      }));
+      wrapper.append(input);
+      return wrapper;
+    }
+    createSelect(labelText, value, options, onCommit, helpText) {
+      const wrapper = document.createElement("label");
+      wrapper.className = "bsb-tm-field stacked";
+      wrapper.append(this.createInputLabel(labelText, helpText));
+      const select = document.createElement("select");
+      for (const [optionValue, optionLabel] of Object.entries(options)) {
+        const option = document.createElement("option");
+        option.value = optionValue;
+        option.textContent = optionLabel;
+        option.selected = optionValue === value;
+        select.appendChild(option);
+      }
+      let pointerDrivenSelection = false;
+      select.addEventListener("pointerdown", () => {
+        pointerDrivenSelection = true;
+      });
+      this.bindPointerFocusSuppression(wrapper, select);
+      select.addEventListener("change", () => __async(this, null, function* () {
+        const finishInlineUpdate = this.beginInlineControlUpdate();
+        try {
+          yield onCommit(select.value);
+          if (pointerDrivenSelection) {
+            select.blur();
+          }
+        } catch (error) {
+          select.value = value;
+          this.markControlError(wrapper);
+          reportDiagnostic({
+            severity: "warn",
+            area: "storage",
+            message: `${labelText} \u4FDD\u5B58\u5931\u8D25\uFF0C\u5DF2\u56DE\u9000`,
+            detail: error
+          });
+        } finally {
+          pointerDrivenSelection = false;
+          finishInlineUpdate();
+        }
+      }));
+      wrapper.append(select);
+      return wrapper;
+    }
+    createNumberInput(labelText, helpText, value, onCommit) {
+      const wrapper = document.createElement("label");
+      wrapper.className = "bsb-tm-field stacked";
+      wrapper.append(this.createInputLabel(labelText, helpText));
+      const input = document.createElement("input");
+      input.type = "number";
+      input.value = String(value);
+      input.min = "0";
+      input.step = "1";
+      input.addEventListener("change", () => __async(this, null, function* () {
+        yield onCommit(Number(input.value));
+      }));
+      wrapper.append(input);
+      return wrapper;
+    }
+    createColorPalette(overrides) {
+      const grid = document.createElement("div");
+      grid.className = "bsb-tm-color-grid";
+      for (const category of CATEGORY_ORDER) {
+        grid.appendChild(this.createColorInput(category, resolveCategoryAccent(category, overrides)));
+      }
+      return grid;
+    }
+    createColorInput(category, value) {
+      return this.createDraftColorInput({
+        label: CATEGORY_LABELS[category],
+        value,
+        fallbackValue: CATEGORY_COLORS[category],
+        preview: {
+          kind: "category",
+          category,
+          description: CATEGORY_DESCRIPTIONS[category]
+        },
+        onCommit: (normalized) => __async(this, null, function* () {
+          yield this.callbacks.onPatchConfig({
+            categoryColorOverrides: __spreadProps(__spreadValues({}, this.config.categoryColorOverrides), {
+              [category]: normalized
+            })
+          });
+        })
+      });
+    }
+    createCustomColorInput(labelText, helpText, value, onCommit) {
+      const isLocation = labelText.includes("IP");
+      const wrapper = document.createElement("div");
+      wrapper.className = "bsb-tm-field stacked";
+      wrapper.append(this.createInputLabel(labelText, helpText));
+      wrapper.append(this.createDraftColorInput({
+        label: isLocation ? "IP \u5C5E\u5730" : "\u8BC4\u8BBA\u5E7F\u544A",
+        value,
+        fallbackValue: value,
+        preview: {
+          kind: "inline",
+          text: isLocation ? "IP \u5C5E\u5730" : "\u8BC4\u8BBA\u5E7F\u544A",
+          tone: isLocation ? "info" : "danger",
+          appearance: (isLocation ? this.config.labelTransparency.commentLocation : this.config.labelTransparency.commentBadge) ? "glass" : "solid",
+          description: isLocation ? "\u8BC4\u8BBA\u533A IP \u5C5E\u5730\u6807\u7B7E\uFF0C\u7528\u4E8E\u663E\u793A\u8BC4\u8BBA payload \u81EA\u5E26\u5C5E\u5730\u4FE1\u606F\u3002" : "\u8BC4\u8BBA\u5E7F\u544A\u6807\u7B7E\uFF0C\u7528\u4E8E\u6807\u51FA\u5E7F\u544A\u3001\u5E26\u8D27\u6216\u53EF\u7591\u4FC3\u9500\u8BC4\u8BBA\u3002"
+        },
+        onCommit
+      }, true));
+      return wrapper;
+    }
+    createDraftColorInput(options, compact = false) {
+      var _a, _b;
+      let savedValue = (_b = (_a = normalizeHexColor(options.value)) != null ? _a : normalizeHexColor(options.fallbackValue)) != null ? _b : "#60a5fa";
+      const field = document.createElement("div");
+      field.className = "bsb-tm-color-field";
+      field.dataset.colorEditor = "true";
+      field.dataset.colorDirty = "false";
+      if (compact) {
+        field.classList.add("compact");
+      }
+      const preview = document.createElement("div");
+      preview.className = "bsb-tm-color-preview-card";
+      const previewBadgeSlot = document.createElement("span");
+      previewBadgeSlot.className = "bsb-tm-color-preview-badge";
+      const previewDescription = document.createElement("small");
+      previewDescription.className = "bsb-tm-color-preview-description";
+      previewDescription.textContent = options.preview.description;
+      preview.append(previewBadgeSlot, previewDescription);
+      const editorRow = document.createElement("div");
+      editorRow.className = "bsb-tm-color-editor-row";
+      const controls = document.createElement("div");
+      controls.className = "bsb-tm-color-controls";
+      const swatch = document.createElement("input");
+      swatch.type = "color";
+      swatch.value = savedValue;
+      swatch.setAttribute("aria-label", `${options.label}\u989C\u8272`);
+      const textInput = document.createElement("input");
+      textInput.type = "text";
+      textInput.value = savedValue;
+      textInput.spellcheck = false;
+      textInput.setAttribute("aria-label", `${options.label}\u989C\u8272\u503C`);
+      const actions = document.createElement("div");
+      actions.className = "bsb-tm-color-actions";
+      actions.hidden = true;
+      const applyButton = document.createElement("button");
+      applyButton.type = "button";
+      applyButton.className = "bsb-tm-color-action primary";
+      applyButton.textContent = "\u5E94\u7528";
+      const cancelButton = document.createElement("button");
+      cancelButton.type = "button";
+      cancelButton.className = "bsb-tm-color-action secondary";
+      cancelButton.textContent = "\u53D6\u6D88";
+      let draftValue = savedValue;
+      let isCommitting = false;
+      const renderPreview = (nextValue) => {
+        previewBadgeSlot.replaceChildren(this.createColorPreviewBadge(options.preview, nextValue));
+      };
+      const updatePreview = (nextValue, previewOptions) => {
+        draftValue = nextValue;
+        swatch.value = nextValue;
+        if ((previewOptions == null ? void 0 : previewOptions.syncText) !== false) {
+          textInput.value = nextValue;
+        }
+        renderPreview(nextValue);
+      };
+      const updateButtons = () => {
+        const isDirty = draftValue !== savedValue;
+        const isValid = normalizeHexColor(textInput.value) !== null;
+        field.dataset.colorDirty = String(isDirty);
+        actions.hidden = !isDirty;
+        applyButton.disabled = isCommitting || !isDirty || !isValid;
+        cancelButton.disabled = isCommitting || !isDirty;
+      };
+      const resetDraft = () => {
+        updatePreview(savedValue);
+        updateButtons();
+      };
+      const commitDraft = () => __async(this, null, function* () {
+        const normalized = normalizeHexColor(textInput.value);
+        if (!normalized || normalized === savedValue || isCommitting) {
+          updateButtons();
+          return;
+        }
+        isCommitting = true;
+        updateButtons();
+        try {
+          yield options.onCommit(normalized);
+          savedValue = normalized;
+          updatePreview(savedValue);
+        } catch (error) {
+          this.markControlError(field);
+          reportDiagnostic({
+            severity: "warn",
+            area: "storage",
+            message: `${options.label} \u989C\u8272\u4FDD\u5B58\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u8349\u7A3F`,
+            detail: error
+          });
+        } finally {
+          isCommitting = false;
+          updateButtons();
+        }
+      });
+      swatch.addEventListener("input", () => {
+        var _a2;
+        updatePreview((_a2 = normalizeHexColor(swatch.value)) != null ? _a2 : savedValue);
+        updateButtons();
+      });
+      swatch.addEventListener("focus", () => {
+        renderPreview(draftValue);
+      });
+      swatch.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          event.stopPropagation();
+          void commitDraft();
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          resetDraft();
+        }
+      });
+      textInput.addEventListener("input", () => {
+        const normalized = normalizeHexColor(textInput.value);
+        if (normalized) {
+          updatePreview(normalized, { syncText: false });
+        }
+        updateButtons();
+      });
+      textInput.addEventListener("focus", () => {
+        renderPreview(draftValue);
+      });
+      textInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          event.stopPropagation();
+          void commitDraft();
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          resetDraft();
+        }
+      });
+      applyButton.addEventListener("click", () => {
+        void commitDraft();
+      });
+      cancelButton.addEventListener("click", resetDraft);
+      renderPreview(savedValue);
+      updateButtons();
+      actions.append(applyButton, cancelButton);
+      controls.append(swatch, textInput);
+      editorRow.append(controls, actions);
+      field.append(preview, editorRow);
+      return field;
+    }
+    markControlError(element) {
+      element.dataset.controlError = "true";
+      window.setTimeout(() => {
+        delete element.dataset.controlError;
+      }, 2200);
+    }
+    createResetButton(compact) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `bsb-tm-button danger${compact ? " compact" : ""}`;
+      button.textContent = "\u6062\u590D\u9ED8\u8BA4\u8BBE\u7F6E";
+      button.addEventListener("click", () => __async(this, null, function* () {
+        yield this.callbacks.onReset();
+      }));
+      return button;
+    }
+    createHeader() {
+      const header = document.createElement("div");
+      header.className = "bsb-tm-panel-header";
+      const titleWrap = document.createElement("div");
+      titleWrap.className = "bsb-tm-panel-header-copy";
+      const eyebrow = document.createElement("div");
+      eyebrow.className = "bsb-tm-panel-eyebrow";
+      const eyebrowIcon = document.createElement("span");
+      eyebrowIcon.className = "bsb-tm-panel-eyebrow-icon";
+      eyebrowIcon.appendChild(createSponsorShieldIcon());
+      const eyebrowText = document.createElement("span");
+      eyebrowText.textContent = "Video Quality of Life";
+      eyebrow.append(eyebrowIcon, eyebrowText);
+      const title = document.createElement("strong");
+      title.id = "bsb-tm-panel-title";
+      title.textContent = SCRIPT_NAME;
+      const subtitle = document.createElement("div");
+      subtitle.className = "bsb-tm-panel-subtitle";
+      subtitle.textContent = "\u5C3D\u91CF\u8D34\u8FD1\u4E0A\u6E38\u4F53\u9A8C\uFF0C\u5728 B \u7AD9\u9875\u9762\u4E0A\u505A\u6700\u5C11\u91CF\u3001\u6700\u53EF\u89E3\u91CA\u7684\u589E\u5F3A\u3002";
+      titleWrap.append(eyebrow, title, subtitle);
+      const actions = document.createElement("div");
+      actions.className = "bsb-tm-panel-header-actions";
+      const helpButton = document.createElement("button");
+      helpButton.type = "button";
+      helpButton.className = "bsb-tm-button secondary bsb-tm-header-action";
+      helpButton.textContent = "\u5E2E\u52A9";
+      helpButton.addEventListener("click", () => {
+        this.setActiveTab("help");
+      });
+      const closeButton = document.createElement("button");
+      closeButton.type = "button";
+      closeButton.className = "bsb-tm-button secondary bsb-tm-header-action bsb-tm-panel-close";
+      closeButton.textContent = "\u5173\u95ED";
+      closeButton.addEventListener("click", () => {
+        this.close("user");
+      });
+      actions.append(helpButton, closeButton);
+      header.append(titleWrap, actions);
+      return header;
+    }
+    createSection(name) {
+      const section = document.createElement("section");
+      section.className = "bsb-tm-panel-section";
+      section.dataset.section = name;
+      section.dataset.active = "false";
+      section.id = `${this.panelId}-section-${name}`;
+      section.setAttribute("aria-hidden", "true");
+      return section;
+    }
+    createSectionHeading(titleText, descriptionText) {
+      const wrapper = document.createElement("div");
+      wrapper.className = "bsb-tm-section-heading";
+      const title = document.createElement("strong");
+      title.className = "bsb-tm-section-title";
+      title.textContent = titleText;
+      wrapper.appendChild(title);
+      if (descriptionText) {
+        const description = document.createElement("p");
+        description.className = "bsb-tm-section-description";
+        description.textContent = descriptionText;
+        wrapper.appendChild(description);
+      }
+      return wrapper;
+    }
+    createInlineHeading(titleText, descriptionText) {
+      const wrapper = document.createElement("div");
+      wrapper.className = "bsb-tm-inline-heading";
+      const title = document.createElement("strong");
+      title.className = "bsb-tm-section-label";
+      title.textContent = titleText;
+      wrapper.appendChild(title);
+      if (descriptionText) {
+        const description = document.createElement("p");
+        description.className = "bsb-tm-section-description";
+        description.textContent = descriptionText;
+        wrapper.appendChild(description);
+      }
+      return wrapper;
+    }
+    createInputLabel(titleText, helpText) {
+      const wrapper = document.createElement("div");
+      wrapper.className = "bsb-tm-input-label";
+      const title = document.createElement("span");
+      title.className = "bsb-tm-field-title";
+      title.textContent = titleText;
+      wrapper.appendChild(title);
+      if (helpText) {
+        const help = document.createElement("small");
+        help.className = "bsb-tm-field-help";
+        help.textContent = helpText;
+        wrapper.appendChild(help);
+      }
+      return wrapper;
+    }
+    createSummaryLine(labelText, valueText) {
+      const line = document.createElement("div");
+      line.className = "bsb-tm-summary-line";
+      const label = document.createElement("strong");
+      label.textContent = labelText;
+      const value = document.createElement("span");
+      value.textContent = valueText;
+      line.append(label, value);
+      return line;
+    }
+    createValidationMessage(text) {
+      const message = document.createElement("p");
+      message.className = "bsb-tm-validation-message";
+      message.textContent = text;
+      return message;
+    }
+    createFeatureGrid(items, className) {
+      const grid = document.createElement("div");
+      grid.className = className;
+      for (const item of items) {
+        const card = document.createElement("article");
+        card.className = "bsb-tm-feature-card";
+        const title = document.createElement("strong");
+        title.className = "bsb-tm-feature-title";
+        title.textContent = item.title;
+        const value = document.createElement("span");
+        value.className = "bsb-tm-feature-value";
+        value.textContent = item.value;
+        const description = document.createElement("p");
+        description.className = "bsb-tm-section-description";
+        description.textContent = item.description;
+        card.append(title, value, description);
+        grid.appendChild(card);
+      }
+      return grid;
+    }
+    createFieldGrid(items, variant = "default") {
+      const grid = document.createElement("div");
+      grid.className = "bsb-tm-field-grid";
+      if (variant === "single-column") {
+        grid.classList.add("single-column");
+      }
+      for (const item of items) {
+        grid.appendChild(item);
+      }
+      return grid;
+    }
+    createFormGroup(titleText, descriptionText, ...children) {
+      const group = document.createElement("section");
+      group.className = "bsb-tm-form-group";
+      const header = document.createElement("div");
+      header.className = "bsb-tm-form-group-header";
+      const title = document.createElement("strong");
+      title.className = "bsb-tm-section-label";
+      title.textContent = titleText;
+      const description = document.createElement("p");
+      description.className = "bsb-tm-section-description";
+      description.textContent = descriptionText;
+      header.append(title, description);
+      const body = document.createElement("div");
+      body.className = "bsb-tm-form-group-body";
+      body.append(...children);
+      group.append(header, body);
+      return group;
+    }
+    createActionRow(...actions) {
+      const row = document.createElement("div");
+      row.className = "bsb-tm-actions-row";
+      row.append(...actions);
+      return row;
+    }
+    createActionButton(text, variant = "primary", onClick, options) {
+      const { id, confirmText } = options != null ? options : {};
+      const button = document.createElement("button");
+      const originalText = text;
+      button.type = "button";
+      if (id && this.activeFeedbacks.has(id)) {
+        button.className = "bsb-tm-button success";
+        button.textContent = "\u5DF2\u5B8C\u6210";
+        button.disabled = true;
+      } else {
+        button.className = `bsb-tm-button ${variant}`;
+        if (id && confirmText && this.pendingConfirmations.has(id)) {
+          button.textContent = confirmText;
+          button.classList.add("confirming");
+        } else {
+          button.textContent = text;
+        }
+      }
+      button.addEventListener("click", () => __async(this, null, function* () {
+        if (button.disabled) return;
+        if (id && confirmText && !this.pendingConfirmations.has(id)) {
+          this.pendingConfirmations.add(id);
+          button.textContent = confirmText;
+          button.classList.add("confirming");
+          setTimeout(() => {
+            if (this.pendingConfirmations.has(id) && !this.activeFeedbacks.has(id)) {
+              this.pendingConfirmations.delete(id);
+              this.render(true);
+            }
+          }, 3e3);
+          return;
+        }
+        button.disabled = true;
+        try {
+          yield onClick();
+          if (id) {
+            this.pendingConfirmations.delete(id);
+            this.activeFeedbacks.set(id, originalText);
+            this.render(true);
+            setTimeout(() => {
+              this.activeFeedbacks.delete(id);
+              this.render(true);
+            }, 3e3);
+          } else {
+            button.textContent = "\u5DF2\u5B8C\u6210";
+            button.classList.add("success");
+            setTimeout(() => {
+              button.textContent = originalText;
+              button.classList.remove("success");
+              button.disabled = false;
+            }, 3e3);
+          }
+        } catch (e) {
+          button.disabled = false;
+          button.textContent = originalText;
+          if (id) this.pendingConfirmations.delete(id);
+        }
+      }));
+      return button;
+    }
+    createLinkGroup(links) {
+      const group = document.createElement("div");
+      group.className = "bsb-tm-link-group";
+      for (const entry of links) {
+        const anchor = document.createElement("a");
+        anchor.className = "bsb-tm-link-card";
+        anchor.href = entry.href;
+        anchor.target = "_blank";
+        anchor.rel = "noreferrer";
+        anchor.textContent = entry.label;
+        group.appendChild(anchor);
+      }
+      return group;
+    }
+    createInfoBox(titleText, bodyText) {
+      const box = document.createElement("div");
+      box.className = "bsb-tm-info-box";
+      const title = document.createElement("strong");
+      title.textContent = titleText;
+      const body = document.createElement("p");
+      body.className = "bsb-tm-section-description";
+      body.textContent = bodyText;
+      box.append(title, body);
+      return box;
+    }
+    createColorPreviewBadge(spec, color) {
+      const normalized = normalizeHexColor(color);
+      if (!normalized) {
+        const fallback = document.createElement("span");
+        fallback.className = "bsb-tm-color-preview-invalid";
+        fallback.textContent = "\u989C\u8272\u683C\u5F0F\u65E0\u6548";
+        return fallback;
+      }
+      if (spec.kind === "inline") {
+        return createInlineBadge("data-bsb-color-preview-inline", spec.text, spec.tone, "inline", normalized, spec.appearance);
+      }
+      const overrides = { [spec.category]: normalized };
+      const style = resolveCategoryStyle(spec.category, overrides);
+      const wrap = document.createElement("span");
+      const pill = document.createElement("span");
+      const label = document.createElement("span");
+      const glassVariant = this.config.labelTransparency.titleBadge ? style.transparentVariant : "dark";
+      wrap.className = "bsb-tm-title-pill-wrap bsb-tm-color-preview-title-wrap";
+      wrap.dataset.category = spec.category;
+      wrap.dataset.transparent = String(this.config.labelTransparency.titleBadge);
+      wrap.dataset.glassContext = "surface";
+      wrap.dataset.glassVariant = glassVariant;
+      wrap.style.setProperty("--bsb-category-accent", style.accent);
+      wrap.style.setProperty("--bsb-category-accent-strong", style.accentStrong);
+      wrap.style.setProperty("--bsb-category-display-accent", style.transparentDisplayAccent);
+      wrap.style.setProperty("--bsb-category-contrast", this.config.labelTransparency.titleBadge ? "#0f172a" : style.contrast);
+      wrap.style.setProperty("--bsb-category-soft-surface", style.softSurface);
+      wrap.style.setProperty("--bsb-category-soft-border", style.softBorder);
+      wrap.style.setProperty("--bsb-category-glass-surface", style.glassSurface);
+      wrap.style.setProperty("--bsb-category-glass-border", style.glassBorder);
+      pill.className = "bsb-tm-title-pill bsb-tm-color-preview-title-pill";
+      label.className = "bsb-tm-title-pill-label";
+      label.textContent = CATEGORY_LABELS[spec.category];
+      pill.append(createSponsorShieldIcon(), label);
+      wrap.append(pill);
+      return wrap;
+    }
+    attachViewportListeners() {
+      var _a, _b;
+      if (this.viewportListenersAttached) {
+        return;
+      }
+      window.addEventListener("resize", this.handleViewportResize);
+      (_a = window.visualViewport) == null ? void 0 : _a.addEventListener("resize", this.handleViewportResize);
+      (_b = window.visualViewport) == null ? void 0 : _b.addEventListener("scroll", this.handleViewportResize);
+      this.viewportListenersAttached = true;
+    }
+    detachViewportListeners() {
+      var _a, _b;
+      if (!this.viewportListenersAttached) {
+        return;
+      }
+      window.removeEventListener("resize", this.handleViewportResize);
+      (_a = window.visualViewport) == null ? void 0 : _a.removeEventListener("resize", this.handleViewportResize);
+      (_b = window.visualViewport) == null ? void 0 : _b.removeEventListener("scroll", this.handleViewportResize);
+      this.viewportListenersAttached = false;
+    }
+    syncViewportMetrics() {
+      var _a, _b, _c, _d;
+      const viewportWidth = Math.max(Math.floor((_b = (_a = window.visualViewport) == null ? void 0 : _a.width) != null ? _b : window.innerWidth), 360);
+      const viewportHeight = Math.max(Math.floor((_d = (_c = window.visualViewport) == null ? void 0 : _c.height) != null ? _d : window.innerHeight), 360);
+      const availableHeight = Math.max(viewportHeight - 24, 320);
+      const preferredHeight = Math.min(860, Math.max(640, Math.round(viewportHeight * 0.82)));
+      const stablePanelHeight = Math.min(availableHeight, preferredHeight);
+      this.backdrop.style.setProperty("--bsb-tm-panel-vw", `${viewportWidth}px`);
+      this.backdrop.style.setProperty("--bsb-tm-panel-vh", `${viewportHeight}px`);
+      this.backdrop.style.setProperty("--bsb-tm-panel-height", `${stablePanelHeight}px`);
+    }
+    rememberActiveScroll() {
+      if (!this.content.isConnected) {
+        return;
+      }
+      this.contentScrollByTab[this.activeTab] = this.content.scrollTop;
+    }
+    restoreActiveScroll() {
+      var _a;
+      if (!this.content.isConnected) {
+        return;
+      }
+      this.content.scrollTop = (_a = this.contentScrollByTab[this.activeTab]) != null ? _a : 0;
+    }
+  };
+
+  // src/ui/preview-bar.ts
+  function resolvePreviewParents(video) {
+    var _a, _b, _c, _d;
+    const scope = (_a = video == null ? void 0 : video.closest(".bpx-player-control-wrap, .bpx-player-control-entity")) != null ? _a : document;
+    const main = (_b = scope.querySelector(".bpx-player-progress")) != null ? _b : scope.querySelector(".bpx-player-progress-wrap");
+    const shadow = (_d = (_c = scope.querySelector(".bpx-player-shadow-progress-area")) != null ? _c : scope.querySelector(".bpx-player-progress")) != null ? _d : scope.querySelector(".bpx-player-progress-wrap");
+    if (!main || !shadow) {
+      return null;
+    }
+    return { main, shadow };
+  }
+  function createContainer(id) {
+    const container = document.createElement("ul");
+    container.id = id;
+    return container;
+  }
+  var PreviewBar = class {
+    constructor() {
+      __publicField(this, "mainContainer", createContainer("previewbar"));
+      __publicField(this, "shadowContainer", createContainer("shadowPreviewbar"));
+      __publicField(this, "boundVideo", null);
+      __publicField(this, "boundParents", null);
+      __publicField(this, "segments", []);
+      __publicField(this, "enabled", true);
+      __publicField(this, "categoryColorOverrides", {});
+      __publicField(this, "handleDurationChange", () => {
+        this.render();
+      });
+    }
+    bind(video) {
+      if (this.boundVideo === video) {
+        if (!this.boundParents || !this.boundParents.main.isConnected || !this.boundParents.shadow.isConnected) {
+          this.boundParents = resolvePreviewParents(video);
+        }
+        this.ensureMounted();
+        this.render();
+        return;
+      }
+      this.unbind();
+      this.boundVideo = video;
+      this.boundParents = resolvePreviewParents(video);
+      if (!this.boundVideo) {
+        return;
+      }
+      this.boundVideo.addEventListener("loadedmetadata", this.handleDurationChange);
+      this.boundVideo.addEventListener("durationchange", this.handleDurationChange);
+      this.ensureMounted();
+      this.render();
+    }
+    setEnabled(enabled) {
+      this.enabled = enabled;
+      this.render();
+    }
+    setCategoryColorOverrides(overrides) {
+      this.categoryColorOverrides = __spreadValues({}, overrides);
+      this.render();
+    }
+    setSegments(segments) {
+      this.segments = segments.filter((segment) => segment.actionType !== "full");
+      this.render();
+    }
+    clear() {
+      this.segments = [];
+      this.render();
+    }
+    destroy() {
+      this.unbind();
+      this.mainContainer.remove();
+      this.shadowContainer.remove();
+    }
+    unbind() {
+      if (this.boundVideo) {
+        this.boundVideo.removeEventListener("loadedmetadata", this.handleDurationChange);
+        this.boundVideo.removeEventListener("durationchange", this.handleDurationChange);
+      }
+      this.boundVideo = null;
+      this.boundParents = null;
+    }
+    ensureMounted() {
+      if (!this.boundParents) {
+        return;
+      }
+      if (getComputedStyle(this.boundParents.main).position === "static") {
+        this.boundParents.main.style.position = "relative";
+      }
+      if (getComputedStyle(this.boundParents.shadow).position === "static") {
+        this.boundParents.shadow.style.position = "relative";
+      }
+      if (this.mainContainer.parentElement !== this.boundParents.main) {
+        this.boundParents.main.prepend(this.mainContainer);
+      }
+      if (this.shadowContainer.parentElement !== this.boundParents.shadow) {
+        this.boundParents.shadow.prepend(this.shadowContainer);
+      }
+    }
+    render() {
+      this.mainContainer.replaceChildren();
+      this.shadowContainer.replaceChildren();
+      if (!this.enabled || !this.boundVideo || !this.boundParents) {
+        return;
+      }
+      this.ensureMounted();
+      const duration = Number.isFinite(this.boundVideo.duration) ? this.boundVideo.duration : 0;
+      if (duration <= 0) {
+        return;
+      }
+      const segments = [...this.segments].sort((left, right) => {
+        var _a, _b;
+        const leftDuration = ((_a = left.end) != null ? _a : left.start) - left.start;
+        const rightDuration = ((_b = right.end) != null ? _b : right.start) - right.start;
+        return rightDuration - leftDuration;
+      });
+      for (const segment of segments) {
+        const bar = this.createBar(segment, duration);
+        if (!bar) {
+          continue;
+        }
+        this.mainContainer.appendChild(bar);
+        this.shadowContainer.appendChild(bar.cloneNode(true));
+      }
+    }
+    createBar(segment, duration) {
+      var _a;
+      const start = Math.max(0, Math.min(duration, segment.start));
+      const end = segment.actionType === "poi" ? Math.min(duration, start + Math.max(0.6, duration * 25e-4)) : Math.max(start, Math.min(duration, (_a = segment.end) != null ? _a : start));
+      if (end <= start) {
+        return null;
+      }
+      const bar = document.createElement("li");
+      bar.className = "previewbar";
+      bar.dataset.category = segment.category;
+      bar.dataset.actionType = segment.actionType;
+      bar.style.left = `${start / duration * 100}%`;
+      bar.style.right = `${100 - end / duration * 100}%`;
+      bar.style.backgroundColor = resolveCategoryAccent(segment.category, this.categoryColorOverrides);
+      bar.style.opacity = segment.actionType === "poi" ? "0.9" : "0.7";
+      return bar;
+    }
+  };
+
+  // src/ui/title-badge.ts
+  var DEFAULT_COPY = "\u6574\u4E2A\u89C6\u9891\u90FD\u88AB\u793E\u533A\u6807\u8BB0\u4E3A\u8FD9\u4E00\u7C7B\u5185\u5BB9\u3002\u6807\u7B7E\u4EC5\u7528\u4E8E\u8F85\u52A9\u5224\u65AD\uFF0C\u4E0D\u5E94\u66FF\u4EE3\u4F60\u81EA\u5DF1\u7684\u89C2\u770B\u5224\u65AD\u3002";
+  var LABEL_ONLY_COPY = "\u8FD9\u4E2A\u6807\u7B7E\u6765\u81EA\u6574\u89C6\u9891\u6807\u7B7E\u63A5\u53E3\u7ED3\u679C\uFF1B\u8BE5\u63A5\u53E3\u53EA\u63D0\u4F9B\u5206\u7C7B\u6458\u8981\uFF0C\u6CA1\u6709\u53EF\u76F4\u63A5\u53CD\u9988\u7684\u6295\u7968 UUID\u3002";
+  var LOCAL_SIGNAL_COPY = "\u8FD9\u662F\u672C\u5730\u63A8\u7406\u6807\u7B7E\uFF0C\u6765\u81EA\u672C\u673A\u9875\u9762\u6216\u8BC4\u8BBA\u7EBF\u7D22\uFF0C\u4E0D\u4EE3\u8868 SponsorBlock \u793E\u533A\u5DF2\u6536\u5F55\u7684\u6574\u89C6\u9891\u8BB0\u5F55\u3002";
+  var LOCKED_COPY = "\u8FD9\u6761\u6574\u89C6\u9891\u6807\u7B7E\u7684\u53CD\u9988\u5DF2\u5728\u672C\u673A\u63D0\u4EA4\u3002\u4E3A\u907F\u514D\u91CD\u590D\u6295\u7968\uFF0C\u5F53\u524D\u6309\u94AE\u5DF2\u9501\u5B9A\u3002";
+  var LOCAL_LOCKED_COPY = "\u5DF2\u63D0\u4EA4\u3002\u672C\u5730\u5B66\u4E60\u4F1A\u5728\u540E\u7EED\u7EE7\u7EED\u4FDD\u7559\u6216\u5FFD\u7565\u6B64\u5224\u65AD\uFF1B\u8BE5\u64CD\u4F5C\u5BF9\u5F53\u524D\u89C6\u9891\u4E0D\u53EF\u91CD\u590D\u63D0\u4EA4\u3002";
+  function resolveCopy(segment, votingAvailable) {
+    var _a;
+    const base = (_a = CATEGORY_DESCRIPTIONS[segment.category]) != null ? _a : DEFAULT_COPY;
+    if (segment.UUID.startsWith("local-signal:")) {
+      return `${base} ${LOCAL_SIGNAL_COPY}`;
+    }
+    if (!votingAvailable) {
+      return `${base} ${LABEL_ONLY_COPY}`;
+    }
+    return base;
+  }
+  var TitleBadge = class {
+    constructor(callbacks) {
+      this.callbacks = callbacks;
+      __publicField(this, "root", document.createElement("span"));
+      __publicField(this, "pillButton", document.createElement("button"));
+      __publicField(this, "titleText", document.createElement("span"));
+      __publicField(this, "popover", document.createElement("div"));
+      __publicField(this, "description", document.createElement("p"));
+      __publicField(this, "actions", document.createElement("div"));
+      __publicField(this, "feedbackHint", document.createElement("p"));
+      __publicField(this, "upvoteButton", document.createElement("button"));
+      __publicField(this, "downvoteButton", document.createElement("button"));
+      __publicField(this, "settingsButton", document.createElement("button"));
+      __publicField(this, "currentSegment", null);
+      __publicField(this, "mountedHost", null);
+      __publicField(this, "isOpen", false);
+      __publicField(this, "openFrame", null);
+      __publicField(this, "closeTimer", null);
+      __publicField(this, "positionFrame", null);
+      __publicField(this, "categoryColorOverrides", {});
+      __publicField(this, "transparencyEnabled", false);
+      __publicField(this, "votingAvailable", true);
+      __publicField(this, "localActionsAvailable", false);
+      __publicField(this, "voteLocked", false);
+      __publicField(this, "handleDocumentPointerDown", (event) => {
+        const target = event.target;
+        if (!target) {
+          return;
+        }
+        if (this.root.contains(target) || this.popover.contains(target)) {
+          return;
+        }
+        this.closePopover();
+      });
+      __publicField(this, "handleViewportChange", () => {
+        if (this.isOpen) {
+          this.schedulePopoverPosition();
+        }
+      });
+      this.root.className = "bsb-tm-title-pill-wrap";
+      this.root.dataset.glassContext = "surface";
+      this.root.hidden = true;
+      this.pillButton.type = "button";
+      this.pillButton.className = "bsb-tm-title-pill";
+      this.pillButton.setAttribute("aria-expanded", "false");
+      this.titleText.className = "bsb-tm-title-pill-label";
+      this.pillButton.append(createSponsorShieldIcon(), this.titleText);
+      this.pillButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        this.isOpen ? this.closePopover() : this.openPopover();
+      });
+      this.popover.className = "bsb-tm-title-popover";
+      this.popover.hidden = true;
+      this.description.className = "bsb-tm-title-popover-copy";
+      this.description.textContent = DEFAULT_COPY;
+      this.actions.className = "bsb-tm-title-popover-actions";
+      this.feedbackHint.className = "bsb-tm-title-popover-hint";
+      this.feedbackHint.hidden = true;
+      this.upvoteButton.type = "button";
+      this.upvoteButton.className = "bsb-tm-pill-action positive";
+      this.upvoteButton.append(createThumbIcon("up"), document.createTextNode("\u6807\u8BB0\u6B63\u786E"));
+      this.upvoteButton.addEventListener("click", (event) => __async(this, null, function* () {
+        event.preventDefault();
+        event.stopPropagation();
+        yield this.handleVote(1);
+      }));
+      this.downvoteButton.type = "button";
+      this.downvoteButton.className = "bsb-tm-pill-action negative";
+      this.downvoteButton.append(createThumbIcon("down"), document.createTextNode("\u6807\u8BB0\u6709\u8BEF"));
+      this.downvoteButton.addEventListener("click", (event) => __async(this, null, function* () {
+        event.preventDefault();
+        event.stopPropagation();
+        yield this.handleVote(0);
+      }));
+      this.settingsButton.type = "button";
+      this.settingsButton.className = "bsb-tm-pill-action subtle";
+      this.settingsButton.append(createCogIcon(), document.createTextNode("\u8BBE\u7F6E"));
+      this.settingsButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        this.callbacks.onOpenSettings();
+        this.closePopover();
+      });
+      this.actions.append(this.upvoteButton, this.downvoteButton, this.settingsButton);
+      this.popover.append(this.description, this.actions, this.feedbackHint);
+      this.root.append(this.pillButton);
+    }
+    setColorOverrides(overrides) {
+      this.categoryColorOverrides = __spreadValues({}, overrides);
+      if (this.currentSegment) {
+        this.applyAppearance(this.currentSegment);
+      }
+    }
+    setTransparencyEnabled(enabled) {
+      this.transparencyEnabled = enabled;
+      this.root.dataset.transparent = String(enabled);
+      if (this.currentSegment) {
+        this.applyAppearance(this.currentSegment);
+      }
+    }
+    setSegment(segment, options) {
+      var _a;
+      this.currentSegment = segment;
+      this.voteLocked = (_a = options == null ? void 0 : options.voteLocked) != null ? _a : false;
+      if (!segment) {
+        this.closePopover();
+        this.root.hidden = true;
+        return;
+      }
+      this.ensureMounted();
+      this.ensurePopoverMounted();
+      this.root.hidden = false;
+      this.applyAppearance(segment);
+    }
+    clear() {
+      this.setSegment(null);
+    }
+    destroy() {
+      this.clear();
+      this.detachPopoverListeners();
+      if (this.closeTimer !== null) {
+        window.clearTimeout(this.closeTimer);
+        this.closeTimer = null;
+      }
+      if (this.positionFrame !== null) {
+        window.cancelAnimationFrame(this.positionFrame);
+        this.positionFrame = null;
+      }
+      if (this.openFrame !== null) {
+        window.cancelAnimationFrame(this.openFrame);
+        this.openFrame = null;
+      }
+      const host = this.root.parentElement;
+      this.root.remove();
+      cleanupVideoTitleAccessoryHost(host);
+      this.popover.remove();
+      this.mountedHost = null;
+    }
+    applyAppearance(segment) {
+      const style = resolveCategoryStyle(segment.category, this.categoryColorOverrides);
+      const glassVariant = this.transparencyEnabled ? style.transparentVariant : "dark";
+      const transparentContrast = "#0f172a";
+      const transparentSurface = style.glassSurface;
+      this.votingAvailable = segment.actionType === "full" && segment.UUID.length > 0 && !segment.UUID.startsWith("video-label:") && !segment.UUID.startsWith("local-signal:");
+      this.localActionsAvailable = segment.UUID.startsWith("local-signal:");
+      this.root.dataset.category = segment.category;
+      this.root.dataset.transparent = String(this.transparencyEnabled);
+      this.root.dataset.glassContext = "surface";
+      this.root.dataset.glassVariant = glassVariant;
+      this.root.style.setProperty("--bsb-category-accent", style.accent);
+      this.root.style.setProperty("--bsb-category-accent-strong", style.accentStrong);
+      this.root.style.setProperty("--bsb-category-display-accent", style.transparentDisplayAccent);
+      this.root.style.setProperty(
+        "--bsb-category-contrast",
+        this.transparencyEnabled ? transparentContrast : style.contrast
+      );
+      this.root.style.setProperty("--bsb-category-soft-surface", style.softSurface);
+      this.root.style.setProperty("--bsb-category-soft-border", style.softBorder);
+      this.root.style.setProperty("--bsb-category-glass-surface", this.transparencyEnabled ? transparentSurface : style.glassSurface);
+      this.root.style.setProperty("--bsb-category-glass-border", style.glassBorder);
+      this.titleText.textContent = CATEGORY_LABELS[segment.category];
+      this.description.textContent = resolveCopy(segment, this.votingAvailable);
+      this.upvoteButton.disabled = this.voteLocked || !this.localActionsAvailable && !this.votingAvailable;
+      this.downvoteButton.disabled = this.voteLocked || !this.localActionsAvailable && !this.votingAvailable;
+      this.upvoteButton.hidden = false;
+      this.downvoteButton.hidden = false;
+      this.upvoteButton.title = this.votingAvailable ? this.voteLocked ? "\u8FD9\u6761\u6574\u89C6\u9891\u6807\u7B7E\u7684\u53CD\u9988\u5DF2\u63D0\u4EA4" : "\u628A\u8FD9\u6761\u6574\u89C6\u9891\u6807\u7B7E\u6807\u8BB0\u4E3A\u6B63\u786E" : this.localActionsAvailable ? this.voteLocked ? "\u672C\u5730\u53CD\u9988\u5DF2\u63D0\u4EA4\uFF0C\u5F53\u524D\u89C6\u9891\u4E0D\u53EF\u91CD\u590D\u64CD\u4F5C" : "\u628A\u8FD9\u6761\u672C\u5730\u6807\u7B7E\u8BB0\u4E3A\u53EF\u4FE1\uFF0C\u5E76\u5728\u540E\u7EED\u7EE7\u7EED\u4FDD\u7559" : "\u5F53\u524D\u6CA1\u6709\u53EF\u76F4\u63A5\u53CD\u9988\u7684 SponsorBlock \u6295\u7968\u8BB0\u5F55";
+      this.downvoteButton.title = this.votingAvailable ? this.voteLocked ? "\u8FD9\u6761\u6574\u89C6\u9891\u6807\u7B7E\u7684\u53CD\u9988\u5DF2\u63D0\u4EA4" : "\u628A\u8FD9\u6761\u6574\u89C6\u9891\u6807\u7B7E\u6807\u8BB0\u4E3A\u6709\u8BEF" : this.localActionsAvailable ? this.voteLocked ? "\u672C\u5730\u53CD\u9988\u5DF2\u63D0\u4EA4\uFF0C\u5F53\u524D\u89C6\u9891\u4E0D\u53EF\u91CD\u590D\u64CD\u4F5C" : "\u5FFD\u7565\u8FD9\u6761\u672C\u5730\u6807\u7B7E\uFF0C\u5E76\u505C\u6B62\u7EE7\u7EED\u63D0\u793A\u5F53\u524D\u89C6\u9891" : "\u5F53\u524D\u6CA1\u6709\u53EF\u76F4\u63A5\u53CD\u9988\u7684 SponsorBlock \u6295\u7968\u8BB0\u5F55";
+      this.upvoteButton.lastChild && (this.upvoteButton.lastChild.textContent = this.votingAvailable ? "\u6807\u8BB0\u6B63\u786E" : this.localActionsAvailable ? "\u4FDD\u7559\u672C\u5730\u6807\u7B7E" : "\u6807\u8BB0\u6B63\u786E");
+      this.downvoteButton.lastChild && (this.downvoteButton.lastChild.textContent = this.votingAvailable ? "\u6807\u8BB0\u6709\u8BEF" : this.localActionsAvailable ? "\u5FFD\u7565\u6B64\u89C6\u9891" : "\u6807\u8BB0\u6709\u8BEF");
+      this.feedbackHint.hidden = this.votingAvailable && !this.localActionsAvailable && !this.voteLocked;
+      this.feedbackHint.textContent = this.localActionsAvailable ? this.voteLocked ? LOCAL_LOCKED_COPY : "\u8FD9\u6761\u63D0\u793A\u6765\u81EA\u672C\u5730\u8BC4\u8BBA\u6216\u9875\u9762\u7EBF\u7D22\u3002\u4F60\u53EF\u4EE5\u4FDD\u7559\u5B83\uFF0C\u4E5F\u53EF\u4EE5\u5FFD\u7565\u5E76\u963B\u6B62\u5F53\u524D\u89C6\u9891\u7EE7\u7EED\u89E6\u53D1\u672C\u5730\u63D0\u793A\u3002\u63D0\u4EA4\u540E\u5F53\u524D\u89C6\u9891\u4E0D\u53EF\u91CD\u590D\u53CD\u9988\u3002" : this.voteLocked ? LOCKED_COPY : "\u8FD9\u6761\u6807\u7B7E\u76EE\u524D\u53EA\u6709\u6574\u89C6\u9891\u6807\u7B7E\u63A5\u53E3\u7ED3\u679C\uFF0C\u6CA1\u6709\u53EF\u76F4\u63A5\u6295\u7968\u7684 SponsorBlock UUID\u3002";
+      this.actions.classList.toggle("vote-unavailable", !this.votingAvailable);
+      this.pillButton.setAttribute(
+        "aria-label",
+        this.votingAvailable ? this.voteLocked ? `${CATEGORY_LABELS[segment.category]}\uFF0C\u70B9\u51FB\u67E5\u770B\u8BF4\u660E\uFF0C\u53CD\u9988\u5DF2\u63D0\u4EA4` : `${CATEGORY_LABELS[segment.category]}\uFF0C\u70B9\u51FB\u67E5\u770B\u8BF4\u660E\u548C\u53CD\u9988\u6309\u94AE` : this.localActionsAvailable ? this.voteLocked ? `${CATEGORY_LABELS[segment.category]}\uFF0C\u70B9\u51FB\u67E5\u770B\u672C\u5730\u5B66\u4E60\u8BF4\u660E\uFF0C\u53CD\u9988\u5DF2\u63D0\u4EA4` : `${CATEGORY_LABELS[segment.category]}\uFF0C\u70B9\u51FB\u67E5\u770B\u672C\u5730\u5B66\u4E60\u6309\u94AE` : `${CATEGORY_LABELS[segment.category]}\uFF0C\u70B9\u51FB\u67E5\u770B\u8BF4\u660E\u548C\u4E0D\u53EF\u7528\u53CD\u9988\u6309\u94AE`
+      );
+    }
+    ensureMounted() {
+      const host = ensureVideoTitleAccessoryHost();
+      if (!host) {
+        return;
+      }
+      if (this.mountedHost !== host || this.root.parentElement !== host) {
+        const previousHost = this.mountedHost;
+        host.append(this.root);
+        this.mountedHost = host;
+        if (previousHost && previousHost !== host) {
+          cleanupVideoTitleAccessoryHost(previousHost);
+        }
+      }
+    }
+    ensurePopoverMounted() {
+      if (!this.popover.isConnected) {
+        document.body.appendChild(this.popover);
+      }
+    }
+    openPopover() {
+      if (!this.currentSegment) {
+        return;
+      }
+      if (this.closeTimer !== null) {
+        window.clearTimeout(this.closeTimer);
+        this.closeTimer = null;
+      }
+      this.ensureMounted();
+      this.ensurePopoverMounted();
+      this.isOpen = true;
+      this.pillButton.setAttribute("aria-expanded", "true");
+      this.popover.hidden = false;
+      this.schedulePopoverPosition();
+      if (this.openFrame !== null) {
+        window.cancelAnimationFrame(this.openFrame);
+      }
+      this.openFrame = window.requestAnimationFrame(() => {
+        this.openFrame = null;
+        if (!this.isOpen || this.popover.hidden) {
+          return;
+        }
+        this.popover.classList.add("open");
+      });
+      this.attachPopoverListeners();
+    }
+    closePopover() {
+      this.isOpen = false;
+      if (this.openFrame !== null) {
+        window.cancelAnimationFrame(this.openFrame);
+        this.openFrame = null;
+      }
+      this.pillButton.setAttribute("aria-expanded", "false");
+      this.popover.classList.remove("open");
+      this.detachPopoverListeners();
+      if (this.closeTimer !== null) {
+        window.clearTimeout(this.closeTimer);
+      }
+      this.closeTimer = window.setTimeout(() => {
+        if (!this.isOpen) {
+          this.popover.hidden = true;
+        }
+      }, 160);
+    }
+    positionPopover() {
+      var _a, _b, _c, _d;
+      this.positionFrame = null;
+      const viewport = window.visualViewport;
+      const viewportWidth = Math.max(320, Math.floor((_a = viewport == null ? void 0 : viewport.width) != null ? _a : window.innerWidth));
+      const viewportHeight = Math.max(240, Math.floor((_b = viewport == null ? void 0 : viewport.height) != null ? _b : window.innerHeight));
+      const viewportLeft = Math.floor((_c = viewport == null ? void 0 : viewport.offsetLeft) != null ? _c : 0);
+      const viewportTop = Math.floor((_d = viewport == null ? void 0 : viewport.offsetTop) != null ? _d : 0);
+      const maxWidth = Math.min(348, viewportWidth - 24);
+      this.popover.style.maxWidth = `${maxWidth}px`;
+      this.popover.style.width = `${maxWidth}px`;
+      const triggerRect = this.pillButton.getBoundingClientRect();
+      const popoverRect = this.popover.getBoundingClientRect();
+      let left = triggerRect.left + triggerRect.width / 2 - popoverRect.width / 2;
+      left = Math.max(12, Math.min(left, viewportWidth - popoverRect.width - 12));
+      let top = triggerRect.bottom + 12;
+      let placement = "bottom";
+      if (top + popoverRect.height > viewportHeight - 12 && triggerRect.top - popoverRect.height - 12 >= 12) {
+        top = triggerRect.top - popoverRect.height - 12;
+        placement = "top";
+      }
+      this.popover.dataset.placement = placement;
+      this.popover.style.left = `${viewportLeft + Math.round(left)}px`;
+      this.popover.style.top = `${viewportTop + Math.round(top)}px`;
+    }
+    schedulePopoverPosition() {
+      if (!this.isOpen || this.positionFrame !== null) {
+        return;
+      }
+      this.positionFrame = window.requestAnimationFrame(() => {
+        if (!this.isOpen) {
+          this.positionFrame = null;
+          return;
+        }
+        this.positionPopover();
+      });
+    }
+    attachPopoverListeners() {
+      var _a, _b;
+      document.addEventListener("pointerdown", this.handleDocumentPointerDown);
+      window.addEventListener("resize", this.handleViewportChange);
+      window.addEventListener("scroll", this.handleViewportChange, true);
+      (_a = window.visualViewport) == null ? void 0 : _a.addEventListener("resize", this.handleViewportChange);
+      (_b = window.visualViewport) == null ? void 0 : _b.addEventListener("scroll", this.handleViewportChange);
+    }
+    detachPopoverListeners() {
+      var _a, _b;
+      document.removeEventListener("pointerdown", this.handleDocumentPointerDown);
+      window.removeEventListener("resize", this.handleViewportChange);
+      window.removeEventListener("scroll", this.handleViewportChange, true);
+      (_a = window.visualViewport) == null ? void 0 : _a.removeEventListener("resize", this.handleViewportChange);
+      (_b = window.visualViewport) == null ? void 0 : _b.removeEventListener("scroll", this.handleViewportChange);
+    }
+    handleVote(type) {
+      return __async(this, null, function* () {
+        if (!this.currentSegment || this.voteLocked) {
+          return;
+        }
+        const segment = this.currentSegment;
+        this.setBusy(true);
+        try {
+          if (this.votingAvailable) {
+            const result = yield this.callbacks.onVote(segment, type);
+            if (result !== "error") {
+              this.voteLocked = true;
+              this.applyAppearance(segment);
+            }
+          } else if (this.localActionsAvailable) {
+            yield this.callbacks.onLocalDecision(segment, type === 1 ? "confirm" : "dismiss");
+            if (this.currentSegment === segment) {
+              this.voteLocked = true;
+              this.applyAppearance(segment);
+            }
+          } else {
+            return;
+          }
+          this.closePopover();
+        } finally {
+          this.setBusy(false);
+        }
+      });
+    }
+    setBusy(busy) {
+      for (const button of [this.upvoteButton, this.downvoteButton, this.settingsButton]) {
+        if (button === this.upvoteButton || button === this.downvoteButton) {
+          button.disabled = busy || this.voteLocked || !this.localActionsAvailable && !this.votingAvailable;
+        } else {
+          button.disabled = busy;
+        }
+      }
+      this.root.classList.toggle("is-busy", busy);
+    }
+  };
+
+  // src/ui/compact-header.ts
+  var NATIVE_HEADER_HIDDEN_ATTR = "data-bsb-native-header-hidden";
+  var NATIVE_HEADER_ROOT_SELECTORS = [
+    "#biliMainHeader",
+    ".bili-header.fixed-header",
+    ".bili-header__bar.mini-header"
+  ];
+  var GENERIC_PROFILE_LABELS = /* @__PURE__ */ new Set([
+    "",
+    "\u4E2A\u4EBA\u4E3B\u9875",
+    "\u4E2A\u4EBA\u7A7A\u95F4",
+    "\u5927\u4F1A\u5458",
+    "\u6D88\u606F",
+    "\u52A8\u6001",
+    "\u6536\u85CF",
+    "\u5386\u53F2",
+    "\u521B\u4F5C\u4E2D\u5FC3",
+    "\u6295\u7A3F"
+  ]);
+  var SEARCH_INPUT_SELECTORS = [
+    ".bili-header__bar.mini-header .nav-search-input",
+    ".bili-header__bar.mini-header input[type='search']",
+    ".nav-search-input",
+    "input[type='search']"
+  ];
+  var GENERIC_SEARCH_PLACEHOLDERS = /* @__PURE__ */ new Set([
+    "",
+    "\u641C\u7D22 B \u7AD9\u5185\u5BB9",
+    "\u641C\u7D22b\u7AD9\u5185\u5BB9",
+    "\u641C\u7D22\u5185\u5BB9",
+    "\u641C\u7D22\u89C6\u9891\u3001\u756A\u5267\u6216 up \u4E3B",
+    "\u641C\u7D22"
+  ]);
+  var DEFAULT_SEARCH_PLACEHOLDER = "\u641C\u7D22 B \u7AD9\u5185\u5BB9";
+  var PROFILE_ROOT_SELECTORS = [
+    ".bili-header__bar.mini-header .right-entry",
+    ".bili-header .right-entry",
+    ".mini-header .right-entry"
+  ];
+  var PROFILE_SELECTORS = [
+    ".header-entry-avatar a",
+    ".header-avatar-wrap a",
+    ".header-entry-mini a",
+    ".right-entry-item--profile a"
+  ];
+  function normalizeAvatarUrl(value) {
+    if (typeof value !== "string") {
+      return null;
+    }
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    if (trimmed.startsWith("//")) {
+      return `https:${trimmed}`;
+    }
+    return trimmed;
+  }
+  function coerceProfileSeed(candidate) {
+    if (!candidate || typeof candidate !== "object") {
+      return null;
+    }
+    const record = candidate;
+    const avatarSrc = normalizeAvatarUrl(
+      typeof record.face === "string" ? record.face : typeof record.avatar === "string" ? record.avatar : typeof record.avatarUrl === "string" ? record.avatarUrl : typeof record.img_url === "string" ? record.img_url : null
+    );
+    if (!avatarSrc) {
+      return null;
+    }
+    const uid = typeof record.mid === "number" || typeof record.mid === "string" ? String(record.mid) : typeof record.uid === "number" || typeof record.uid === "string" ? String(record.uid) : "";
+    const label = typeof record.uname === "string" ? record.uname.trim() : typeof record.name === "string" ? record.name.trim() : typeof record.nickname === "string" ? record.nickname.trim() : "\u4E2A\u4EBA\u4E3B\u9875";
+    return {
+      href: uid ? `https://space.bilibili.com/${uid}` : "https://space.bilibili.com/",
+      label: label || "\u4E2A\u4EBA\u4E3B\u9875",
+      avatarSrc
+    };
+  }
+  function resolveProfileSeedFromGlobals() {
+    var _a, _b, _c, _d;
+    const scopedWindow = window;
+    const candidates = [
+      scopedWindow.__BILI_USER_INFO__,
+      scopedWindow.__BILI_LOGIN_USER__,
+      scopedWindow.__BILI_HEADER_LOGIN_USER_INFO__,
+      (_a = scopedWindow.__INITIAL_STATE__) == null ? void 0 : _a.headerInfo,
+      (_b = scopedWindow.__INITIAL_STATE__) == null ? void 0 : _b.loginInfo,
+      (_c = scopedWindow.__NAV__) == null ? void 0 : _c.userInfo,
+      (_d = scopedWindow.__NAV__) == null ? void 0 : _d.user
+    ];
+    for (const candidate of candidates) {
+      const seed = coerceProfileSeed(candidate);
+      if (seed) {
+        return seed;
+      }
+    }
+    return null;
+  }
+  function resolveSearchSeed() {
+    var _a, _b;
+    for (const selector of SEARCH_INPUT_SELECTORS) {
+      const input = document.querySelector(selector);
+      if (input instanceof HTMLInputElement) {
+        return {
+          placeholder: ((_a = input.placeholder) == null ? void 0 : _a.trim()) || DEFAULT_SEARCH_PLACEHOLDER,
+          value: ((_b = input.value) == null ? void 0 : _b.trim()) || ""
+        };
+      }
+    }
+    return {
+      placeholder: DEFAULT_SEARCH_PLACEHOLDER,
+      value: ""
+    };
+  }
+  function resolveDisplayedPlaceholder(seed, placeholderVisible) {
+    const rawPlaceholder = seed.placeholder.trim();
+    if (placeholderVisible && rawPlaceholder) {
+      return rawPlaceholder;
+    }
+    return DEFAULT_SEARCH_PLACEHOLDER;
+  }
+  function resolveSearchKeyword(seed, options) {
+    const directKeyword = seed.value.trim();
+    if (directKeyword) {
+      return directKeyword;
+    }
+    if (!options.searchPlaceholderEnabled) {
+      return "";
+    }
+    const placeholder = resolveDisplayedPlaceholder(seed, options.placeholderVisible).trim();
+    if (!placeholder || GENERIC_SEARCH_PLACEHOLDERS.has(placeholder)) {
+      return "";
+    }
+    return placeholder;
+  }
+  function resolveProfileSeed() {
+    var _a, _b;
+    for (const rootSelector of PROFILE_ROOT_SELECTORS) {
+      const root = document.querySelector(rootSelector);
+      if (!(root instanceof HTMLElement)) {
+        continue;
+      }
+      for (const selector of PROFILE_SELECTORS) {
+        const anchor = root.querySelector(selector);
+        if (!(anchor instanceof HTMLAnchorElement)) {
+          continue;
+        }
+        const label = ((_a = anchor.getAttribute("aria-label")) == null ? void 0 : _a.trim()) || ((_b = anchor.textContent) == null ? void 0 : _b.trim()) || "\u4E2A\u4EBA\u4E3B\u9875";
+        if (GENERIC_PROFILE_LABELS.has(label)) {
+          continue;
+        }
+        return {
+          href: anchor.href || "https://www.bilibili.com/",
+          label,
+          avatarSrc: null
+        };
+      }
+    }
+    return {
+      href: "https://www.bilibili.com/",
+      label: "\u4E2A\u4EBA\u4E3B\u9875",
+      avatarSrc: null
+    };
+  }
+  function createSearchForm(seed, getOptions) {
+    const form = document.createElement("form");
+    form.className = "bsb-tm-video-header-fallback-search";
+    const input = document.createElement("input");
+    input.type = "search";
+    input.placeholder = resolveDisplayedPlaceholder(seed, getOptions().placeholderVisible);
+    input.value = seed.value;
+    input.dataset.bsbSeedValue = seed.value;
+    input.autocomplete = "off";
+    input.spellcheck = false;
+    input.setAttribute("aria-label", "\u641C\u7D22 B \u7AD9\u5185\u5BB9");
+    const button = document.createElement("button");
+    button.type = "submit";
+    button.textContent = "\u641C\u7D22";
+    button.setAttribute("aria-label", "\u6267\u884C\u641C\u7D22");
+    form.append(input, button);
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const keyword = resolveSearchKeyword(
+        {
+          placeholder: input.placeholder,
+          value: input.value
+        },
+        getOptions()
+      );
+      if (!keyword) {
+        return;
+      }
+      window.open(
+        `https://search.bilibili.com/all?keyword=${encodeURIComponent(keyword)}`,
+        "_blank",
+        "noopener,noreferrer"
+      );
+    });
+    return form;
+  }
+  function createProfileLink(seed) {
+    const link = document.createElement("a");
+    link.className = "bsb-tm-video-header-profile-link";
+    link.href = seed.href;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.setAttribute("aria-label", seed.label);
+    link.title = seed.label;
+    if (seed.avatarSrc) {
+      const image = document.createElement("img");
+      image.className = "bsb-tm-video-header-avatar";
+      image.alt = seed.label;
+      image.src = seed.avatarSrc;
+      link.appendChild(image);
+      return link;
+    }
+    const fallback = document.createElement("span");
+    fallback.className = "bsb-tm-video-header-profile-fallback";
+    fallback.appendChild(createProfileIcon());
+    link.appendChild(fallback);
+    return link;
+  }
+  var CompactVideoHeader = class {
+    constructor() {
+      __publicField(this, "root", document.createElement("div"));
+      __publicField(this, "bar", document.createElement("div"));
+      __publicField(this, "searchSlot", document.createElement("div"));
+      __publicField(this, "profileSlot", document.createElement("div"));
+      __publicField(this, "retryTimerId", null);
+      __publicField(this, "retriesRemaining", 0);
+      __publicField(this, "mounted", false);
+      __publicField(this, "profileObserver", null);
+      __publicField(this, "lastResolvedProfileSeed", null);
+      __publicField(this, "remoteProfileSeed", null);
+      __publicField(this, "remoteProfilePromise", null);
+      __publicField(this, "options", {
+        placeholderVisible: false,
+        searchPlaceholderEnabled: false
+      });
+      this.root.className = "bsb-tm-video-header-shell";
+      this.bar.className = "bsb-tm-video-header-bar";
+      this.searchSlot.className = "bsb-tm-video-header-search";
+      this.profileSlot.className = "bsb-tm-video-header-profile";
+      this.bar.append(this.searchSlot, this.profileSlot);
+      this.root.appendChild(this.bar);
+    }
+    mount() {
+      this.mounted = true;
+      if (!this.root.isConnected) {
+        document.body.prepend(this.root);
+      }
+      document.documentElement.classList.add("bsb-tm-video-header-compact");
+      this.applyNativeHeaderState(true);
+      this.retriesRemaining = 10;
+      this.sync();
+    }
+    setOptions(next) {
+      this.options = __spreadValues(__spreadValues({}, this.options), next);
+      if (this.mounted) {
+        this.sync();
+      }
+    }
+    sync() {
+      var _a, _b;
+      if (!this.mounted) {
+        return;
+      }
+      this.applyNativeHeaderState(true);
+      const searchSeed = resolveSearchSeed();
+      const resolvedProfileSeed = resolveProfileSeed();
+      const globalProfileSeed = resolveProfileSeedFromGlobals();
+      const authoritativeProfileSeed = (globalProfileSeed == null ? void 0 : globalProfileSeed.avatarSrc) ? globalProfileSeed : ((_a = this.remoteProfileSeed) == null ? void 0 : _a.avatarSrc) ? this.remoteProfileSeed : null;
+      if (authoritativeProfileSeed == null ? void 0 : authoritativeProfileSeed.avatarSrc) {
+        this.lastResolvedProfileSeed = authoritativeProfileSeed;
+      }
+      const profileSeed = (_b = authoritativeProfileSeed != null ? authoritativeProfileSeed : this.lastResolvedProfileSeed) != null ? _b : resolvedProfileSeed;
+      this.syncSearchForm(searchSeed);
+      this.syncProfileLink(profileSeed);
+      this.syncProfileObserver(profileSeed);
+      void this.ensureRemoteProfileSeed();
+      this.scheduleRetry();
+    }
+    syncSearchForm(seed) {
+      var _a;
+      const existingForm = this.searchSlot.querySelector(".bsb-tm-video-header-fallback-search");
+      const existingInput = existingForm == null ? void 0 : existingForm.querySelector("input[type='search']");
+      if (!existingForm || !existingInput) {
+        this.searchSlot.replaceChildren(createSearchForm(seed, () => this.options));
+        return;
+      }
+      const seedValue = (_a = existingInput.dataset.bsbSeedValue) != null ? _a : "";
+      const hasUserDraft = document.activeElement === existingInput || existingInput.value !== seedValue;
+      existingInput.placeholder = resolveDisplayedPlaceholder(seed, this.options.placeholderVisible);
+      if (!hasUserDraft) {
+        existingInput.value = seed.value;
+        existingInput.dataset.bsbSeedValue = seed.value;
+      }
+    }
+    syncProfileLink(seed) {
+      const existingLink = this.profileSlot.querySelector(".bsb-tm-video-header-profile-link");
+      const existingAvatar = existingLink == null ? void 0 : existingLink.querySelector(".bsb-tm-video-header-avatar");
+      const existingAvatarSrc = normalizeAvatarUrl(existingAvatar == null ? void 0 : existingAvatar.getAttribute("src"));
+      if (existingLink && existingLink.href === seed.href && existingLink.getAttribute("aria-label") === seed.label && existingAvatarSrc === normalizeAvatarUrl(seed.avatarSrc)) {
+        return;
+      }
+      this.profileSlot.replaceChildren(createProfileLink(seed));
+    }
+    unmount() {
+      var _a;
+      this.mounted = false;
+      if (this.retryTimerId !== null) {
+        window.clearTimeout(this.retryTimerId);
+        this.retryTimerId = null;
+      }
+      (_a = this.profileObserver) == null ? void 0 : _a.disconnect();
+      this.profileObserver = null;
+      this.lastResolvedProfileSeed = null;
+      this.remoteProfileSeed = null;
+      this.remoteProfilePromise = null;
+      this.root.remove();
+      document.documentElement.classList.remove("bsb-tm-video-header-compact");
+      this.applyNativeHeaderState(false);
+    }
+    destroy() {
+      this.unmount();
+    }
+    scheduleRetry() {
+      if (!this.mounted || this.retriesRemaining <= 0 || this.retryTimerId !== null) {
+        return;
+      }
+      this.retriesRemaining -= 1;
+      this.retryTimerId = window.setTimeout(() => {
+        this.retryTimerId = null;
+        if (!this.mounted) {
+          return;
+        }
+        this.sync();
+      }, 400);
+    }
+    applyNativeHeaderState(hidden) {
+      const roots = this.resolveNativeHeaderRoots();
+      for (const root of roots) {
+        if (hidden) {
+          root.setAttribute(NATIVE_HEADER_HIDDEN_ATTR, "true");
+        } else {
+          root.removeAttribute(NATIVE_HEADER_HIDDEN_ATTR);
+        }
+      }
+      if (!hidden) {
+        for (const orphaned of document.querySelectorAll(`[${NATIVE_HEADER_HIDDEN_ATTR}="true"]`)) {
+          orphaned.removeAttribute(NATIVE_HEADER_HIDDEN_ATTR);
+        }
+      }
+    }
+    resolveNativeHeaderRoots() {
+      const found = /* @__PURE__ */ new Set();
+      for (const selector of NATIVE_HEADER_ROOT_SELECTORS) {
+        for (const node of document.querySelectorAll(selector)) {
+          found.add(node);
+        }
+      }
+      return Array.from(found);
+    }
+    syncProfileObserver(profileSeed) {
+      var _a;
+      if (!this.mounted) {
+        return;
+      }
+      if (profileSeed.avatarSrc) {
+        (_a = this.profileObserver) == null ? void 0 : _a.disconnect();
+        this.profileObserver = null;
+        return;
+      }
+      if (this.profileObserver) {
+        return;
+      }
+      this.profileObserver = new MutationObserver(() => {
+        var _a2, _b, _c, _d;
+        if (!this.mounted) {
+          return;
+        }
+        const nextSeed = resolveProfileSeed();
+        const mergedSeed = nextSeed.avatarSrc ? nextSeed : (_c = (_b = (_a2 = resolveProfileSeedFromGlobals()) != null ? _a2 : this.remoteProfileSeed) != null ? _b : this.lastResolvedProfileSeed) != null ? _c : nextSeed;
+        if (!(mergedSeed == null ? void 0 : mergedSeed.avatarSrc)) {
+          return;
+        }
+        (_d = this.profileObserver) == null ? void 0 : _d.disconnect();
+        this.profileObserver = null;
+        this.lastResolvedProfileSeed = mergedSeed;
+        this.profileSlot.replaceChildren(createProfileLink(mergedSeed));
+      });
+      this.profileObserver.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["src", "href", "aria-label", "alt"]
+      });
+    }
+    ensureRemoteProfileSeed() {
+      return __async(this, null, function* () {
+        var _a;
+        if (((_a = this.remoteProfileSeed) == null ? void 0 : _a.avatarSrc) || this.remoteProfilePromise || !this.mounted || typeof fetch !== "function") {
+          return;
+        }
+        this.remoteProfilePromise = (() => __async(this, null, function* () {
+          try {
+            const response = yield fetch("https://api.bilibili.com/x/web-interface/nav", {
+              credentials: "include",
+              headers: {
+                Accept: "application/json"
+              }
+            });
+            if (!response.ok) {
+              return;
+            }
+            const payload = yield response.json();
+            if (payload.code !== 0) {
+              return;
+            }
+            const seed = coerceProfileSeed(payload.data);
+            if (!(seed == null ? void 0 : seed.avatarSrc)) {
+              return;
+            }
+            this.remoteProfileSeed = seed;
+            this.lastResolvedProfileSeed = seed;
+            if (!this.mounted) {
+              return;
+            }
+            const currentSeed = resolveProfileSeed();
+            const currentAvatar = normalizeAvatarUrl(currentSeed.avatarSrc);
+            const remoteAvatar = normalizeAvatarUrl(seed.avatarSrc);
+            if (!currentAvatar || !remoteAvatar || currentAvatar !== remoteAvatar) {
+              this.profileSlot.replaceChildren(createProfileLink(seed));
+            }
+          } catch (_error) {
+          } finally {
+            this.remoteProfilePromise = null;
+          }
+        }))();
+        yield this.remoteProfilePromise;
+      });
+    }
+  };
+
+  // src/utils/mutation.ts
+  function asRelevantElement(node) {
+    if (!node) {
+      return null;
+    }
+    if (node instanceof Element) {
+      return node;
+    }
+    return node.parentElement;
+  }
+  function matchesDeep(element, selectors) {
+    return selectors.some((selector) => element.matches(selector) || element.querySelector(selector));
+  }
+  function isIgnored(element, selectors) {
+    return selectors.some((selector) => element.matches(selector) || element.closest(selector));
+  }
+  function nodeListTouchesSelectors(nodes, relevantSelectors, ignoredSelectors) {
+    for (const node of Array.from(nodes)) {
+      const element = asRelevantElement(node);
+      if (!element || isIgnored(element, ignoredSelectors)) {
+        continue;
+      }
+      if (matchesDeep(element, relevantSelectors)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  function mutationsTouchSelectors(records, relevantSelectors, ignoredSelectors = []) {
+    return records.some(
+      (record) => nodeListTouchesSelectors(record.addedNodes, relevantSelectors, ignoredSelectors) || nodeListTouchesSelectors(record.removedNodes, relevantSelectors, ignoredSelectors)
+    );
+  }
+
+  // src/utils/navigation.ts
+  var listeners2 = /* @__PURE__ */ new Set();
+  var originalHistoryMethods = /* @__PURE__ */ new Map();
+  var currentHref = window.location.href;
+  var fallbackIntervalId = null;
+  var navigationListener = null;
+  function emitUrlChange() {
+    const nextHref = window.location.href;
+    if (nextHref === currentHref) {
+      return;
+    }
+    const previousHref = currentHref;
+    currentHref = nextHref;
+    for (const listener of listeners2) {
+      listener(nextHref, previousHref);
+    }
+  }
+  function patchHistoryMethod(name) {
+    if (originalHistoryMethods.has(name)) {
+      return;
+    }
+    const original = history[name];
+    originalHistoryMethods.set(name, original);
+    history[name] = function patchedHistoryMethod(...args) {
+      const result = original.apply(this, args);
+      queueMicrotask(() => {
+        emitUrlChange();
+      });
+      return result;
+    };
+  }
+  function restoreHistoryMethods() {
+    for (const [name, original] of originalHistoryMethods) {
+      history[name] = original;
+    }
+    originalHistoryMethods.clear();
+  }
+  function ensureStarted() {
+    if (listeners2.size !== 1) {
+      return;
+    }
+    currentHref = window.location.href;
+    patchHistoryMethod("pushState");
+    patchHistoryMethod("replaceState");
+    window.addEventListener("popstate", emitUrlChange);
+    window.addEventListener("hashchange", emitUrlChange);
+    if ("navigation" in window) {
+      navigationListener = () => {
+        queueMicrotask(() => {
+          emitUrlChange();
+        });
+      };
+      window.navigation.addEventListener("navigate", navigationListener);
+    }
+    fallbackIntervalId = window.setInterval(() => {
+      emitUrlChange();
+    }, 1200);
+  }
+  function maybeStop() {
+    if (listeners2.size > 0) {
+      return;
+    }
+    if (fallbackIntervalId !== null) {
+      window.clearInterval(fallbackIntervalId);
+      fallbackIntervalId = null;
+    }
+    window.removeEventListener("popstate", emitUrlChange);
+    window.removeEventListener("hashchange", emitUrlChange);
+    if ("navigation" in window && navigationListener) {
+      window.navigation.removeEventListener("navigate", navigationListener);
+      navigationListener = null;
+    }
+    restoreHistoryMethods();
+  }
+  function observeUrlChanges(listener) {
+    listeners2.add(listener);
+    ensureStarted();
+    return () => {
+      listeners2.delete(listener);
+      maybeStop();
+    };
   }
 
   // src/features/comment-filter.ts
@@ -5309,6 +6064,12 @@ ${inlineSurfaceFrostedGlass.overlay}
         submittedCommentFeedbackLoaded = true;
       }).catch((error) => {
         debugLog("Failed to load comment feedback state", error);
+        reportDiagnostic({
+          severity: "warn",
+          area: "storage",
+          message: "\u8BC4\u8BBA\u53CD\u9988\u72B6\u6001\u8BFB\u53D6\u5931\u8D25\uFF0C\u5DF2\u964D\u7EA7\u4E3A\u5F53\u524D\u9875\u9762\u4E34\u65F6\u72B6\u6001",
+          detail: error
+        });
         submittedCommentFeedbackLoaded = true;
       }).finally(() => {
         submittedCommentFeedbackLoadPromise = null;
@@ -5322,6 +6083,7 @@ ${inlineSurfaceFrostedGlass.overlay}
         return;
       }
       yield loadSubmittedCommentFeedbackKeys();
+      const previousKeys = new Set(submittedCommentFeedbackKeys);
       submittedCommentFeedbackKeys.add(key);
       const existing = yield gmGetValue(COMMENT_FEEDBACK_STORAGE_KEY, null);
       const now = Date.now();
@@ -5332,7 +6094,15 @@ ${inlineSurfaceFrostedGlass.overlay}
       for (const entryKey of Object.keys(payload)) {
         submittedCommentFeedbackKeys.add(entryKey);
       }
-      yield gmSetValue(COMMENT_FEEDBACK_STORAGE_KEY, payload);
+      try {
+        yield gmSetValue(COMMENT_FEEDBACK_STORAGE_KEY, payload);
+      } catch (error) {
+        submittedCommentFeedbackKeys.clear();
+        for (const entryKey of previousKeys) {
+          submittedCommentFeedbackKeys.add(entryKey);
+        }
+        throw error;
+      }
     });
   }
   function hasSubmittedCommentFeedbackKey(key) {
@@ -5433,7 +6203,15 @@ ${inlineSurfaceFrostedGlass.overlay}
           return;
         }
         submitted = true;
-        void rememberSubmittedCommentFeedbackKey(feedbackKey);
+        void rememberSubmittedCommentFeedbackKey(feedbackKey).catch((error) => {
+          debugLog("Failed to persist comment feedback state", error);
+          reportDiagnostic({
+            severity: "warn",
+            area: "storage",
+            message: "\u8BC4\u8BBA\u53CD\u9988\u72B6\u6001\u5199\u5165\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u5F53\u524D\u9875\u9762\u4E34\u65F6\u72B6\u6001",
+            detail: error
+          });
+        });
         dispatchVideoSignalFeedback(match, "confirm", feedbackToken, feedbackKey);
         setFeedbackMenuSubmitted(menu, trigger, choices, keepButton, dismissButton);
       }
@@ -5447,7 +6225,15 @@ ${inlineSurfaceFrostedGlass.overlay}
           return;
         }
         submitted = true;
-        void rememberSubmittedCommentFeedbackKey(feedbackKey);
+        void rememberSubmittedCommentFeedbackKey(feedbackKey).catch((error) => {
+          debugLog("Failed to persist comment feedback state", error);
+          reportDiagnostic({
+            severity: "warn",
+            area: "storage",
+            message: "\u8BC4\u8BBA\u53CD\u9988\u72B6\u6001\u5199\u5165\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u5F53\u524D\u9875\u9762\u4E34\u65F6\u72B6\u6001",
+            detail: error
+          });
+        });
         dispatchVideoSignalFeedback(match, "dismiss", feedbackToken, feedbackKey);
         setFeedbackMenuSubmitted(menu, trigger, choices, keepButton, dismissButton);
       }
@@ -5739,6 +6525,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       __publicField(this, "rootSweepAttempt", 0);
       __publicField(this, "documentObserver", null);
       __publicField(this, "refreshTimerId", null);
+      __publicField(this, "cancelIdleRefresh", null);
       __publicField(this, "stopObservingUrl", null);
       __publicField(this, "rootObservers", /* @__PURE__ */ new Map());
       __publicField(this, "pendingVisibleRefresh", false);
@@ -5813,7 +6600,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       );
     }
     stop() {
-      var _a;
+      var _a, _b;
       if (!this.started) {
         return;
       }
@@ -5830,7 +6617,9 @@ ${inlineSurfaceFrostedGlass.overlay}
         window.clearTimeout(this.refreshTimerId);
         this.refreshTimerId = null;
       }
-      (_a = this.documentObserver) == null ? void 0 : _a.disconnect();
+      (_a = this.cancelIdleRefresh) == null ? void 0 : _a.call(this);
+      this.cancelIdleRefresh = null;
+      (_b = this.documentObserver) == null ? void 0 : _b.disconnect();
       this.documentObserver = null;
       this.disconnectRootObservers();
       this.pendingVisibleRefresh = false;
@@ -5865,6 +6654,9 @@ ${inlineSurfaceFrostedGlass.overlay}
       }, delay);
     }
     scheduleRefresh() {
+      if (!this.started) {
+        return;
+      }
       if (document.hidden) {
         this.pendingVisibleRefresh = true;
         return;
@@ -5874,13 +6666,29 @@ ${inlineSurfaceFrostedGlass.overlay}
       }
       this.refreshTimerId = window.setTimeout(() => {
         this.refreshTimerId = null;
-        const schedule = typeof requestIdleCallback === "function" ? requestIdleCallback : (cb) => window.setTimeout(cb, 0);
-        schedule(() => {
+        if (!this.started) {
+          return;
+        }
+        const runRefresh = () => {
+          this.cancelIdleRefresh = null;
+          if (!this.started) {
+            return;
+          }
           this.refresh();
-        });
+        };
+        if (typeof requestIdleCallback === "function" && typeof cancelIdleCallback === "function") {
+          const idleId = requestIdleCallback(runRefresh);
+          this.cancelIdleRefresh = () => cancelIdleCallback(idleId);
+          return;
+        }
+        const timeoutId = window.setTimeout(runRefresh, 0);
+        this.cancelIdleRefresh = () => window.clearTimeout(timeoutId);
       }, 160);
     }
     refresh() {
+      if (!this.started) {
+        return;
+      }
       if (document.hidden) {
         this.pendingVisibleRefresh = true;
         return;
@@ -6583,7 +7391,15 @@ ${inlineSurfaceFrostedGlass.overlay}
         });
         this.syncLocalFeedbackAvailability();
         if (shouldPersistLocalVideoSignal(signal)) {
-          void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal);
+          void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal).catch((error) => {
+            debugLog("Failed to persist runtime local video signal", error);
+            reportDiagnostic({
+              severity: "warn",
+              area: "storage",
+              message: "\u672C\u5730\u89C6\u9891\u63A8\u7406\u7ED3\u679C\u5199\u5165\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u5F53\u524D\u9875\u9762\u4E34\u65F6\u663E\u793A",
+              detail: error
+            });
+          });
         }
       });
       __publicField(this, "handleVideoSignalFeedback", (event) => {
@@ -6636,7 +7452,15 @@ ${inlineSurfaceFrostedGlass.overlay}
           this.updateTitleBadge(segment);
           this.panel.setFullVideoLabels([segment]);
           if (shouldPersistLocalVideoSignal(signal)) {
-            void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal);
+            void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal).catch((error) => {
+              debugLog("Failed to persist comment local video signal", error);
+              reportDiagnostic({
+                severity: "warn",
+                area: "storage",
+                message: "\u8BC4\u8BBA\u89E6\u53D1\u7684\u672C\u5730\u89C6\u9891\u63A8\u7406\u5199\u5165\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u5F53\u524D\u9875\u9762\u4E34\u65F6\u663E\u793A",
+                detail: error
+              });
+            });
           }
         }
         this.notices.show({
@@ -6833,6 +7657,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       document.removeEventListener("visibilitychange", this.handleVisibilityChange);
       window.removeEventListener(VIDEO_SIGNAL_EVENT, this.handleVideoSignal);
       window.removeEventListener(VIDEO_SIGNAL_FEEDBACK_EVENT, this.handleVideoSignalFeedback);
+      window.removeEventListener("bsb_mbga_live_fallback", this.handleMbgaLiveFallback);
       this.syncCompactVideoHeader();
       this.clearRuntimeState(true);
     }
@@ -7023,6 +7848,12 @@ ${inlineSurfaceFrostedGlass.overlay}
           });
         } catch (error) {
           debugLog("Failed to refresh video context", error);
+          reportDiagnostic({
+            severity: "error",
+            area: "upstream",
+            message: "\u89C6\u9891\u4E0A\u4E0B\u6587\u6216\u4E0A\u6E38\u7247\u6BB5\u8BFB\u53D6\u5931\u8D25",
+            detail: error
+          });
           this.updateRuntimeStatus({
             kind: "error",
             message: error instanceof Error ? `\u7247\u6BB5\u8BFB\u53D6\u5931\u8D25\uFF1A${error.message}` : "\u7247\u6BB5\u8BFB\u53D6\u5931\u8D25",
@@ -7534,12 +8365,25 @@ ${inlineSurfaceFrostedGlass.overlay}
         placeholderVisible: this.currentConfig.compactHeaderPlaceholderVisible,
         searchPlaceholderEnabled: this.currentConfig.compactHeaderSearchPlaceholderEnabled
       });
-      const shouldCompact = this.started && this.currentConfig.enabled && this.currentConfig.compactVideoHeader && supportsCompactVideoHeader(window.location.href) && !isCompactVideoHeaderSuppressed(document);
+      const compactSupported = supportsCompactVideoHeader(window.location.href);
+      const shouldCompact = this.started && this.currentConfig.enabled && this.currentConfig.compactVideoHeader && compactSupported && !isCompactVideoHeaderSuppressed(document);
       if (shouldCompact) {
         this.compactHeader.mount();
+        configureNativeRequestGuard({
+          enabled: true,
+          supportedPage: true,
+          compactHeaderReady: true,
+          reason: "compact-header-mounted"
+        });
         return;
       }
       this.compactHeader.unmount();
+      configureNativeRequestGuard({
+        enabled: this.started && this.currentConfig.enabled && this.currentConfig.compactVideoHeader,
+        supportedPage: compactSupported,
+        compactHeaderReady: false,
+        reason: "compact-header-inactive"
+      });
     }
     resolveFullVideoSegment() {
       return this.currentTitleLabel;
@@ -7683,6 +8527,9 @@ ${inlineSurfaceFrostedGlass.overlay}
     formatVoteErrorMessage(statusCode, responseText) {
       if (statusCode === 403) {
         return "\u670D\u52A1\u7AEF\u62D2\u7EDD\u4E86\u8FD9\u6B21\u53CD\u9988\uFF0C\u7A0D\u540E\u53EF\u518D\u8BD5\u4E00\u6B21\u3002";
+      }
+      if (statusCode === 429) {
+        return "SponsorBlock \u6682\u65F6\u9650\u5236\u4E86\u8FD9\u6B21\u53CD\u9988\u8BF7\u6C42\uFF0C\u53CD\u9988\u672A\u63D0\u4EA4\uFF0C\u8BF7\u7A0D\u540E\u518D\u8BD5\u3002";
       }
       if (statusCode === -1) {
         return "\u8BF7\u6C42\u6CA1\u6709\u9001\u8FBE SponsorBlock \u670D\u52A1\uFF0C\u8BF7\u68C0\u67E5\u7F51\u7EDC\u6216 Tampermonkey \u6388\u6743\u3002";
@@ -7964,6 +8811,9 @@ ${inlineSurfaceFrostedGlass.overlay}
       this.resetProcessedItems();
     }
     scheduleRefresh() {
+      if (!this.started) {
+        return;
+      }
       if (document.hidden) {
         this.pendingVisibleRefresh = true;
         return;
@@ -7973,10 +8823,16 @@ ${inlineSurfaceFrostedGlass.overlay}
       }
       this.refreshTimerId = window.setTimeout(() => {
         this.refreshTimerId = null;
+        if (!this.started) {
+          return;
+        }
         this.refresh();
       }, 120);
     }
     refresh() {
+      if (!this.started) {
+        return;
+      }
       if (document.hidden) {
         this.pendingVisibleRefresh = true;
         return;
@@ -8054,6 +8910,17 @@ ${inlineSurfaceFrostedGlass.overlay}
     ".header-history-card"
   ];
   var IGNORED_SELECTORS = [".sponsorThumbnailLabel"];
+  var thumbnailHoverFrames = /* @__PURE__ */ new WeakMap();
+  function cancelOverlayHoverFrame(slot) {
+    if (!slot) {
+      return;
+    }
+    const frame = thumbnailHoverFrames.get(slot);
+    if (frame) {
+      cancelAnimationFrame(frame);
+      thumbnailHoverFrames.delete(slot);
+    }
+  }
   var COMMON_THUMBNAIL_TARGETS = [
     {
       containerSelector: ".bili-header .right-entry .v-popover-wrap:nth-of-type(3)",
@@ -8302,18 +9169,22 @@ ${inlineSurfaceFrostedGlass.overlay}
     };
     const syncState = () => {
       pendingFrame = 0;
+      thumbnailHoverFrames.delete(slot);
       setExpanded(isActive(host) || isActive(trigger) || isActive(slot));
     };
     const scheduleSync = () => {
       if (pendingFrame) {
         cancelAnimationFrame(pendingFrame);
+        thumbnailHoverFrames.delete(slot);
       }
       pendingFrame = requestAnimationFrame(syncState);
+      thumbnailHoverFrames.set(slot, pendingFrame);
     };
     const activate = () => {
       if (pendingFrame) {
         cancelAnimationFrame(pendingFrame);
         pendingFrame = 0;
+        thumbnailHoverFrames.delete(slot);
       }
       setExpanded(true);
     };
@@ -8374,12 +9245,18 @@ ${inlineSurfaceFrostedGlass.overlay}
     return { slot, overlay, shortText, text, anchor };
   }
   function hideOverlay(card) {
+    var _a;
     const overlay = card.querySelector(".sponsorThumbnailLabel");
     if (!overlay) {
       return;
     }
+    const slot = overlay.parentElement instanceof HTMLElement ? overlay.parentElement : null;
+    cancelOverlayHoverFrame(slot);
     overlay.classList.remove("sponsorThumbnailLabelVisible");
     overlay.removeAttribute("data-category");
+    overlay.removeAttribute("data-bsb-expanded");
+    slot == null ? void 0 : slot.removeAttribute("data-bsb-expanded");
+    (_a = slot == null ? void 0 : slot.parentElement) == null ? void 0 : _a.removeAttribute("data-bsb-hover");
     card.removeAttribute("data-bsb-hover");
     card.removeAttribute(PROCESSED_ATTR2);
   }
@@ -8453,6 +9330,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       __publicField(this, "refreshing", false);
       __publicField(this, "pendingRefresh", false);
       __publicField(this, "refreshTimerId", null);
+      __publicField(this, "cancelIdleRefresh", null);
       __publicField(this, "domObserver", null);
       __publicField(this, "stopObservingUrl", null);
       __publicField(this, "currentConfig");
@@ -8498,7 +9376,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       document.addEventListener("visibilitychange", this.handleVisibilityChange);
     }
     stop() {
-      var _a, _b;
+      var _a, _b, _c;
       if (!this.started) {
         return;
       }
@@ -8509,27 +9387,48 @@ ${inlineSurfaceFrostedGlass.overlay}
         window.clearTimeout(this.refreshTimerId);
         this.refreshTimerId = null;
       }
+      (_b = this.cancelIdleRefresh) == null ? void 0 : _b.call(this);
+      this.cancelIdleRefresh = null;
       window.removeEventListener("resize", this.handleWindowLayoutChange);
       document.removeEventListener("visibilitychange", this.handleVisibilityChange);
-      (_b = this.domObserver) == null ? void 0 : _b.disconnect();
+      (_c = this.domObserver) == null ? void 0 : _c.disconnect();
       this.domObserver = null;
       this.reset();
     }
     scheduleRefresh() {
+      if (!this.started) {
+        return;
+      }
       if (this.refreshTimerId !== null) {
         return;
       }
       this.refreshTimerId = window.setTimeout(() => {
         this.refreshTimerId = null;
-        const schedule = typeof requestIdleCallback === "function" ? requestIdleCallback : (cb) => window.setTimeout(cb, 0);
-        schedule(() => {
+        if (!this.started) {
+          return;
+        }
+        const runRefresh = () => {
+          this.cancelIdleRefresh = null;
+          if (!this.started) {
+            return;
+          }
           void this.refresh();
-        });
+        };
+        if (typeof requestIdleCallback === "function" && typeof cancelIdleCallback === "function") {
+          const idleId = requestIdleCallback(runRefresh);
+          this.cancelIdleRefresh = () => cancelIdleCallback(idleId);
+          return;
+        }
+        const timeoutId = window.setTimeout(runRefresh, 0);
+        this.cancelIdleRefresh = () => window.clearTimeout(timeoutId);
       }, 180);
     }
     refresh() {
       return __async(this, null, function* () {
         var _a, _b;
+        if (!this.started) {
+          return;
+        }
         if (this.refreshing) {
           this.pendingRefresh = true;
           return;
@@ -8585,7 +9484,7 @@ ${inlineSurfaceFrostedGlass.overlay}
           }
         } finally {
           this.refreshing = false;
-          if (this.pendingRefresh) {
+          if (this.started && this.pendingRefresh) {
             this.pendingRefresh = false;
             this.scheduleRefresh();
           }
@@ -8629,8 +9528,14 @@ ${inlineSurfaceFrostedGlass.overlay}
     }
     reset() {
       for (const overlay of document.querySelectorAll(".sponsorThumbnailLabel")) {
+        const slot = overlay.parentElement instanceof HTMLElement ? overlay.parentElement : null;
+        cancelOverlayHoverFrame(slot);
         overlay.classList.remove("sponsorThumbnailLabelVisible");
         overlay.removeAttribute("data-category");
+        overlay.removeAttribute("data-bsb-expanded");
+      }
+      for (const slot of document.querySelectorAll(".bsb-tm-thumbnail-slot[data-bsb-expanded]")) {
+        slot.removeAttribute("data-bsb-expanded");
       }
       for (const host of document.querySelectorAll(".bsb-tm-thumbnail-host[data-bsb-hover]")) {
         host.removeAttribute("data-bsb-hover");
@@ -8640,6 +9545,16 @@ ${inlineSurfaceFrostedGlass.overlay}
       }
     }
   };
+
+  // src/runtime/menu.ts
+  var QOL_CORE_MENU_LABELS = ["\u6253\u5F00 QoL Core \u63A7\u5236\u53F0", "\u6253\u5F00 QoL Core \u5E2E\u52A9", "\u6E05\u7406 QoL Core \u7F13\u5B58"];
+  function registerQolCoreMenuCommands(controller, registerMenuCommand = gmRegisterMenuCommand) {
+    registerMenuCommand(QOL_CORE_MENU_LABELS[0], () => controller.openPanel());
+    registerMenuCommand(QOL_CORE_MENU_LABELS[1], () => controller.openHelp());
+    registerMenuCommand(QOL_CORE_MENU_LABELS[2], () => {
+      void controller.clearCache();
+    });
+  }
 
   // src/features/mbga/core.ts
   var MBGA_MARKS = {
@@ -8651,6 +9566,8 @@ ${inlineSurfaceFrostedGlass.overlay}
     videoFitMode: "__BSB_MBGA_VIDEO_FIT_MODE__",
     grayscaleObserver: "__BSB_MBGA_GRAYSCALE_OBSERVER__"
   };
+  var ARTICLE_COPY_UNLOCKED_ATTR = "data-bsb-mbga-copy-unlocked";
+  var ARTICLE_COPY_UNLOCK_TIMEOUT_MS = 1e4;
   var USELESS_URL_PARAMS = [
     "buvid",
     "is_story_h5",
@@ -8804,6 +9721,21 @@ ${inlineSurfaceFrostedGlass.overlay}
       installGlobalValue(win, "webkitRTCDataChannel", StubDataChannel);
     } catch (_error) {
     }
+  }
+  function findHeadBilivideoDomain(doc) {
+    var _a, _b, _c;
+    const domainPattern = /up[\w-]+\.bilivideo\.com/u;
+    const attributeCandidates = doc.head.querySelectorAll("[src], [href], [content]");
+    for (const node of attributeCandidates) {
+      for (const attributeName of ["src", "href", "content"]) {
+        const value = node.getAttribute(attributeName);
+        const match = (_a = value == null ? void 0 : value.match(domainPattern)) == null ? void 0 : _a[0];
+        if (match) {
+          return match;
+        }
+      }
+    }
+    return (_c = (_b = doc.head.textContent) == null ? void 0 : _b.match(domainPattern)) == null ? void 0 : _c[0];
   }
   function completeBlockedXhr(xhr, win, url, decision) {
     var _a, _b;
@@ -9101,8 +10033,7 @@ ${inlineSurfaceFrostedGlass.overlay}
     if (isVideoPage(ctx.url)) {
       let cdnDomain;
       const replaceP2PUrl = (input) => {
-        var _a2;
-        cdnDomain || (cdnDomain = (_a2 = ctx.doc.head.innerHTML.match(/up[\w-]+\.bilivideo\.com/u)) == null ? void 0 : _a2[0]);
+        cdnDomain || (cdnDomain = findHeadBilivideoDomain(ctx.doc));
         try {
           const url = new URL(input);
           if (url.hostname.endsWith(".mcdn.bilivideo.cn")) {
@@ -9298,18 +10229,47 @@ html[wide] main { margin: 0 8px; flex: 1; overflow: hidden; width: initial; }
     if (win.original) {
       win.original.reprint = "1";
     }
-    const holder = ctx.doc.querySelector(".article-holder");
-    if (!(holder instanceof HTMLElement)) {
+    const unlockArticleHolder = (holder) => {
+      if (holder.getAttribute(ARTICLE_COPY_UNLOCKED_ATTR) === "true") {
+        return true;
+      }
+      holder.classList.remove("unable-reprint");
+      holder.setAttribute(ARTICLE_COPY_UNLOCKED_ATTR, "true");
+      holder.addEventListener(
+        "copy",
+        (event) => {
+          event.stopImmediatePropagation();
+        },
+        true
+      );
+      return true;
+    };
+    const existingHolder = ctx.doc.querySelector(".article-holder");
+    if (existingHolder instanceof HTMLElement) {
+      unlockArticleHolder(existingHolder);
       return;
     }
-    holder.classList.remove("unable-reprint");
-    holder.addEventListener(
-      "copy",
-      (event) => {
-        event.stopImmediatePropagation();
-      },
-      true
-    );
+    let timeoutId = null;
+    const observer = new MutationObserver(() => {
+      const holder = ctx.doc.querySelector(".article-holder");
+      if (!(holder instanceof HTMLElement)) {
+        return;
+      }
+      unlockArticleHolder(holder);
+      observer.disconnect();
+      if (timeoutId !== null) {
+        win.clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+    });
+    observer.observe(ctx.doc.documentElement, {
+      childList: true,
+      subtree: true
+    });
+    timeoutId = win.setTimeout(() => {
+      observer.disconnect();
+      timeoutId = null;
+    }, ARTICLE_COPY_UNLOCK_TIMEOUT_MS);
   }
   function mountLiveUiCleanup(ctx) {
     ensureScopedStyle(
@@ -9349,24 +10309,36 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
       }
       const item = ctx.doc.createElement("div");
       item.className = "bpx-player-ctrl-setting-fit-mode bui bui-switch";
-      item.innerHTML = '<input class="bui-switch-input" type="checkbox"><label class="bui-switch-label"><span class="bui-switch-name">\u88C1\u5207\u6A21\u5F0F</span><span class="bui-switch-body"><span class="bui-switch-dot"><span></span></span></span></label>';
+      const input = ctx.doc.createElement("input");
+      input.className = "bui-switch-input";
+      input.type = "checkbox";
+      const label = ctx.doc.createElement("label");
+      label.className = "bui-switch-label";
+      const name = ctx.doc.createElement("span");
+      name.className = "bui-switch-name";
+      name.textContent = "\u88C1\u5207\u6A21\u5F0F";
+      const body = ctx.doc.createElement("span");
+      body.className = "bui-switch-body";
+      const dot = ctx.doc.createElement("span");
+      dot.className = "bui-switch-dot";
+      dot.appendChild(ctx.doc.createElement("span"));
+      body.appendChild(dot);
+      label.append(name, body);
+      item.append(input, label);
       const moreLink = ctx.doc.querySelector(".bpx-player-ctrl-setting-more");
       if (moreLink instanceof HTMLElement) {
         parent.insertBefore(item, moreLink);
       } else {
         parent.appendChild(item);
       }
-      const input = item.querySelector("input");
-      if (input instanceof HTMLInputElement) {
-        input.addEventListener("change", (event) => {
-          const checked = event.currentTarget.checked;
-          if (checked) {
-            ctx.doc.body.setAttribute("video-fit", "");
-          } else {
-            ctx.doc.body.removeAttribute("video-fit");
-          }
-        });
-      }
+      input.addEventListener("change", (event) => {
+        const checked = event.currentTarget.checked;
+        if (checked) {
+          ctx.doc.body.setAttribute("video-fit", "");
+        } else {
+          ctx.doc.body.removeAttribute("video-fit");
+        }
+      });
     };
     const timer = win.setInterval(() => {
       if (ctx.doc.querySelector(".bpx-player-ctrl-setting-menu-left")) {
@@ -9708,14 +10680,14 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
   cursor: pointer;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.74),
-    0 10px 24px rgba(15, 23, 42, 0.06),
+    0 8px 18px rgba(15, 23, 42, 0.045),
     inset 0 0 0 1px rgba(255, 255, 255, 0.28);
   transition:
-    background 220ms var(--bsb-ease-swift),
-    box-shadow 220ms var(--bsb-ease-swift),
-    border-color 220ms var(--bsb-ease-swift),
-    color 220ms var(--bsb-ease-swift),
-    transform 260ms var(--bsb-ease-spring);
+    background 190ms var(--bsb-ease-swift),
+    box-shadow 170ms var(--bsb-ease-swift),
+    border-color 170ms var(--bsb-ease-swift),
+    color 170ms var(--bsb-ease-swift),
+    transform 230ms var(--bsb-ease-spring);
 }
 
 .bsb-tm-tab-title {
@@ -9740,7 +10712,7 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.88),
     inset 0 0 0 1px rgba(var(--bsb-brand-blue-rgb), 0.1),
-    0 12px 24px rgba(15, 23, 42, 0.08),
+    0 10px 22px rgba(15, 23, 42, 0.065),
     0 0 0 1px rgba(var(--bsb-brand-blue-rgb), 0.06);
 }
 
@@ -9860,14 +10832,14 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
   border: 1px solid rgba(255, 255, 255, 0.72);
   box-shadow:
     var(--bsb-glass-inner),
-    0 18px 38px rgba(15, 23, 42, 0.08),
+    0 16px 34px rgba(15, 23, 42, 0.07),
     inset 0 0 0 1px rgba(148, 163, 184, 0.12);
   backdrop-filter: blur(14px) saturate(140%);
   transition:
-    box-shadow 220ms var(--bsb-ease-swift),
-    border-color 220ms var(--bsb-ease-swift),
-    background 220ms var(--bsb-ease-swift),
-    transform 220ms var(--bsb-ease-fluid);
+    box-shadow 180ms var(--bsb-ease-swift),
+    border-color 180ms var(--bsb-ease-swift),
+    background 200ms var(--bsb-ease-swift),
+    transform 200ms var(--bsb-ease-fluid);
 }
 
 .bsb-tm-form-group-header {
@@ -9889,8 +10861,8 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
 
 .bsb-tm-color-field {
   display: grid;
-  gap: 10px;
-  padding: 14px 16px;
+  gap: 9px;
+  padding: 12px 14px;
   border-radius: 16px;
   border: 1px solid var(--bsb-border-soft);
   background:
@@ -9899,40 +10871,157 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
   box-shadow:
     var(--bsb-glass-inner),
     inset 0 0 0 1px rgba(148, 163, 184, 0.08);
+  transition:
+    box-shadow 170ms var(--bsb-ease-swift),
+    border-color 170ms var(--bsb-ease-swift),
+    background 190ms var(--bsb-ease-swift),
+    transform 190ms var(--bsb-ease-fluid);
 }
 
-.bsb-tm-color-preview {
+.bsb-tm-color-field.compact {
+  padding: 10px 12px;
+  border-color: rgba(148, 163, 184, 0.16);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.66), rgba(247, 250, 252, 0.42)),
+    rgba(255, 255, 255, 0.32);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.38);
+}
+
+.bsb-tm-color-field:hover,
+.bsb-tm-color-field:focus-within {
+  border-color: rgba(var(--bsb-brand-blue-rgb), 0.22);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(244, 248, 252, 0.72)),
+    rgba(248, 250, 252, 0.74);
+  box-shadow:
+    var(--bsb-glass-inner),
+    0 10px 22px rgba(15, 23, 42, 0.055),
+    inset 0 0 0 1px rgba(var(--bsb-brand-blue-rgb), 0.06);
+  transform: translateY(-1px);
+}
+
+.bsb-tm-color-field.compact:hover,
+.bsb-tm-color-field.compact:focus-within {
+  border-color: rgba(var(--bsb-brand-blue-rgb), 0.2);
+  box-shadow:
+    inset 0 0 0 1px rgba(var(--bsb-brand-blue-rgb), 0.08),
+    0 8px 18px rgba(15, 23, 42, 0.045);
+}
+
+.bsb-tm-color-field:hover .bsb-tm-color-controls input:not(:focus),
+.bsb-tm-color-field:focus-within .bsb-tm-color-controls input:not(:focus) {
+  border-color: rgba(var(--bsb-brand-blue-rgb), 0.22);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 250, 253, 0.86)),
+    rgba(255, 255, 255, 0.84);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 8px 18px rgba(15, 23, 42, 0.055);
+}
+
+.bsb-tm-color-field.compact:hover .bsb-tm-color-controls input:not(:focus),
+.bsb-tm-color-field.compact:focus-within .bsb-tm-color-controls input:not(:focus) {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    0 6px 14px rgba(15, 23, 42, 0.045);
+}
+
+.bsb-tm-color-preview-card {
+  display: grid;
+  justify-items: start;
+  gap: 7px;
+  min-width: 0;
+}
+
+.bsb-tm-color-preview-badge {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  width: fit-content;
-  border-radius: 999px;
-  padding: 5px 10px;
-  color: var(--bsb-text-primary);
-  font-size: 12px;
-  font-weight: 600;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  background: rgba(255, 255, 255, 0.96);
+  flex: none;
 }
 
-.bsb-tm-color-preview::before {
-  content: "";
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--bsb-color-preview, #0f172a);
+.bsb-tm-color-preview-card .bsb-tm-inline-chip,
+.bsb-tm-color-preview-card .bsb-tm-title-pill-wrap {
+  margin-inline-start: 0;
+}
+
+.bsb-tm-color-preview-description {
+  display: block;
+  min-width: 0;
+  color: var(--bsb-text-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.bsb-tm-color-preview-title-pill {
+  min-height: 24px;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+.bsb-tm-color-preview-invalid {
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.bsb-tm-color-editor-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
 }
 
 .bsb-tm-color-controls {
   display: grid;
-  grid-template-columns: 46px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.bsb-tm-color-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.bsb-tm-color-actions[hidden] {
+  display: none !important;
+}
+
+.bsb-tm-color-action {
+  appearance: none;
+  -webkit-appearance: none;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(245, 248, 252, 0.76)),
+    rgba(255, 255, 255, 0.62);
+  color: var(--bsb-text-primary);
+  font: 650 12px/1 var(--bsb-font-ui);
+  cursor: pointer;
+  transition:
+    background 160ms var(--bsb-ease-swift),
+    border-color 160ms var(--bsb-ease-swift),
+    color 160ms var(--bsb-ease-swift),
+    opacity 160ms var(--bsb-ease-swift);
+}
+
+.bsb-tm-color-action.primary {
+  border-color: rgba(var(--bsb-brand-blue-rgb), 0.26);
+  background: rgba(var(--bsb-brand-blue-rgb), 0.1);
+  color: #0369a1;
+}
+
+.bsb-tm-color-action:disabled {
+  cursor: default;
+  opacity: 0.46;
 }
 
 .bsb-tm-color-controls input[type="color"] {
-  width: 46px;
-  min-width: 46px;
-  height: 38px;
+  width: 42px;
+  min-width: 42px;
+  height: 34px;
   padding: 4px;
 }
 
@@ -9961,13 +11050,13 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
   border: 1px solid rgba(255, 255, 255, 0.7);
   box-shadow:
     var(--bsb-glass-inner),
-    0 12px 24px rgba(15, 23, 42, 0.05),
+    0 10px 22px rgba(15, 23, 42, 0.045),
     inset 0 0 0 1px rgba(148, 163, 184, 0.08);
   transition:
-    box-shadow 220ms var(--bsb-ease-swift),
-    border-color 220ms var(--bsb-ease-swift),
-    background 220ms var(--bsb-ease-swift),
-    transform 220ms var(--bsb-ease-fluid);
+    box-shadow 170ms var(--bsb-ease-swift),
+    border-color 170ms var(--bsb-ease-swift),
+    background 190ms var(--bsb-ease-swift),
+    transform 190ms var(--bsb-ease-fluid);
 }
 
 .bsb-tm-summary-line {
@@ -10169,35 +11258,86 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
 }
 
 .bsb-tm-panel input.bsb-tm-switch {
-  appearance: auto;
-  -webkit-appearance: checkbox;
-  width: 18px;
-  min-width: 18px;
-  height: 18px;
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  display: grid;
+  place-items: center;
+  inline-size: 28px;
+  min-inline-size: 28px;
+  block-size: 28px;
+  min-height: 28px;
   padding: 0;
   margin: 0;
-  border: none;
-  border-radius: 6px;
-  background: none;
-  box-shadow: none;
-  accent-color: var(--bsb-brand-blue);
+  border: 1px solid rgba(var(--bsb-brand-blue-rgb), 0.18);
+  border-radius: 9px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(242, 247, 252, 0.84)),
+    rgba(255, 255, 255, 0.86);
+  background-clip: padding-box;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 8px 18px rgba(15, 23, 42, 0.055),
+    inset 0 0 0 1px rgba(148, 163, 184, 0.06);
   align-self: center;
+  color: #fff;
+  contain: paint;
   cursor: pointer;
-  transition: none;
+  transform: translateZ(0);
+  transition:
+    background 170ms var(--bsb-ease-swift),
+    border-color 170ms var(--bsb-ease-swift),
+    box-shadow 170ms var(--bsb-ease-swift),
+    filter 150ms var(--bsb-ease-swift);
 }
 
 .bsb-tm-panel input.bsb-tm-switch::before {
-  display: none;
+  content: "";
+  inline-size: 6px;
+  block-size: 11px;
+  border: solid currentColor;
+  border-width: 0 2px 2px 0;
+  opacity: 0;
+  transform: translateY(-1px) rotate(45deg) scale(0.82);
+  transform-origin: 58% 58%;
+  transition:
+    opacity 110ms var(--bsb-ease-swift),
+    transform 150ms var(--bsb-ease-swift);
 }
 
 .bsb-tm-panel input.bsb-tm-switch:hover,
 .bsb-tm-panel input.bsb-tm-switch:focus,
-.bsb-tm-panel input.bsb-tm-switch:active,
+.bsb-tm-panel input.bsb-tm-switch:active {
+  border-color: rgba(var(--bsb-brand-blue-rgb), 0.3);
+  filter: saturate(1.035) brightness(1.012);
+  transform: translateZ(0);
+}
+
+.bsb-tm-panel input.bsb-tm-switch:focus-visible {
+  outline: 2px solid rgba(var(--bsb-brand-blue-rgb), 0.24);
+  outline-offset: 3px;
+}
+
 .bsb-tm-panel input.bsb-tm-switch:checked {
-  border: none;
-  background: none;
-  box-shadow: none;
-  transform: none;
+  border-color: rgba(var(--bsb-brand-blue-rgb), 0.72);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.04)),
+    var(--bsb-brand-blue);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.42),
+    0 8px 18px rgba(var(--bsb-brand-blue-rgb), 0.18),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  transform: translateZ(0);
+}
+
+.bsb-tm-panel input.bsb-tm-switch:checked::before {
+  opacity: 1;
+  transform: translateY(-1px) rotate(45deg) scale(1);
+}
+
+.bsb-tm-panel input.bsb-tm-switch:disabled {
+  cursor: progress;
+  filter: saturate(0.95) brightness(0.98);
 }
 
 .bsb-tm-button,
@@ -10411,13 +11551,13 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
   white-space: nowrap;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.14),
-    0 6px 12px rgba(15, 23, 42, 0.06);
+    0 5px 10px rgba(15, 23, 42, 0.045);
   transition:
-    box-shadow 220ms var(--bsb-ease-swift),
-    filter 220ms var(--bsb-ease-swift),
-    background 220ms var(--bsb-ease-swift),
-    border-color 220ms var(--bsb-ease-swift),
-    transform 220ms var(--bsb-ease-fluid);
+    box-shadow 180ms var(--bsb-ease-swift),
+    filter 180ms var(--bsb-ease-swift),
+    background 200ms var(--bsb-ease-swift),
+    border-color 180ms var(--bsb-ease-swift),
+    transform 200ms var(--bsb-ease-fluid);
 }
 
 .bsb-tm-title-pill-label {
@@ -10446,22 +11586,30 @@ ${titleSurfaceFrostedGlass.overlay}
   z-index: 2;
 }
 
+.bsb-tm-title-pill-wrap[data-transparent="true"][data-glass-context="surface"] .bsb-tm-title-pill {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 -1px 0 color-mix(in srgb, var(--bsb-category-accent, #2f9e72) 7%, rgba(15, 23, 42, 0.035)),
+    0 4px 10px rgba(15, 23, 42, 0.03),
+    0 8px 16px rgba(15, 23, 42, 0.012);
+}
+
 .bsb-tm-title-pill:hover,
 .bsb-tm-title-pill[aria-expanded="true"] {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    0 10px 20px rgba(15, 23, 42, 0.12),
+    0 8px 16px rgba(15, 23, 42, 0.085),
     0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 .bsb-tm-title-pill-wrap[data-transparent="true"][data-glass-context="surface"] .bsb-tm-title-pill:hover,
 .bsb-tm-title-pill-wrap[data-transparent="true"][data-glass-context="surface"] .bsb-tm-title-pill[aria-expanded="true"] {
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.28),
-    inset 0 -1px 0 color-mix(in srgb, var(--bsb-category-accent, #2f9e72) 12%, rgba(15, 23, 42, 0.06)),
-    0 8px 18px rgba(15, 23, 42, 0.06),
-    0 16px 28px rgba(15, 23, 42, 0.03);
-  filter: saturate(1.04) brightness(1.02);
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    inset 0 -1px 0 color-mix(in srgb, var(--bsb-category-accent, #2f9e72) 9%, rgba(15, 23, 42, 0.045)),
+    0 6px 14px rgba(15, 23, 42, 0.04),
+    0 11px 20px rgba(15, 23, 42, 0.018);
+  filter: saturate(1.025) brightness(1.01);
 }
 
 .bsb-tm-title-pill svg,
@@ -11173,7 +12321,7 @@ ${titleSurfaceFrostedGlass.overlay}
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.28);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.8),
-    0 14px 30px rgba(15, 23, 42, 0.09);
+    0 10px 22px rgba(15, 23, 42, 0.065);
   transform: translateY(-1px);
 }
 
@@ -11182,7 +12330,7 @@ ${titleSurfaceFrostedGlass.overlay}
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.22);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.82),
-    0 14px 28px rgba(15, 23, 42, 0.08),
+    0 10px 22px rgba(15, 23, 42, 0.06),
     inset 0 0 0 1px rgba(var(--bsb-brand-blue-rgb), 0.06);
   transform: translateY(-1px);
 }
@@ -11233,11 +12381,11 @@ ${titleSurfaceFrostedGlass.overlay}
 }
 
 .bsb-tm-form-group:hover,
-.bsb-tm-form-group:focus-within {
+.bsb-tm-form-group:not([data-pointer-focus="true"]):focus-within {
   border-color: rgba(255, 255, 255, 0.82);
   box-shadow:
     var(--bsb-glass-inner),
-    0 24px 50px rgba(15, 23, 42, 0.12),
+    0 18px 38px rgba(15, 23, 42, 0.095),
     inset 0 0 0 1px rgba(var(--bsb-brand-blue-rgb), 0.08);
 }
 
@@ -11246,14 +12394,126 @@ ${titleSurfaceFrostedGlass.overlay}
   transform: translateY(-1px);
 }
 
-.bsb-tm-field:focus-within,
-.bsb-tm-category-row:focus-within,
+.bsb-tm-field:not([data-pointer-focus="true"]):focus-within,
+.bsb-tm-category-row:not([data-pointer-focus="true"]):focus-within,
 .bsb-tm-link-card:focus-visible {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.3);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.84),
-    0 16px 34px rgba(15, 23, 42, 0.08),
+    0 12px 26px rgba(15, 23, 42, 0.065),
     0 0 0 3px rgba(var(--bsb-brand-blue-rgb), 0.08);
+}
+
+.bsb-tm-field[data-control-error="true"],
+.bsb-tm-category-row[data-control-error="true"],
+.bsb-tm-color-field[data-control-error="true"] {
+  border-color: rgba(var(--bsb-danger-rgb), 0.32);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 12px 26px rgba(var(--bsb-danger-rgb), 0.1),
+    0 0 0 3px rgba(var(--bsb-danger-rgb), 0.08);
+}
+
+.bsb-tm-diagnostics-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.84), transparent 34%),
+    linear-gradient(180deg, rgba(248, 251, 255, 0.94), rgba(236, 243, 251, 0.82));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 12px 28px rgba(15, 23, 42, 0.06);
+}
+
+.bsb-tm-diagnostics-heading,
+.bsb-tm-diagnostics-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.bsb-tm-diagnostics-count {
+  padding: 4px 9px;
+  border-radius: 999px;
+  color: var(--bsb-text-secondary);
+  background: rgba(var(--bsb-brand-blue-rgb), 0.1);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.bsb-tm-diagnostics-debug-toggle {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(244, 248, 252, 0.5)),
+    rgba(255, 255, 255, 0.36);
+}
+
+.bsb-tm-diagnostics-debug-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.bsb-tm-diagnostics-debug-copy small,
+.bsb-tm-diagnostics-empty {
+  margin: 0;
+  color: var(--bsb-subtle);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.bsb-tm-diagnostics-list {
+  display: grid;
+  gap: 8px;
+  max-height: 260px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.bsb-tm-diagnostics-empty {
+  padding: 10px 12px;
+  border: 1px dashed rgba(148, 163, 184, 0.28);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.bsb-tm-diagnostics-item {
+  display: grid;
+  gap: 5px;
+  padding: 10px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.bsb-tm-diagnostics-item[data-severity="warn"] {
+  border-color: rgba(217, 119, 6, 0.22);
+}
+
+.bsb-tm-diagnostics-item[data-severity="error"] {
+  border-color: rgba(var(--bsb-danger-rgb), 0.24);
+}
+
+.bsb-tm-diagnostics-item small {
+  color: var(--bsb-subtle);
+  font-size: 11px;
+  letter-spacing: 0.01em;
+}
+
+.bsb-tm-diagnostics-item code {
+  overflow-wrap: anywhere;
+  color: var(--bsb-text-secondary);
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 ${inlineFeedbackStyles}
@@ -11606,6 +12866,7 @@ ${inlineFeedbackStyles}
     height: 30px;
   }
 }
+
 `;
   var mbgaStyles = ``;
 
@@ -11643,6 +12904,12 @@ ${inlineFeedbackStyles}
       const voteHistoryStore = new VoteHistoryStore();
       yield Promise.all([configStore.load(), statsStore.load(), localVideoLabelStore.load(), voteHistoryStore.load()]);
       const currentConfig = configStore.getSnapshot();
+      configureNativeRequestGuard({
+        enabled: currentConfig.enabled && currentConfig.compactVideoHeader,
+        supportedPage: supportsCompactVideoHeader(window.location.href),
+        compactHeaderReady: false,
+        reason: "config-loaded"
+      });
       mountMbga(currentConfig);
       if (currentConfig.mbgaEnabled && currentConfig.mbgaSimplifyUi) {
         gmAddStyle(mbgaStyles);
@@ -11682,12 +12949,7 @@ ${inlineFeedbackStyles}
           });
         }
       );
-      gmRegisterMenuCommand("\u6253\u5F00 BSB \u63A7\u5236\u53F0", () => controller.openPanel());
-      gmRegisterMenuCommand("\u6253\u5F00 BSB \u5E2E\u52A9", () => controller.openHelp());
-      gmRegisterMenuCommand("\u5207\u6362 BSB \u63A7\u5236\u53F0", () => controller.togglePanel());
-      gmRegisterMenuCommand("\u6E05\u7406 BSB \u7F13\u5B58", () => {
-        void controller.clearCache();
-      });
+      registerQolCoreMenuCommands(controller);
       yield runtime.start();
     });
   }
@@ -11698,6 +12960,9 @@ ${inlineFeedbackStyles}
       });
     }
     return Promise.resolve();
+  }
+  if (isTopLevelWindow() && isSupportedLocation(window.location.href)) {
+    installNativeRequestGuardBridge();
   }
   void ready().then(() => bootstrap()).catch((error) => {
     debugLog("Bootstrap failed", error);

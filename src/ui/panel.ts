@@ -5,6 +5,7 @@ import {
   CATEGORY_ORDER,
   CONTENT_FILTER_MODE_LABELS,
   MODE_LABELS,
+  AUTHOR_NAME,
   SCRIPT_NAME,
   THUMBNAIL_LABEL_MODE_LABELS
 } from "../constants";
@@ -19,9 +20,20 @@ import type {
   StoredStats,
   ThumbnailLabelMode
 } from "../types";
-import { normalizeHexColor, resolveCategoryAccent } from "../utils/color";
+import { normalizeHexColor, resolveCategoryAccent, resolveCategoryStyle } from "../utils/color";
 import { validateStoredPattern } from "../utils/pattern";
+import {
+  clearDiagnostics,
+  formatDiagnosticReport,
+  getDiagnosticEvents,
+  isDiagnosticDebugEnabled,
+  reportDiagnostic,
+  setDiagnosticDebugEnabled,
+  subscribeDiagnostics,
+  type DiagnosticEvent
+} from "../utils/diagnostics";
 import { createSponsorShieldIcon } from "./icons";
+import { createInlineBadge, type InlineBadgeAppearance, type InlineTone } from "./inline-feedback";
 
 type PanelCallbacks = {
   onPatchConfig: (patch: Partial<StoredConfig>) => Promise<void>;
@@ -33,6 +45,20 @@ type PanelCallbacks = {
 
 export type PanelTab = "overview" | "behavior" | "transparency" | "filters" | "mbga" | "help";
 export type PanelCloseReason = "user" | "system";
+
+type ColorPreviewSpec =
+  | {
+      kind: "category";
+      category: Category;
+      description: string;
+    }
+  | {
+      kind: "inline";
+      text: string;
+      tone: InlineTone;
+      appearance: InlineBadgeAppearance;
+      description: string;
+    };
 
 const TAB_LABELS: Record<PanelTab, string> = {
   overview: "概览",
@@ -69,6 +95,7 @@ export class SettingsPanel {
   private readonly contentScrollByTab: Partial<Record<PanelTab, number>> = {};
   private activeTab: PanelTab = "overview";
   private filterValidationMessage: string | null = null;
+  private diagnosticEvents: DiagnosticEvent[] = getDiagnosticEvents();
   private config: StoredConfig;
   private stats: StoredStats;
   private fullVideoLabels: string[] = [];
@@ -80,6 +107,8 @@ export class SettingsPanel {
   };
   private readonly activeFeedbacks = new Map<string, string>(); // id -> originalText
   private readonly pendingConfirmations = new Set<string>(); // id
+  private inlineControlUpdateDepth = 0;
+  private unsubscribeDiagnostics: (() => void) | null = null;
   private readonly handleKeydown = (event: KeyboardEvent) => {
     if (event.key === "Escape" && !this.backdrop.hidden) {
       this.close("user");
@@ -135,6 +164,12 @@ export class SettingsPanel {
     this.backdrop.appendChild(this.panel);
     this.render();
     this.setActiveTab("overview");
+    this.unsubscribeDiagnostics = subscribeDiagnostics((events) => {
+      this.diagnosticEvents = events;
+      if (this.activeTab === "help") {
+        this.renderHelp();
+      }
+    });
   }
 
   mount(): void {
@@ -161,10 +196,11 @@ export class SettingsPanel {
   }
 
   open(tab: PanelTab = this.activeTab): void {
+    const wasHidden = this.backdrop.hidden;
     this.mount();
     this.attachViewportListeners();
     this.syncViewportMetrics();
-    this.setActiveTab(tab);
+    this.setActiveTab(tab, { preserveScroll: true, scrollTop: this.contentScrollByTab[tab] ?? 0, skipRemember: wasHidden });
     this.backdrop.hidden = false;
     document.documentElement.classList.add("bsb-tm-panel-open");
     document.addEventListener("keydown", this.handleKeydown);
@@ -172,6 +208,9 @@ export class SettingsPanel {
 
   close(reason: PanelCloseReason = "user"): void {
     const wasOpen = !this.backdrop.hidden;
+    if (wasOpen) {
+      this.rememberActiveScroll();
+    }
     this.backdrop.hidden = true;
     this.detachViewportListeners();
     document.documentElement.classList.remove("bsb-tm-panel-open");
@@ -183,13 +222,18 @@ export class SettingsPanel {
 
   unmount(): void {
     this.close("system");
+    this.unsubscribeDiagnostics?.();
+    this.unsubscribeDiagnostics = null;
     this.backdrop.remove();
   }
 
   updateConfig(config: StoredConfig): void {
-    this.rememberActiveScroll();
     this.config = config;
     this.filterValidationMessage = null;
+    if (this.inlineControlUpdateDepth > 0 && !this.backdrop.hidden) {
+      return;
+    }
+    this.rememberActiveScroll();
     this.render(true);
   }
 
@@ -305,7 +349,7 @@ export class SettingsPanel {
         this.createFieldGrid(
           [
             this.createCheckbox(
-              "启用 Bilibili SponsorBlock",
+              "启用 Bilibili QoL Core",
               "关闭后将停止片段请求、标题标签、缩略图标签和播放器增强。",
               this.config.enabled,
               async (checked) => {
@@ -420,8 +464,31 @@ export class SettingsPanel {
         option.selected = this.config.categoryModes[category] === mode;
         select.appendChild(option);
       }
+      let pointerDrivenSelection = false;
+      select.addEventListener("pointerdown", () => {
+        pointerDrivenSelection = true;
+      });
+      this.bindPointerFocusSuppression(row, select);
       select.addEventListener("change", async () => {
-        await this.callbacks.onCategoryModeChange(category, select.value as CategoryMode);
+        const finishInlineUpdate = this.beginInlineControlUpdate();
+        try {
+          await this.callbacks.onCategoryModeChange(category, select.value as CategoryMode);
+          if (pointerDrivenSelection) {
+            select.blur();
+          }
+        } catch (error) {
+          select.value = this.config.categoryModes[category];
+          this.markControlError(row);
+          reportDiagnostic({
+            severity: "warn",
+            area: "storage",
+            message: `${CATEGORY_LABELS[category]} 分类策略保存失败，已回退`,
+            detail: error
+          });
+        } finally {
+          pointerDrivenSelection = false;
+          finishInlineUpdate();
+        }
       });
 
       row.append(copy, select);
@@ -547,7 +614,7 @@ export class SettingsPanel {
     this.transparencyForm.replaceChildren(
       this.createFormGroup(
         "视频主线标签",
-        "这两类标签属于 BSC 主线能力。透明模式会从高纯度胶囊改成更克制的 Liquid Glass 表现，默认保持关闭，确保升级后现有视觉不变。",
+        "这两类标签属于 QoL Core 主线能力。透明模式会从高纯度胶囊改成更克制的 Liquid Glass 表现，默认保持关闭，确保升级后现有视觉不变。",
         this.createFieldGrid([
           this.createCheckbox(
             "标题商业标签使用透明模式",
@@ -698,21 +765,21 @@ export class SettingsPanel {
       ),
       this.createFormGroup(
         "功能开关",
-        "所有改动均经过安全审计，旨在保证 BSB 核心功能不被干扰的前提下，最大限度释放本地算力。开启后请刷新页面以完全生效。",
+        "所有改动均经过安全审计，旨在保证 QoL Core 核心功能不被干扰的前提下，最大限度释放本地算力。开启后请刷新页面以完全生效。",
         this.createFieldGrid(mbgaFields)
       )
     );
   }
 
   private renderHelp(): void {
-    this.sections.get("help")?.replaceChildren(
+    const children: HTMLElement[] = [
       this.createSectionHeading("帮助与反馈", "这里说明脚本在页面上会看到什么，以及如何判断标签是否工作正常。"),
       this.createFeatureGrid(
         [
           {
             title: "标题前商业标签",
             value: "视频页",
-            description: "当整个视频被社区标记为赞助、自荐或独家访问等整视频标签时，会在标题前显示彩色胶囊。点击胶囊可打开“标记正确 / 标记有误”反馈。"
+            description: "当整个视频有社区 full 标签、整视频标签接口结果或本地推理结果时，会在标题前显示彩色胶囊；只有带真实 UUID 的社区 full 标签可提交上游反馈。"
           },
           {
             title: "缩略图顶部居中标签",
@@ -749,16 +816,145 @@ export class SettingsPanel {
           label: "SponsorBlock 服务器",
           href: "https://www.bsbsb.top"
         }
-      ]),
+      ])
+    ];
+    children.push(this.createDeveloperDiagnosticsCard());
+    children.push(
       this.createInfoBox(
         "致谢与免责声明",
-        "本脚本基于 GPL-3.0 的 BilibiliSponsorBlock 上游实现思路移植而来；评论区属地显示功能参考并适配了 mscststs 的 ISC 脚本「B站评论区开盒」。所有片段和整视频标签都来自社区提交与投票，评论属地则以 B 站评论 payload 自带信息为准，结果仅供参考。"
+        `Bilibili QoL Core 由 ${AUTHOR_NAME} 维护。本脚本基于 GPL-3.0 的 BilibiliSponsorBlock 上游实现思路移植而来；评论区属地显示功能参考并适配了 mscststs 的 ISC 脚本「B站评论区开盒」。所有片段和社区 full 标签来自上游社区记录，本地推理只作为辅助判断，结果仅供参考。`
       )
     );
+    this.sections.get("help")?.replaceChildren(...children);
   }
 
-  private setActiveTab(tab: PanelTab, options?: { preserveScroll?: boolean; scrollTop?: number }): void {
-    this.rememberActiveScroll();
+  private createDeveloperDiagnosticsCard(): HTMLElement {
+    const events = this.diagnosticEvents.slice(-8).reverse();
+    const warnCount = this.diagnosticEvents.filter((event) => event.severity === "warn").length;
+    const errorCount = this.diagnosticEvents.filter((event) => event.severity === "error").length;
+
+    const card = document.createElement("div");
+    card.className = "bsb-tm-diagnostics-card";
+
+    const heading = document.createElement("div");
+    heading.className = "bsb-tm-diagnostics-heading";
+    const title = document.createElement("strong");
+    title.textContent = "开发者诊断";
+    const badge = document.createElement("span");
+    badge.className = "bsb-tm-diagnostics-count";
+    badge.textContent = `${this.diagnosticEvents.length} 条 · ${warnCount} 警告 · ${errorCount} 错误`;
+    heading.append(title, badge);
+
+    const debugToggle = document.createElement("label");
+    debugToggle.className = "bsb-tm-diagnostics-debug-toggle";
+    const debugCopy = document.createElement("span");
+    debugCopy.className = "bsb-tm-diagnostics-debug-copy";
+    const debugTitle = document.createElement("strong");
+    debugTitle.textContent = "详细日志";
+    const debugStatus = document.createElement("small");
+    debugCopy.append(debugTitle, debugStatus);
+    const debugSwitch = document.createElement("input");
+    debugSwitch.type = "checkbox";
+    debugSwitch.className = "bsb-tm-switch";
+    debugSwitch.setAttribute("data-bsb-diagnostics-debug", "true");
+    const updateDebugStatus = () => {
+      const enabled = isDiagnosticDebugEnabled();
+      debugSwitch.checked = enabled;
+      debugStatus.textContent = enabled
+        ? "详细日志已开启，会输出更多控制台调试信息。"
+        : "默认关闭。普通使用无需开启，排查问题时再打开。";
+    };
+    debugSwitch.addEventListener("change", () => {
+      setDiagnosticDebugEnabled(debugSwitch.checked);
+      updateDebugStatus();
+    });
+    updateDebugStatus();
+    debugToggle.append(debugCopy, debugSwitch);
+
+    const description = document.createElement("p");
+    description.className = "bsb-tm-section-description";
+    description.textContent = "诊断报告只保留最近事件，并会自动清洗用户 ID、评论原文、token 等敏感字段。";
+
+    const list = document.createElement("div");
+    list.className = "bsb-tm-diagnostics-list";
+    if (events.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "bsb-tm-diagnostics-empty";
+      empty.textContent = "暂无诊断事件。复制报告仍会包含版本、页面、浏览器和 debug 状态。";
+      list.appendChild(empty);
+    } else {
+      for (const event of events) {
+        const item = document.createElement("article");
+        item.className = "bsb-tm-diagnostics-item";
+        item.dataset.severity = event.severity;
+        const meta = document.createElement("small");
+        meta.textContent = `${event.severity} / ${event.area} · ${new Date(event.at).toLocaleTimeString()}`;
+        const message = document.createElement("strong");
+        message.textContent = event.message;
+        item.append(meta, message);
+        if (event.detail) {
+          const detail = document.createElement("code");
+          detail.textContent = event.detail;
+          item.appendChild(detail);
+        }
+        list.appendChild(item);
+      }
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "bsb-tm-diagnostics-actions";
+    const copyButton = document.createElement("button");
+    copyButton.type = "button";
+    copyButton.className = "bsb-tm-button secondary compact";
+    copyButton.textContent = "复制诊断报告";
+    copyButton.setAttribute("data-bsb-diagnostics-copy", "true");
+    copyButton.addEventListener("click", () => {
+      void this.copyDiagnosticReport(copyButton);
+    });
+    const clearButton = document.createElement("button");
+    clearButton.type = "button";
+    clearButton.className = "bsb-tm-button secondary compact";
+    clearButton.textContent = "清空";
+    clearButton.setAttribute("data-bsb-diagnostics-clear", "true");
+    clearButton.disabled = this.diagnosticEvents.length === 0;
+    clearButton.addEventListener("click", () => {
+      clearDiagnostics();
+      this.renderHelp();
+    });
+    actions.append(copyButton, clearButton);
+
+    card.append(heading, debugToggle, description, list, actions);
+    return card;
+  }
+
+  private async copyDiagnosticReport(button: HTMLButtonElement): Promise<void> {
+    const originalText = button.textContent ?? "复制诊断报告";
+    try {
+      const clipboard = navigator.clipboard;
+      if (!clipboard || typeof clipboard.writeText !== "function") {
+        throw new Error("Clipboard API unavailable");
+      }
+      await clipboard.writeText(formatDiagnosticReport());
+      button.textContent = "已复制";
+    } catch (error) {
+      button.textContent = "复制失败";
+      reportDiagnostic({
+        severity: "warn",
+        area: "ui",
+        message: "诊断报告复制失败",
+        detail: error
+      });
+    } finally {
+      window.setTimeout(() => {
+        button.textContent = originalText;
+      }, 1400);
+    }
+  }
+
+  private setActiveTab(tab: PanelTab, options?: { preserveScroll?: boolean; scrollTop?: number; skipRemember?: boolean }): void {
+    if (!options?.skipRemember) {
+      this.rememberActiveScroll();
+    }
     this.activeTab = tab;
     for (const button of this.nav.querySelectorAll<HTMLButtonElement>("[data-tab]")) {
       const active = button.dataset.tab === tab;
@@ -772,6 +968,13 @@ export class SettingsPanel {
       section.dataset.active = String(active);
     }
     this.content.scrollTop = options?.preserveScroll ? (options.scrollTop ?? this.contentScrollByTab[tab] ?? 0) : 0;
+  }
+
+  private beginInlineControlUpdate(): () => void {
+    this.inlineControlUpdateDepth += 1;
+    return () => {
+      this.inlineControlUpdateDepth = Math.max(0, this.inlineControlUpdateDepth - 1);
+    };
   }
 
   private createTabButton(tab: PanelTab): HTMLButtonElement {
@@ -790,10 +993,48 @@ export class SettingsPanel {
     description.textContent = TAB_DESCRIPTIONS[tab];
 
     button.append(title, description);
+    let pointerDrivenActivation = false;
+    button.addEventListener("pointerdown", () => {
+      pointerDrivenActivation = true;
+      button.dataset.pointerFocus = "true";
+    });
+    button.addEventListener("keydown", () => {
+      pointerDrivenActivation = false;
+      delete button.dataset.pointerFocus;
+    });
+    button.addEventListener("blur", () => {
+      pointerDrivenActivation = false;
+      delete button.dataset.pointerFocus;
+    });
     button.addEventListener("click", () => {
       this.setActiveTab(tab, { preserveScroll: true, scrollTop: this.contentScrollByTab[tab] ?? 0 });
+      if (pointerDrivenActivation) {
+        button.blur();
+        pointerDrivenActivation = false;
+        delete button.dataset.pointerFocus;
+      }
     });
     return button;
+  }
+
+  private bindPointerFocusSuppression(container: HTMLElement, control: HTMLElement): void {
+    const group = container.closest<HTMLElement>(".bsb-tm-form-group");
+    const markPointerFocus = () => {
+      container.dataset.pointerFocus = "true";
+      if (group) {
+        group.dataset.pointerFocus = "true";
+      }
+    };
+    const clearPointerFocus = () => {
+      delete container.dataset.pointerFocus;
+      if (group) {
+        delete group.dataset.pointerFocus;
+      }
+    };
+    control.addEventListener("pointerdown", markPointerFocus);
+    control.addEventListener("mousedown", markPointerFocus);
+    control.addEventListener("keydown", clearPointerFocus);
+    control.addEventListener("blur", clearPointerFocus);
   }
 
   private createCheckbox(
@@ -830,18 +1071,40 @@ export class SettingsPanel {
     input.className = "bsb-tm-switch";
     input.setAttribute("role", "switch");
     input.checked = checked;
+    this.bindPointerFocusSuppression(label, input);
+    let saving = false;
+    let savingChecked = checked;
     input.addEventListener("change", async () => {
+      if (saving) {
+        input.checked = savingChecked;
+        return;
+      }
       const nextChecked = input.checked;
       const previousChecked = !nextChecked;
+      saving = true;
+      savingChecked = nextChecked;
       label.dataset.controlState = nextChecked ? "on" : "off";
-      input.disabled = true;
+      label.dataset.controlSaving = "true";
+      input.setAttribute("aria-busy", "true");
+      const finishInlineUpdate = this.beginInlineControlUpdate();
       try {
         await onChange(nextChecked);
-      } catch (_error) {
+      } catch (error) {
         input.checked = previousChecked;
+        savingChecked = previousChecked;
         label.dataset.controlState = previousChecked ? "on" : "off";
+        this.markControlError(label);
+        reportDiagnostic({
+          severity: "warn",
+          area: "storage",
+          message: `${labelText} 保存失败，已回退`,
+          detail: error
+        });
       } finally {
-        input.disabled = false;
+        finishInlineUpdate();
+        saving = false;
+        label.removeAttribute("data-control-saving");
+        input.removeAttribute("aria-busy");
       }
     });
 
@@ -930,8 +1193,31 @@ export class SettingsPanel {
       option.selected = optionValue === value;
       select.appendChild(option);
     }
+    let pointerDrivenSelection = false;
+    select.addEventListener("pointerdown", () => {
+      pointerDrivenSelection = true;
+    });
+    this.bindPointerFocusSuppression(wrapper, select);
     select.addEventListener("change", async () => {
-      await onCommit(select.value as T);
+      const finishInlineUpdate = this.beginInlineControlUpdate();
+      try {
+        await onCommit(select.value as T);
+        if (pointerDrivenSelection) {
+          select.blur();
+        }
+      } catch (error) {
+        select.value = value;
+        this.markControlError(wrapper);
+        reportDiagnostic({
+          severity: "warn",
+          area: "storage",
+          message: `${labelText} 保存失败，已回退`,
+          detail: error
+        });
+      } finally {
+        pointerDrivenSelection = false;
+        finishInlineUpdate();
+      }
     });
 
     wrapper.append(select);
@@ -974,51 +1260,24 @@ export class SettingsPanel {
   }
 
   private createColorInput(category: Category, value: string): HTMLElement {
-    const field = document.createElement("label");
-    field.className = "bsb-tm-color-field";
-
-    const preview = document.createElement("span");
-    preview.className = "bsb-tm-color-preview";
-    preview.style.setProperty("--bsb-color-preview", value);
-    preview.textContent = CATEGORY_LABELS[category];
-
-    const controls = document.createElement("div");
-    controls.className = "bsb-tm-color-controls";
-
-    const swatch = document.createElement("input");
-    swatch.type = "color";
-    swatch.value = value;
-    swatch.setAttribute("aria-label", `${CATEGORY_LABELS[category]}颜色`);
-
-    const textInput = document.createElement("input");
-    textInput.type = "text";
-    textInput.value = value;
-    textInput.spellcheck = false;
-
-    const commit = async (nextValue: string) => {
-      const normalized = normalizeHexColor(nextValue) ?? CATEGORY_COLORS[category];
-      swatch.value = normalized;
-      textInput.value = normalized;
-      preview.style.setProperty("--bsb-color-preview", normalized);
-      await this.callbacks.onPatchConfig({
-        categoryColorOverrides: {
-          ...this.config.categoryColorOverrides,
-          [category]: normalized
-        }
-      });
-    };
-
-    swatch.addEventListener("input", async () => {
-      await commit(swatch.value);
+    return this.createDraftColorInput({
+      label: CATEGORY_LABELS[category],
+      value,
+      fallbackValue: CATEGORY_COLORS[category],
+      preview: {
+        kind: "category",
+        category,
+        description: CATEGORY_DESCRIPTIONS[category]
+      },
+      onCommit: async (normalized) => {
+        await this.callbacks.onPatchConfig({
+          categoryColorOverrides: {
+            ...this.config.categoryColorOverrides,
+            [category]: normalized
+          }
+        });
+      }
     });
-
-    textInput.addEventListener("change", async () => {
-      await commit(textInput.value);
-    });
-
-    controls.append(swatch, textInput);
-    field.append(preview, controls);
-    return field;
   }
 
   private createCustomColorInput(
@@ -1027,44 +1286,203 @@ export class SettingsPanel {
     value: string,
     onCommit: (value: string) => Promise<void>
   ): HTMLElement {
-    const wrapper = document.createElement("label");
+    const isLocation = labelText.includes("IP");
+    const wrapper = document.createElement("div");
     wrapper.className = "bsb-tm-field stacked";
     wrapper.append(this.createInputLabel(labelText, helpText));
+    wrapper.append(this.createDraftColorInput({
+      label: isLocation ? "IP 属地" : "评论广告",
+      value,
+      fallbackValue: value,
+      preview: {
+        kind: "inline",
+        text: isLocation ? "IP 属地" : "评论广告",
+        tone: isLocation ? "info" : "danger",
+        appearance: (isLocation ? this.config.labelTransparency.commentLocation : this.config.labelTransparency.commentBadge) ? "glass" : "solid",
+        description: isLocation
+          ? "评论区 IP 属地标签，用于显示评论 payload 自带属地信息。"
+          : "评论广告标签，用于标出广告、带货或可疑促销评论。"
+      },
+      onCommit
+    }, true));
+    return wrapper;
+  }
 
-    const colorField = document.createElement("div");
-    colorField.className = "bsb-tm-color-field";
-    colorField.style.padding = "0";
-    colorField.style.border = "none";
-    colorField.style.background = "transparent";
-    colorField.style.boxShadow = "none";
+  private createDraftColorInput(
+    options: {
+      label: string;
+      value: string;
+      fallbackValue: string;
+      preview: ColorPreviewSpec;
+      onCommit: (value: string) => Promise<void>;
+    },
+    compact = false
+  ): HTMLElement {
+    let savedValue = normalizeHexColor(options.value) ?? normalizeHexColor(options.fallbackValue) ?? "#60a5fa";
+    const field = document.createElement("div");
+    field.className = "bsb-tm-color-field";
+    field.dataset.colorEditor = "true";
+    field.dataset.colorDirty = "false";
+    if (compact) {
+      field.classList.add("compact");
+    }
 
+    const preview = document.createElement("div");
+    preview.className = "bsb-tm-color-preview-card";
+    const previewBadgeSlot = document.createElement("span");
+    previewBadgeSlot.className = "bsb-tm-color-preview-badge";
+    const previewDescription = document.createElement("small");
+    previewDescription.className = "bsb-tm-color-preview-description";
+    previewDescription.textContent = options.preview.description;
+    preview.append(previewBadgeSlot, previewDescription);
+
+    const editorRow = document.createElement("div");
+    editorRow.className = "bsb-tm-color-editor-row";
     const controls = document.createElement("div");
     controls.className = "bsb-tm-color-controls";
-    controls.style.width = "100%";
 
     const swatch = document.createElement("input");
     swatch.type = "color";
-    swatch.value = value;
+    swatch.value = savedValue;
+    swatch.setAttribute("aria-label", `${options.label}颜色`);
 
     const textInput = document.createElement("input");
     textInput.type = "text";
-    textInput.value = value;
+    textInput.value = savedValue;
     textInput.spellcheck = false;
+    textInput.setAttribute("aria-label", `${options.label}颜色值`);
 
-    const commit = async (nextValue: string) => {
-      const normalized = normalizeHexColor(nextValue) ?? value;
-      swatch.value = normalized;
-      textInput.value = normalized;
-      await onCommit(normalized);
+    const actions = document.createElement("div");
+    actions.className = "bsb-tm-color-actions";
+    actions.hidden = true;
+    const applyButton = document.createElement("button");
+    applyButton.type = "button";
+    applyButton.className = "bsb-tm-color-action primary";
+    applyButton.textContent = "应用";
+    const cancelButton = document.createElement("button");
+    cancelButton.type = "button";
+    cancelButton.className = "bsb-tm-color-action secondary";
+    cancelButton.textContent = "取消";
+
+    let draftValue = savedValue;
+    let isCommitting = false;
+
+    const renderPreview = (nextValue: string): void => {
+      previewBadgeSlot.replaceChildren(this.createColorPreviewBadge(options.preview, nextValue));
     };
 
-    swatch.addEventListener("input", async () => commit(swatch.value));
-    textInput.addEventListener("change", async () => commit(textInput.value));
+    const updatePreview = (nextValue: string, previewOptions?: { syncText?: boolean }): void => {
+      draftValue = nextValue;
+      swatch.value = nextValue;
+      if (previewOptions?.syncText !== false) {
+        textInput.value = nextValue;
+      }
+      renderPreview(nextValue);
+    };
 
+    const updateButtons = (): void => {
+      const isDirty = draftValue !== savedValue;
+      const isValid = normalizeHexColor(textInput.value) !== null;
+      field.dataset.colorDirty = String(isDirty);
+      actions.hidden = !isDirty;
+      applyButton.disabled = isCommitting || !isDirty || !isValid;
+      cancelButton.disabled = isCommitting || !isDirty;
+    };
+
+    const resetDraft = (): void => {
+      updatePreview(savedValue);
+      updateButtons();
+    };
+
+    const commitDraft = async (): Promise<void> => {
+      const normalized = normalizeHexColor(textInput.value);
+      if (!normalized || normalized === savedValue || isCommitting) {
+        updateButtons();
+        return;
+      }
+
+      isCommitting = true;
+      updateButtons();
+      try {
+        await options.onCommit(normalized);
+        savedValue = normalized;
+        updatePreview(savedValue);
+      } catch (error) {
+        this.markControlError(field);
+        reportDiagnostic({
+          severity: "warn",
+          area: "storage",
+          message: `${options.label} 颜色保存失败，已保留草稿`,
+          detail: error
+        });
+      } finally {
+        isCommitting = false;
+        updateButtons();
+      }
+    };
+
+    swatch.addEventListener("input", () => {
+      updatePreview(normalizeHexColor(swatch.value) ?? savedValue);
+      updateButtons();
+    });
+    swatch.addEventListener("focus", () => {
+      renderPreview(draftValue);
+    });
+    swatch.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        event.stopPropagation();
+        void commitDraft();
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        resetDraft();
+      }
+    });
+
+    textInput.addEventListener("input", () => {
+      const normalized = normalizeHexColor(textInput.value);
+      if (normalized) {
+        updatePreview(normalized, { syncText: false });
+      }
+      updateButtons();
+    });
+    textInput.addEventListener("focus", () => {
+      renderPreview(draftValue);
+    });
+    textInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        event.stopPropagation();
+        void commitDraft();
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        resetDraft();
+      }
+    });
+
+    applyButton.addEventListener("click", () => {
+      void commitDraft();
+    });
+    cancelButton.addEventListener("click", resetDraft);
+
+    renderPreview(savedValue);
+    updateButtons();
+    actions.append(applyButton, cancelButton);
     controls.append(swatch, textInput);
-    colorField.append(controls);
-    wrapper.append(colorField);
-    return wrapper;
+    editorRow.append(controls, actions);
+    field.append(preview, editorRow);
+    return field;
+  }
+
+  private markControlError(element: HTMLElement): void {
+    element.dataset.controlError = "true";
+    window.setTimeout(() => {
+      delete element.dataset.controlError;
+    }, 2200);
   }
 
   private createResetButton(compact: boolean): HTMLElement {
@@ -1399,6 +1817,48 @@ export class SettingsPanel {
     body.textContent = bodyText;
     box.append(title, body);
     return box;
+  }
+
+  private createColorPreviewBadge(spec: ColorPreviewSpec, color: string): HTMLElement {
+    const normalized = normalizeHexColor(color);
+    if (!normalized) {
+      const fallback = document.createElement("span");
+      fallback.className = "bsb-tm-color-preview-invalid";
+      fallback.textContent = "颜色格式无效";
+      return fallback;
+    }
+
+    if (spec.kind === "inline") {
+      return createInlineBadge("data-bsb-color-preview-inline", spec.text, spec.tone, "inline", normalized, spec.appearance);
+    }
+
+    const overrides: CategoryColorOverrides = { [spec.category]: normalized };
+    const style = resolveCategoryStyle(spec.category, overrides);
+    const wrap = document.createElement("span");
+    const pill = document.createElement("span");
+    const label = document.createElement("span");
+    const glassVariant = this.config.labelTransparency.titleBadge ? style.transparentVariant : "dark";
+
+    wrap.className = "bsb-tm-title-pill-wrap bsb-tm-color-preview-title-wrap";
+    wrap.dataset.category = spec.category;
+    wrap.dataset.transparent = String(this.config.labelTransparency.titleBadge);
+    wrap.dataset.glassContext = "surface";
+    wrap.dataset.glassVariant = glassVariant;
+    wrap.style.setProperty("--bsb-category-accent", style.accent);
+    wrap.style.setProperty("--bsb-category-accent-strong", style.accentStrong);
+    wrap.style.setProperty("--bsb-category-display-accent", style.transparentDisplayAccent);
+    wrap.style.setProperty("--bsb-category-contrast", this.config.labelTransparency.titleBadge ? "#0f172a" : style.contrast);
+    wrap.style.setProperty("--bsb-category-soft-surface", style.softSurface);
+    wrap.style.setProperty("--bsb-category-soft-border", style.softBorder);
+    wrap.style.setProperty("--bsb-category-glass-surface", style.glassSurface);
+    wrap.style.setProperty("--bsb-category-glass-border", style.glassBorder);
+
+    pill.className = "bsb-tm-title-pill bsb-tm-color-preview-title-pill";
+    label.className = "bsb-tm-title-pill-label";
+    label.textContent = CATEGORY_LABELS[spec.category];
+    pill.append(createSponsorShieldIcon(), label);
+    wrap.append(pill);
+    return wrap;
   }
 
   private attachViewportListeners(): void {

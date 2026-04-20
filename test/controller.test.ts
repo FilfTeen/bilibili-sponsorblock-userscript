@@ -226,6 +226,25 @@ describe("script controller", () => {
     expect(document.querySelector<HTMLElement>(".bsb-tm-panel-backdrop")?.hidden).toBe(true);
   });
 
+  it("does not handle MBGA live fallback events while stopped", async () => {
+    const controller = createController();
+    vi.spyOn(controller as any, "refreshCurrentVideo").mockImplementation(async () => {});
+    const notices = Reflect.get(controller, "notices") as { show: (options: unknown) => void };
+    const showSpy = vi.spyOn(notices, "show");
+
+    await controller.start();
+    controller.stop();
+    window.dispatchEvent(new CustomEvent("bsb_mbga_live_fallback"));
+
+    expect(showSpy).not.toHaveBeenCalledWith(expect.objectContaining({ id: "mbga-live-fallback" }));
+
+    await controller.start();
+    window.dispatchEvent(new CustomEvent("bsb_mbga_live_fallback"));
+
+    expect(showSpy).toHaveBeenCalledTimes(1);
+    expect(showSpy).toHaveBeenCalledWith(expect.objectContaining({ id: "mbga-live-fallback" }));
+  });
+
   it("does not force the panel back to the original menu tab after visibility recovery", async () => {
     const controller = createController();
     vi.spyOn(controller as any, "refreshCurrentVideo").mockImplementation(async () => {});
@@ -599,5 +618,43 @@ describe("script controller", () => {
       })
     );
     expect(JSON.stringify(showSpy.mock.calls)).not.toContain("<!DOCTYPE html>");
+  });
+
+  it("does not remember upstream votes that are rate limited", async () => {
+    const controller = createController();
+    const notices = Reflect.get(controller, "notices") as { show: (options: unknown) => void };
+    const voteHistoryStore = Reflect.get(controller, "voteHistoryStore") as VoteHistoryStore;
+    const showSpy = vi.spyOn(notices, "show");
+    const rememberSpy = vi.spyOn(voteHistoryStore, "remember");
+    vi.spyOn(Reflect.get(controller, "client"), "vote").mockResolvedValue({
+      successType: -1,
+      statusCode: 429,
+      responseText: "rate limited"
+    });
+    Reflect.set(controller, "currentConfig", cloneDefaultConfig());
+
+    const result = await Reflect.get(controller, "submitVote").call(
+      controller,
+      {
+        UUID: "real-upstream-full-uuid",
+        category: "sponsor",
+        actionType: "full",
+        segment: [0, 0],
+        start: 0,
+        end: 0,
+        duration: 0,
+        mode: "auto"
+      } satisfies SegmentRecord,
+      1
+    );
+
+    expect(result).toBe("error");
+    expect(rememberSpy).not.toHaveBeenCalled();
+    expect(showSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "反馈提交失败",
+        message: "SponsorBlock 暂时限制了这次反馈请求，反馈未提交，请稍后再试。"
+      })
+    );
   });
 });

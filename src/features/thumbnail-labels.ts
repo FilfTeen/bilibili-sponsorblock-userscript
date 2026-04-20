@@ -49,6 +49,20 @@ type OverlayParts = {
   anchor: HTMLElement | null;
 };
 
+const thumbnailHoverFrames = new WeakMap<HTMLElement, number>();
+
+function cancelOverlayHoverFrame(slot: HTMLElement | null): void {
+  if (!slot) {
+    return;
+  }
+
+  const frame = thumbnailHoverFrames.get(slot);
+  if (frame) {
+    cancelAnimationFrame(frame);
+    thumbnailHoverFrames.delete(slot);
+  }
+}
+
 const COMMON_THUMBNAIL_TARGETS: ThumbnailTarget[] = [
   {
     containerSelector: ".bili-header .right-entry .v-popover-wrap:nth-of-type(3)",
@@ -350,20 +364,24 @@ function bindOverlayHoverState(host: HTMLElement, anchor: HTMLElement | null, sl
 
   const syncState = (): void => {
     pendingFrame = 0;
+    thumbnailHoverFrames.delete(slot);
     setExpanded(isActive(host) || isActive(trigger) || isActive(slot));
   };
 
   const scheduleSync = (): void => {
     if (pendingFrame) {
       cancelAnimationFrame(pendingFrame);
+      thumbnailHoverFrames.delete(slot);
     }
     pendingFrame = requestAnimationFrame(syncState);
+    thumbnailHoverFrames.set(slot, pendingFrame);
   };
 
   const activate = (): void => {
     if (pendingFrame) {
       cancelAnimationFrame(pendingFrame);
       pendingFrame = 0;
+      thumbnailHoverFrames.delete(slot);
     }
     setExpanded(true);
   };
@@ -443,8 +461,13 @@ function hideOverlay(card: HTMLElement): void {
     return;
   }
 
+  const slot = overlay.parentElement instanceof HTMLElement ? overlay.parentElement : null;
+  cancelOverlayHoverFrame(slot);
   overlay.classList.remove("sponsorThumbnailLabelVisible");
   overlay.removeAttribute("data-category");
+  overlay.removeAttribute("data-bsb-expanded");
+  slot?.removeAttribute("data-bsb-expanded");
+  slot?.parentElement?.removeAttribute("data-bsb-hover");
   card.removeAttribute("data-bsb-hover");
   card.removeAttribute(PROCESSED_ATTR);
 }
@@ -533,6 +556,7 @@ export class ThumbnailLabelController {
   private refreshing = false;
   private pendingRefresh = false;
   private refreshTimerId: number | null = null;
+  private cancelIdleRefresh: (() => void) | null = null;
   private domObserver: MutationObserver | null = null;
   private stopObservingUrl: (() => void) | null = null;
   private currentConfig: StoredConfig;
@@ -600,6 +624,8 @@ export class ThumbnailLabelController {
       window.clearTimeout(this.refreshTimerId);
       this.refreshTimerId = null;
     }
+    this.cancelIdleRefresh?.();
+    this.cancelIdleRefresh = null;
     window.removeEventListener("resize", this.handleWindowLayoutChange);
     document.removeEventListener("visibilitychange", this.handleVisibilityChange);
     this.domObserver?.disconnect();
@@ -608,23 +634,42 @@ export class ThumbnailLabelController {
   }
 
   private scheduleRefresh(): void {
+    if (!this.started) {
+      return;
+    }
+
     if (this.refreshTimerId !== null) {
       return;
     }
 
     this.refreshTimerId = window.setTimeout(() => {
       this.refreshTimerId = null;
-      const schedule =
-        typeof requestIdleCallback === "function"
-          ? requestIdleCallback
-          : (cb: () => void) => window.setTimeout(cb, 0);
-      schedule(() => {
+      if (!this.started) {
+        return;
+      }
+      const runRefresh = () => {
+        this.cancelIdleRefresh = null;
+        if (!this.started) {
+          return;
+        }
         void this.refresh();
-      });
+      };
+      if (typeof requestIdleCallback === "function" && typeof cancelIdleCallback === "function") {
+        const idleId = requestIdleCallback(runRefresh);
+        this.cancelIdleRefresh = () => cancelIdleCallback(idleId);
+        return;
+      }
+
+      const timeoutId = window.setTimeout(runRefresh, 0);
+      this.cancelIdleRefresh = () => window.clearTimeout(timeoutId);
     }, 180);
   }
 
   private async refresh(): Promise<void> {
+    if (!this.started) {
+      return;
+    }
+
     if (this.refreshing) {
       this.pendingRefresh = true;
       return;
@@ -687,7 +732,7 @@ export class ThumbnailLabelController {
       }
     } finally {
       this.refreshing = false;
-      if (this.pendingRefresh) {
+      if (this.started && this.pendingRefresh) {
         this.pendingRefresh = false;
         this.scheduleRefresh();
       }
@@ -736,8 +781,15 @@ export class ThumbnailLabelController {
 
   private reset(): void {
     for (const overlay of document.querySelectorAll<HTMLElement>(".sponsorThumbnailLabel")) {
+      const slot = overlay.parentElement instanceof HTMLElement ? overlay.parentElement : null;
+      cancelOverlayHoverFrame(slot);
       overlay.classList.remove("sponsorThumbnailLabelVisible");
       overlay.removeAttribute("data-category");
+      overlay.removeAttribute("data-bsb-expanded");
+    }
+
+    for (const slot of document.querySelectorAll<HTMLElement>(".bsb-tm-thumbnail-slot[data-bsb-expanded]")) {
+      slot.removeAttribute("data-bsb-expanded");
     }
 
     for (const host of document.querySelectorAll<HTMLElement>(".bsb-tm-thumbnail-host[data-bsb-hover]")) {

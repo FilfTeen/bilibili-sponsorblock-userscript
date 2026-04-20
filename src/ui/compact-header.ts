@@ -223,14 +223,15 @@ function resolveProfileSeed(): ProfileSeed {
   };
 }
 
-function createSearchForm(seed: SearchSeed, options: CompactHeaderOptions): HTMLFormElement {
+function createSearchForm(seed: SearchSeed, getOptions: () => CompactHeaderOptions): HTMLFormElement {
   const form = document.createElement("form");
   form.className = "bsb-tm-video-header-fallback-search";
 
   const input = document.createElement("input");
   input.type = "search";
-  input.placeholder = resolveDisplayedPlaceholder(seed, options.placeholderVisible);
+  input.placeholder = resolveDisplayedPlaceholder(seed, getOptions().placeholderVisible);
   input.value = seed.value;
+  input.dataset.bsbSeedValue = seed.value;
   input.autocomplete = "off";
   input.spellcheck = false;
   input.setAttribute("aria-label", "搜索 B 站内容");
@@ -248,7 +249,7 @@ function createSearchForm(seed: SearchSeed, options: CompactHeaderOptions): HTML
         placeholder: input.placeholder,
         value: input.value
       },
-      options
+      getOptions()
     );
     if (!keyword) {
       return;
@@ -354,11 +355,44 @@ export class CompactVideoHeader {
       this.lastResolvedProfileSeed = authoritativeProfileSeed;
     }
     const profileSeed = authoritativeProfileSeed ?? this.lastResolvedProfileSeed ?? resolvedProfileSeed;
-    this.searchSlot.replaceChildren(createSearchForm(searchSeed, this.options));
-    this.profileSlot.replaceChildren(createProfileLink(profileSeed));
+    this.syncSearchForm(searchSeed);
+    this.syncProfileLink(profileSeed);
     this.syncProfileObserver(profileSeed);
     void this.ensureRemoteProfileSeed();
     this.scheduleRetry();
+  }
+
+  private syncSearchForm(seed: SearchSeed): void {
+    const existingForm = this.searchSlot.querySelector<HTMLFormElement>(".bsb-tm-video-header-fallback-search");
+    const existingInput = existingForm?.querySelector<HTMLInputElement>("input[type='search']");
+    if (!existingForm || !existingInput) {
+      this.searchSlot.replaceChildren(createSearchForm(seed, () => this.options));
+      return;
+    }
+
+    const seedValue = existingInput.dataset.bsbSeedValue ?? "";
+    const hasUserDraft = document.activeElement === existingInput || existingInput.value !== seedValue;
+    existingInput.placeholder = resolveDisplayedPlaceholder(seed, this.options.placeholderVisible);
+    if (!hasUserDraft) {
+      existingInput.value = seed.value;
+      existingInput.dataset.bsbSeedValue = seed.value;
+    }
+  }
+
+  private syncProfileLink(seed: ProfileSeed): void {
+    const existingLink = this.profileSlot.querySelector<HTMLAnchorElement>(".bsb-tm-video-header-profile-link");
+    const existingAvatar = existingLink?.querySelector<HTMLImageElement>(".bsb-tm-video-header-avatar");
+    const existingAvatarSrc = normalizeAvatarUrl(existingAvatar?.getAttribute("src"));
+    if (
+      existingLink &&
+      existingLink.href === seed.href &&
+      existingLink.getAttribute("aria-label") === seed.label &&
+      existingAvatarSrc === normalizeAvatarUrl(seed.avatarSrc)
+    ) {
+      return;
+    }
+
+    this.profileSlot.replaceChildren(createProfileLink(seed));
   }
 
   unmount(): void {

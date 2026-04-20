@@ -92,6 +92,15 @@ function serializeRecords(records: Map<string, LocalVideoLabelRecord>): LocalLab
 export class LocalVideoLabelStore {
   private records = new Map<string, LocalVideoLabelRecord>();
 
+  private async persistWithRollback(previous: Map<string, LocalVideoLabelRecord>): Promise<void> {
+    try {
+      await gmSetValue(LOCAL_LABEL_STORAGE_KEY, serializeRecords(this.records));
+    } catch (error) {
+      this.records = previous;
+      throw error;
+    }
+  }
+
   async load(): Promise<void> {
     this.records = normalizePayload(await gmGetValue<LocalLabelPayload | null>(LOCAL_LABEL_STORAGE_KEY, null));
   }
@@ -119,6 +128,7 @@ export class LocalVideoLabelStore {
       return;
     }
 
+    const previous = new Map(this.records);
     this.records.set(videoId, {
       category: signal.category,
       source: signal.source,
@@ -127,13 +137,14 @@ export class LocalVideoLabelStore {
       reason: signal.reason
     });
     this.records = pruneRecords(this.records);
-    await gmSetValue(LOCAL_LABEL_STORAGE_KEY, serializeRecords(this.records));
+    await this.persistWithRollback(previous);
   }
 
   async rememberManual(videoId: string, category: Category, reason = "手动确认本地标签"): Promise<void> {
     if (!videoId.startsWith("BV")) {
       return;
     }
+    const previous = new Map(this.records);
     this.records.set(videoId, {
       category,
       source: "manual",
@@ -142,13 +153,14 @@ export class LocalVideoLabelStore {
       reason
     });
     this.records = pruneRecords(this.records);
-    await gmSetValue(LOCAL_LABEL_STORAGE_KEY, serializeRecords(this.records));
+    await this.persistWithRollback(previous);
   }
 
   async dismiss(videoId: string, reason = "手动忽略本地标签"): Promise<void> {
     if (!videoId.startsWith("BV")) {
       return;
     }
+    const previous = new Map(this.records);
     this.records.set(videoId, {
       category: null,
       source: "manual-dismiss",
@@ -157,6 +169,6 @@ export class LocalVideoLabelStore {
       reason
     });
     this.records = pruneRecords(this.records);
-    await gmSetValue(LOCAL_LABEL_STORAGE_KEY, serializeRecords(this.records));
+    await this.persistWithRollback(previous);
   }
 }

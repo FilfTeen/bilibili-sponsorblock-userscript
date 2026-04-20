@@ -45,4 +45,21 @@ describe("notice center", () => {
     expect(document.querySelectorAll(".bsb-tm-notice")).toHaveLength(1);
     expect(document.querySelector(".bsb-tm-notice")?.textContent).toContain("第二条");
   });
+
+  it("removes the player-host class from the previous host when the notice host changes", () => {
+    const center = new NoticeCenter();
+    const firstHost = document.createElement("div");
+    const secondHost = document.createElement("div");
+    document.body.append(firstHost, secondHost);
+
+    center.setHost(firstHost);
+    expect(firstHost.classList.contains("bsb-tm-player-host")).toBe(true);
+
+    center.setHost(secondHost);
+    expect(firstHost.classList.contains("bsb-tm-player-host")).toBe(false);
+    expect(secondHost.classList.contains("bsb-tm-player-host")).toBe(true);
+
+    center.setHost(null);
+    expect(secondHost.classList.contains("bsb-tm-player-host")).toBe(false);
+  });
 });
