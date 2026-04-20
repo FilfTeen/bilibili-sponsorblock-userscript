@@ -19,7 +19,7 @@ function getRepositoryUrl() {
     return `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}`;
   }
 
-  return "https://github.com/FilfTeen/bilibili-sponsorblock-userscript";
+  return "https://github.com/FilfTeen/bilibili-qol-core-userscript";
 }
 
 function getRawUserscriptUrl() {
@@ -28,7 +28,7 @@ function getRawUserscriptUrl() {
     return `https://raw.githubusercontent.com/${process.env.GITHUB_REPOSITORY}/${updateRef}/dist/${USERSCRIPT_FILE_NAME}`;
   }
 
-  return `https://raw.githubusercontent.com/FilfTeen/bilibili-sponsorblock-userscript/main/dist/${USERSCRIPT_FILE_NAME}`;
+  return `https://raw.githubusercontent.com/FilfTeen/bilibili-qol-core-userscript/main/dist/${USERSCRIPT_FILE_NAME}`;
 }
 
 const repositoryUrl = getRepositoryUrl();

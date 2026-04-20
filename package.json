@@ -1,13 +1,13 @@
 {
   "name": "bilibili-qol-core-userscript",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "private": true,
   "type": "module",
   "license": "GPL-3.0-only",
   "description": "Local-first Bilibili quality-of-life userscript with SponsorBlock segments, video labels, local reasoning, MBGA cleanup, and low-intrusion UI.",
   "repository": {
     "type": "git",
-    "url": "https://github.com/FilfTeen/bilibili-sponsorblock-userscript.git"
+    "url": "https://github.com/FilfTeen/bilibili-qol-core-userscript.git"
   },
   "scripts": {
     "build": "node ./scripts/build.mjs",

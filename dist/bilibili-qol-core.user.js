@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili QoL Core
-// @namespace    https://github.com/FilfTeen/bilibili-sponsorblock-userscript
-// @version      0.3.7
+// @namespace    https://github.com/FilfTeen/bilibili-qol-core-userscript
+// @version      0.3.8
 // @description  Local-first quality-of-life toolkit for Bilibili: SponsorBlock segments, labels, comment/dynamic signals, MBGA cleanup, and low-intrusion UI.
 // @author       Hush_
 // @license      GPL-3.0-only
@@ -16,10 +16,10 @@
 // @grant        GM_registerMenuCommand
 // @connect      *
 // @run-at       document-start
-// @homepageURL  https://github.com/FilfTeen/bilibili-sponsorblock-userscript
-// @supportURL   https://github.com/FilfTeen/bilibili-sponsorblock-userscript/issues
-// @downloadURL  https://raw.githubusercontent.com/FilfTeen/bilibili-sponsorblock-userscript/main/dist/bilibili-qol-core.user.js
-// @updateURL    https://raw.githubusercontent.com/FilfTeen/bilibili-sponsorblock-userscript/main/dist/bilibili-qol-core.user.js
+// @homepageURL  https://github.com/FilfTeen/bilibili-qol-core-userscript
+// @supportURL   https://github.com/FilfTeen/bilibili-qol-core-userscript/issues
+// @downloadURL  https://raw.githubusercontent.com/FilfTeen/bilibili-qol-core-userscript/main/dist/bilibili-qol-core.user.js
+// @updateURL    https://raw.githubusercontent.com/FilfTeen/bilibili-qol-core-userscript/main/dist/bilibili-qol-core.user.js
 // ==/UserScript==
 "use strict";
 (() => {
@@ -213,7 +213,7 @@
   var PRODUCT_NAME = "Bilibili QoL Core";
   var SCRIPT_NAME = PRODUCT_NAME;
   var AUTHOR_NAME = "Hush_";
-  var SCRIPT_VERSION = "0.3.7".trim().length > 0 ? "0.3.7" : "0.3.7";
+  var SCRIPT_VERSION = "0.3.8".trim().length > 0 ? "0.3.8" : "0.3.8";
   var CONFIG_STORAGE_KEY = "bsb_tm_config_v1";
   var STATS_STORAGE_KEY = "bsb_tm_stats_v1";
   var CACHE_STORAGE_KEY = "bsb_tm_cache_v1";
@@ -3579,7 +3579,7 @@ ${inlineSurfaceFrostedGlass.overlay}
         this.createLinkGroup([
           {
             label: "\u5F53\u524D\u811A\u672C\u4ED3\u5E93",
-            href: "https://github.com/FilfTeen/bilibili-sponsorblock-userscript"
+            href: "https://github.com/FilfTeen/bilibili-qol-core-userscript"
           },
           {
             label: "\u4E0A\u6E38\u9879\u76EE hanydd/BilibiliSponsorBlock",
