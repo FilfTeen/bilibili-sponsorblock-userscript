@@ -2,7 +2,7 @@
 
 ## 开发目标
 
-这个仓库的目标不是把原扩展逐按钮搬到 userscript，而是在 Tampermonkey 约束下，稳定交付最常用、最有价值的 Bilibili SponsorBlock 体验。
+这个仓库的目标不是把原扩展逐按钮搬到 userscript，而是在 Tampermonkey 约束下，稳定交付最常用、最有价值的 Bilibili QoL Core 体验。
 
 开发时优先级:
 
@@ -22,7 +22,7 @@ npm run build
 
 生成产物:
 
-- `dist/bilibili-sponsorblock.user.js`
+- `dist/bilibili-qol-core.user.js`
 
 ## 真实页面回归
 
@@ -32,7 +32,7 @@ npm run build
 npm run smoke:bilibili
 ```
 
-这个 smoke 主要用于辅助采样和快速观察，不作为 BSC 的最终真实验收结论。
+这个 smoke 主要用于辅助采样和快速观察，不作为 QoL Core 的最终真实验收结论。
 
 默认会调用本机 Chrome:
 
@@ -52,7 +52,7 @@ npm run smoke:bilibili
 
 ## Safari 验收要求
 
-对 BSC 来说，Safari 才是唯一真实运行环境。
+对 QoL Core 来说，Safari 才是唯一真实运行环境。
 
 因此：
 
@@ -101,7 +101,7 @@ npm run validate:safari
 
 1. 确认 `main` 上 `check/test/build` 全绿。
 2. 更新版本号。
-3. 构建 `dist/bilibili-sponsorblock.user.js`。
+3. 构建 `dist/bilibili-qol-core.user.js`。
 4. 打 `v*` tag。
 5. 推送 tag 触发 GitHub Actions release。
 

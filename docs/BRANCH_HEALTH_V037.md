@@ -1,56 +1,44 @@
-# v0.3.7 分支健康记录
+# v0.3.7 / v0.3.8 分支健康记录
 
-本记录来自当前本地仓库的只读审计，用于避免把“未合并”“等价吸收”“脏工作树”混为一类问题。
+本记录来自发布后分支健康复核，用于区分“当前发布状态”和“v0.3.7 功能版审计过程中的历史现场”。
 
 ## 当前基线
 
-- `main`：干净，当前提交 `ed7ff31`，尚不包含 QoL Core final tuning。
-- `codex/v0.3.7-integration`：干净，当前提交 `c0998a8`，已包含 QoL Core final tuning，当前领先 `main`。
-- `codex/BSC_v0_3_7_final_tuning_and_improvement`：已通过 `c0998a8` 合入 `codex/v0.3.7-integration`，尚未直接合入 `main`。
+- `main`：已包含 QoL Core final tuning、`v0.3.7` 功能版和 `v0.3.8` 仓库重命名迁移。
+- `v0.3.7`：功能版发布 tag，指向提交 `2847455`。
+- `v0.3.8`：仓库重命名和 Tampermonkey 更新链路迁移 tag，指向提交 `510717f`。
+- 当前仓库 slug：`FilfTeen/bilibili-qol-core-userscript`。
+- 当前发布产物：`dist/bilibili-qol-core.user.js`。
 
-## 已合入 main 的分支
+## 已进入 main 历史的关键分支
 
-- `codex/bsc-v037`
-- `codex/bsc-v037-Fix_console_display_error`
-- `codex/bsc-v037_investigation_of_anomalous_elements_behind_the_playback_window`
+- `codex/v0.3.7-integration`
+- `codex/BSC_v0_3_7_final_tuning_and_improvement`
+- `codex/repo-rename-qol-core-migration`
+- `codex/b-video-recognition-upgrade`
 - `codex/c-comment-dynamic-recognition-guardrails`
 - `codex/local-reasoning-phase1-eval-foundation`
 - `codex/mbga-audit-fix`
 - `codex/title-badge-long-title-stability`
-- `codex/v0.3.7-compact-header-placeholder`
 
-## 等价吸收但未显示 merged 的分支
+## 历史说明
 
-这些分支 `git branch --no-merged main` 仍会列出，但 `git cherry main <branch>` 显示为 `-`，说明补丁内容已被 main 等价吸收：
+早期审计曾记录 `main` 落后、integration 领先、若干分支显示未 merged、以及旧工作树存在脏现场。这些描述属于 `v0.3.7` 发布前的过程状态，不再代表当前发布状态。
 
-- `codex/b-video-recognition-upgrade`
-- `codex/bsc-v037_new_tag_transparency_effect`
-- `codex/v0.3.7-console-fix-main-sync`
+仍保留历史分支或工作树时，应按以下原则处理：
 
-## 仍需主线程裁决的分支
+- 不用 `git reset --hard` 或强删未知现场。
+- 不把历史脏工作树混入当前发布线。
+- 如需复用旧分支内容，先基于当前 `main` 重新审计、重放、验证，再决定是否合入。
 
-以下分支存在未等价吸收提交，不能在本线程擅自删除或强行合并：
+## 版本边界
 
-- `codex/main-docs-sidecar`：识别升级规划文档支线。
-- `codex/v0.3.7-player-overlay-audit-fix`：播放器背后异常元素审计补丁。
-- `codex/v0.3.7-transparency-audit-fix`：标签透明度审计补丁。
-
-建议主线程后续逐一判断：合入、归档、或重建到当前 main 后重新验证。
-
-## 脏工作树
-
-一个未纳入本轮集成的旧工作树当前仍存在未提交改动：
-
-- `dist/bilibili-qol-core.user.js`
-- `src/ui/compact-header.ts`
-- `src/ui/styles.ts`
-- `test/compact-header.test.ts`
-
-这些改动不属于 v0.3.7 release candidate 的可安全归因范围，因此未提交、未回退、未合并。旧现场需主线程另行确认来源后再处理。
+- `v0.3.7` 是功能版：包含 QoL Core final tuning、识别能力、本地推理、UI 稳定性和生态净化能力。
+- `v0.3.8` 是迁移版：修正仓库 slug、发布 URL、Tampermonkey `@downloadURL` / `@updateURL` 和工程版本标注。
+- `v0.3.8` 不引入新的运行时行为口径；若后续改变功能，应进入新的版本线。
 
 ## 安全原则
 
-- 不使用 `git reset --hard`。
-- 不删除分支。
-- 不丢弃未提交改动。
-- 不把未知脏现场混入当前功能收口。
+- 保留 `bsb_tm_*` 存储键作为兼容前缀，不做破坏性迁移。
+- 保留 `V037` 文件名作为历史归档，不机械重命名。
+- 当前工程说明、安装路径、发布路径和 userscript metadata 必须以 `v0.3.8` / `bilibili-qol-core-userscript` 为准。

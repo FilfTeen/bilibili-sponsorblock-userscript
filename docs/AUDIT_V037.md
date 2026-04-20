@@ -1,6 +1,6 @@
 # Bilibili QoL Core v0.3.7 审计记录
 
-本记录基于 `codex/v0.3.7-integration` 当前 release candidate。审计范围包括菜单入口、功能蓝图、代码结构、安全边界、UI 一致性和测试链路。
+本记录是 `v0.3.7` 功能版发布前审计的历史归档。审计范围包括菜单入口、功能蓝图、代码结构、安全边界、UI 一致性和测试链路。`v0.3.8` 是后续仓库重命名和 Tampermonkey 更新链路迁移版本，不改变本记录中的功能审计结论。
 
 ## 结论摘要
 
@@ -8,7 +8,7 @@
 - 用户可见命名已统一为 Bilibili QoL Core，状态：`fixed`。
 - 上游投票 `429` 误判成功已修复，状态：`fixed`。
 - 紧凑顶栏原生冗余请求 guard 已采用窄白名单实现，状态：`fixed-with-safari-risk`。
-- 文档体系已从过期 v0.3.6 说明更新为 v0.3.7 蓝图索引，状态：`fixed`。
+- 文档体系已从过期 v0.3.6 说明更新为 v0.3.7 功能版蓝图索引；当前 living docs 已在 v0.3.8 迁移中同步为当前工程说明，状态：`fixed`。
 - 运行时未发现 `eval`、`new Function`、字符串定时器或外部数据写入 HTML 的动态代码执行路径，状态：`false-positive`。
 - `@connect *` 仍是必要但宽泛的 Tampermonkey 权限，状态：`documented-risk`。
 - MBGA 使用 `unsafeWindow` 和少量页面侧 monkey patch，属于能力边界内的高敏区域，状态：`documented-risk`。
@@ -146,12 +146,14 @@
 
 ## 分支健康审计
 
-- `main` 当前提交为 `ed7ff31`，尚不包含 QoL Core final tuning。
-- `codex/v0.3.7-integration` 当前提交为 `c0998a8`，已包含 QoL Core final tuning，当前领先 `main`，尚待最终合入 `main`。
-- `codex/BSC_v0_3_7_final_tuning_and_improvement` 已合入 `codex/v0.3.7-integration`，但尚未直接合入 `main`。
-- `codex/b-video-recognition-upgrade`、`codex/bsc-v037_new_tag_transparency_effect`、`codex/v0.3.7-console-fix-main-sync` 显示为未 merged，但 `git cherry main` 标记为等价吸收。
-- `codex/main-docs-sidecar`、`codex/v0.3.7-player-overlay-audit-fix`、`codex/v0.3.7-transparency-audit-fix` 仍有未等价吸收提交，需要主线程决定是否补合入或归档。
-- 一个未纳入本轮集成的旧工作树仍存在未提交改动，涉及旧发布产物、`src/ui/compact-header.ts`、`src/ui/styles.ts`、`test/compact-header.test.ts`。该现场不属于 v0.3.7 release candidate 的可安全归因改动，未擅自提交或回退。
+发布后状态已更新：
+
+- `main` 已包含 QoL Core final tuning、`v0.3.7` 功能版和 `v0.3.8` 仓库重命名迁移。
+- `v0.3.7` tag 指向功能版发布提交 `2847455`。
+- `v0.3.8` tag 指向仓库重命名和 Tampermonkey 更新链路迁移提交 `510717f`。
+- 当前仓库 slug 为 `FilfTeen/bilibili-qol-core-userscript`。
+- `codex/v0.3.7-integration`、`codex/BSC_v0_3_7_final_tuning_and_improvement` 和 `codex/repo-rename-qol-core-migration` 的有效内容已进入 `main` 历史。
+- 早期审计中关于 `main` 落后、integration 待合入和旧工作树脏现场的描述只保留为历史过程记录，不再代表当前发布状态。
 
 ## 后续建议
 
