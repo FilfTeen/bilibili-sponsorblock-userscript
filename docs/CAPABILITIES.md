@@ -1,6 +1,6 @@
 # 能力说明
 
-本文描述 Bilibili QoL Core v0.3.7 已实现的能力边界。更细的实现索引见 [BLUEPRINT.md](./BLUEPRINT.md)。
+本文描述 Bilibili QoL Core v0.3.8 已实现的能力边界。`v0.3.8` 主要完成仓库重命名和 Tampermonkey 更新链路迁移，功能基线继承 `v0.3.7`。更细的实现索引见 [BLUEPRINT.md](./BLUEPRINT.md)。
 
 ## 1. SponsorBlock 片段能力
 

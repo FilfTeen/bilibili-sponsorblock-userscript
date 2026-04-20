@@ -1,6 +1,8 @@
-# Bilibili QoL Core v0.3.7 工程蓝图
+# Bilibili QoL Core v0.3.8 工程蓝图
 
 本文件是后续开发、审计和派生线程接力的总索引。它描述当前真实能力、实现入口、数据边界、测试入口和验收重点。
+
+`v0.3.8` 是仓库重命名和 Tampermonkey 更新链路迁移版本；功能能力基线继承 `v0.3.7`，当前发布产物为 `dist/bilibili-qol-core.user.js`。
 
 ## 1. 运行环境与启动
 

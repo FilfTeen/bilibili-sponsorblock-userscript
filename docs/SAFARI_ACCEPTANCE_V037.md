@@ -1,6 +1,6 @@
 # Safari 验收清单 v0.3.7
 
-这份清单专门用于 `v0.3.7` 的生态净化能力验收。
+这份清单是 `v0.3.7` 功能版的历史验收清单，用于回溯生态净化能力和核心功能回归。`v0.3.8` 是仓库重命名和 Tampermonkey 更新链路迁移版本，功能验收继承本清单，但需要额外确认安装链接、`@downloadURL` 和 `@updateURL` 均指向 `FilfTeen/bilibili-qol-core-userscript`。
 
 适用范围：
 
@@ -219,3 +219,10 @@
 - 没有发现明显页面结构错乱
 - 没有发现新增的高侵入副作用
 - 剩余问题都已被记录为明确的残余风险，而不是“未知异常”
+
+`v0.3.8` 迁移验收还需要额外满足：
+
+- Tampermonkey 安装页显示 `Bilibili QoL Core` 和版本 `0.3.8`
+- `dist/bilibili-qol-core.user.js` 可从新仓库 raw 链接安装
+- userscript metadata 的 `@downloadURL` / `@updateURL` 指向新仓库
+- 旧仓库 slug 不再出现在当前发布文档和构建产物中
