@@ -802,7 +802,7 @@ export class SettingsPanel {
       this.createLinkGroup([
         {
           label: "当前脚本仓库",
-          href: "https://github.com/FilfTeen/bilibili-sponsorblock-userscript"
+            href: "https://github.com/FilfTeen/bilibili-qol-core-userscript"
         },
         {
           label: "上游项目 hanydd/BilibiliSponsorBlock",
