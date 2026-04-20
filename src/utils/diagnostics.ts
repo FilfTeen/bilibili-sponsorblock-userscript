@@ -1,4 +1,4 @@
-import { PRODUCT_NAME } from "../constants";
+import { PRODUCT_NAME, SCRIPT_VERSION } from "../constants";
 
 export type DiagnosticSeverity = "info" | "warn" | "error";
 export type DiagnosticArea = "storage" | "network" | "ui" | "lifecycle" | "upstream" | "runtime";
@@ -24,6 +24,11 @@ const SENSITIVE_KEY_PATTERN = /user.?id|token|cookie|authorization|comment.?text
 const diagnosticEvents: DiagnosticEvent[] = [];
 const listeners = new Set<(events: DiagnosticEvent[]) => void>();
 let nextDiagnosticId = 1;
+let diagnosticDebugOverride: boolean | null = null;
+
+function isNodeRuntime(): boolean {
+  return typeof process !== "undefined" && process.release?.name === "node";
+}
 
 function cleanString(input: string): string {
   return input
@@ -90,7 +95,10 @@ export function clearDiagnostics(): void {
 }
 
 export function isDiagnosticDebugEnabled(): boolean {
-  if (typeof process !== "undefined" && process.release && process.release.name === "node") {
+  if (diagnosticDebugOverride !== null) {
+    return diagnosticDebugOverride;
+  }
+  if (isNodeRuntime()) {
     return false;
   }
 
@@ -109,6 +117,27 @@ export function isDiagnosticDebugEnabled(): boolean {
   } catch (_error) {
     return false;
   }
+}
+
+export function setDiagnosticDebugEnabled(enabled: boolean): boolean {
+  diagnosticDebugOverride = enabled;
+  if (!isNodeRuntime()) {
+    try {
+      if (enabled) {
+        window.localStorage.setItem("qol_core_debug", "1");
+      } else {
+        window.localStorage.removeItem("qol_core_debug");
+      }
+    } catch (error) {
+      reportDiagnostic({
+        severity: "warn",
+        area: "storage",
+        message: "诊断调试开关持久化失败，仅在当前页面生效",
+        detail: error
+      });
+    }
+  }
+  return isDiagnosticDebugEnabled();
 }
 
 export function reportDiagnostic(input: DiagnosticInput): DiagnosticEvent {
@@ -139,8 +168,11 @@ export function reportDiagnostic(input: DiagnosticInput): DiagnosticEvent {
 export function formatDiagnosticReport(): string {
   const lines = [
     `${PRODUCT_NAME} diagnostics`,
+    `Version: ${SCRIPT_VERSION}`,
     `Generated: ${new Date().toISOString()}`,
+    `Debug: ${isDiagnosticDebugEnabled() ? "enabled" : "disabled"}`,
     `Page: ${cleanString(window.location.href)}`,
+    `UserAgent: ${cleanString(navigator.userAgent)}`,
     `Events: ${diagnosticEvents.length}`
   ];
   for (const event of diagnosticEvents) {

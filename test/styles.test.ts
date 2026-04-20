@@ -168,6 +168,8 @@ describe("shared glass contexts", () => {
 
   it("styles developer diagnostics without promoting them to global alerts", () => {
     expect(styles).toContain(".bsb-tm-diagnostics-card");
+    expect(styles).toContain(".bsb-tm-diagnostics-debug-toggle");
+    expect(styles).toContain(".bsb-tm-diagnostics-empty");
     expect(styles).toContain(".bsb-tm-diagnostics-item[data-severity=\"warn\"]");
     expect(styles).toContain(".bsb-tm-diagnostics-item[data-severity=\"error\"]");
     expect(styles).toContain(".bsb-tm-field[data-control-error=\"true\"]");

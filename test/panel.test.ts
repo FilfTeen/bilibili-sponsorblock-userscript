@@ -3,9 +3,16 @@ import { CATEGORY_LABELS } from "../src/constants";
 import { cloneDefaultConfig } from "../src/core/config-store";
 import { SettingsPanel } from "../src/ui/panel";
 import { styles } from "../src/ui/styles";
-import { clearDiagnostics, getDiagnosticEvents, reportDiagnostic } from "../src/utils/diagnostics";
+import {
+  clearDiagnostics,
+  getDiagnosticEvents,
+  isDiagnosticDebugEnabled,
+  reportDiagnostic,
+  setDiagnosticDebugEnabled
+} from "../src/utils/diagnostics";
 
 beforeEach(() => {
+  setDiagnosticDebugEnabled(false);
   clearDiagnostics();
   const style = document.createElement("style");
   style.textContent = styles;
@@ -696,6 +703,32 @@ describe("settings panel", () => {
 
     card?.querySelector<HTMLButtonElement>("[data-bsb-diagnostics-clear='true']")?.click();
     expect(getDiagnosticEvents()).toHaveLength(0);
-    expect(document.querySelector(".bsb-tm-diagnostics-card")).toBeNull();
+    expect(document.querySelector(".bsb-tm-diagnostics-card")).toBeTruthy();
+    expect(document.querySelector(".bsb-tm-diagnostics-card")?.textContent).toContain("暂无诊断事件");
+  });
+
+  it("always exposes developer diagnostics with a visible debug switch", () => {
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig: vi.fn(async () => {}),
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("help");
+
+    const card = document.querySelector<HTMLElement>(".bsb-tm-diagnostics-card");
+    const debugSwitch = card?.querySelector<HTMLInputElement>("[data-bsb-diagnostics-debug='true']");
+    expect(card).toBeTruthy();
+    expect(card?.textContent).toContain("暂无诊断事件");
+    expect(debugSwitch).toBeTruthy();
+    expect(debugSwitch?.checked).toBe(false);
+
+    debugSwitch?.click();
+
+    expect(isDiagnosticDebugEnabled()).toBe(true);
+    expect(debugSwitch?.checked).toBe(true);
+    expect(card?.textContent).toContain("详细日志已开启");
   });
 });

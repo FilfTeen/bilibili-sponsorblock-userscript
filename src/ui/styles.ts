@@ -1945,12 +1945,46 @@ ${titleSurfaceFrostedGlass.overlay}
   font-weight: 650;
 }
 
+.bsb-tm-diagnostics-debug-toggle {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(244, 248, 252, 0.5)),
+    rgba(255, 255, 255, 0.36);
+}
+
+.bsb-tm-diagnostics-debug-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.bsb-tm-diagnostics-debug-copy small,
+.bsb-tm-diagnostics-empty {
+  margin: 0;
+  color: var(--bsb-subtle);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .bsb-tm-diagnostics-list {
   display: grid;
   gap: 8px;
   max-height: 260px;
   overflow: auto;
   padding-right: 2px;
+}
+
+.bsb-tm-diagnostics-empty {
+  padding: 10px 12px;
+  border: 1px dashed rgba(148, 163, 184, 0.28);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.42);
 }
 
 .bsb-tm-diagnostics-item {

@@ -28,6 +28,7 @@ import {
   getDiagnosticEvents,
   isDiagnosticDebugEnabled,
   reportDiagnostic,
+  setDiagnosticDebugEnabled,
   subscribeDiagnostics,
   type DiagnosticEvent
 } from "../utils/diagnostics";
@@ -817,10 +818,7 @@ export class SettingsPanel {
         }
       ])
     ];
-    const diagnosticsCard = this.createDeveloperDiagnosticsCard();
-    if (diagnosticsCard) {
-      children.push(diagnosticsCard);
-    }
+    children.push(this.createDeveloperDiagnosticsCard());
     children.push(
       this.createInfoBox(
         "致谢与免责声明",
@@ -830,11 +828,10 @@ export class SettingsPanel {
     this.sections.get("help")?.replaceChildren(...children);
   }
 
-  private createDeveloperDiagnosticsCard(): HTMLElement | null {
+  private createDeveloperDiagnosticsCard(): HTMLElement {
     const events = this.diagnosticEvents.slice(-8).reverse();
-    if (events.length === 0 && !isDiagnosticDebugEnabled()) {
-      return null;
-    }
+    const warnCount = this.diagnosticEvents.filter((event) => event.severity === "warn").length;
+    const errorCount = this.diagnosticEvents.filter((event) => event.severity === "error").length;
 
     const card = document.createElement("div");
     card.className = "bsb-tm-diagnostics-card";
@@ -845,33 +842,63 @@ export class SettingsPanel {
     title.textContent = "开发者诊断";
     const badge = document.createElement("span");
     badge.className = "bsb-tm-diagnostics-count";
-    badge.textContent = `${this.diagnosticEvents.length} 条`;
+    badge.textContent = `${this.diagnosticEvents.length} 条 · ${warnCount} 警告 · ${errorCount} 错误`;
     heading.append(title, badge);
+
+    const debugToggle = document.createElement("label");
+    debugToggle.className = "bsb-tm-diagnostics-debug-toggle";
+    const debugCopy = document.createElement("span");
+    debugCopy.className = "bsb-tm-diagnostics-debug-copy";
+    const debugTitle = document.createElement("strong");
+    debugTitle.textContent = "详细日志";
+    const debugStatus = document.createElement("small");
+    debugCopy.append(debugTitle, debugStatus);
+    const debugSwitch = document.createElement("input");
+    debugSwitch.type = "checkbox";
+    debugSwitch.className = "bsb-tm-switch";
+    debugSwitch.setAttribute("data-bsb-diagnostics-debug", "true");
+    const updateDebugStatus = () => {
+      const enabled = isDiagnosticDebugEnabled();
+      debugSwitch.checked = enabled;
+      debugStatus.textContent = enabled
+        ? "详细日志已开启，会输出更多控制台调试信息。"
+        : "默认关闭。普通使用无需开启，排查问题时再打开。";
+    };
+    debugSwitch.addEventListener("change", () => {
+      setDiagnosticDebugEnabled(debugSwitch.checked);
+      updateDebugStatus();
+    });
+    updateDebugStatus();
+    debugToggle.append(debugCopy, debugSwitch);
 
     const description = document.createElement("p");
     description.className = "bsb-tm-section-description";
-    description.textContent =
-      events.length > 0
-        ? "这里仅展示可帮助排查问题的最近事件。报告会自动清洗用户 ID、评论原文、token 等敏感字段。"
-        : "当前暂无诊断事件。需要更详细日志时，可在控制台执行 localStorage.qol_core_debug = \"1\" 后刷新页面。";
+    description.textContent = "诊断报告只保留最近事件，并会自动清洗用户 ID、评论原文、token 等敏感字段。";
 
     const list = document.createElement("div");
     list.className = "bsb-tm-diagnostics-list";
-    for (const event of events) {
-      const item = document.createElement("article");
-      item.className = "bsb-tm-diagnostics-item";
-      item.dataset.severity = event.severity;
-      const meta = document.createElement("small");
-      meta.textContent = `${event.severity} / ${event.area} · ${new Date(event.at).toLocaleTimeString()}`;
-      const message = document.createElement("strong");
-      message.textContent = event.message;
-      item.append(meta, message);
-      if (event.detail) {
-        const detail = document.createElement("code");
-        detail.textContent = event.detail;
-        item.appendChild(detail);
+    if (events.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "bsb-tm-diagnostics-empty";
+      empty.textContent = "暂无诊断事件。复制报告仍会包含版本、页面、浏览器和 debug 状态。";
+      list.appendChild(empty);
+    } else {
+      for (const event of events) {
+        const item = document.createElement("article");
+        item.className = "bsb-tm-diagnostics-item";
+        item.dataset.severity = event.severity;
+        const meta = document.createElement("small");
+        meta.textContent = `${event.severity} / ${event.area} · ${new Date(event.at).toLocaleTimeString()}`;
+        const message = document.createElement("strong");
+        message.textContent = event.message;
+        item.append(meta, message);
+        if (event.detail) {
+          const detail = document.createElement("code");
+          detail.textContent = event.detail;
+          item.appendChild(detail);
+        }
+        list.appendChild(item);
       }
-      list.appendChild(item);
     }
 
     const actions = document.createElement("div");
@@ -889,13 +916,14 @@ export class SettingsPanel {
     clearButton.className = "bsb-tm-button secondary compact";
     clearButton.textContent = "清空";
     clearButton.setAttribute("data-bsb-diagnostics-clear", "true");
+    clearButton.disabled = this.diagnosticEvents.length === 0;
     clearButton.addEventListener("click", () => {
       clearDiagnostics();
       this.renderHelp();
     });
     actions.append(copyButton, clearButton);
 
-    card.append(heading, description, list, actions);
+    card.append(heading, debugToggle, description, list, actions);
     return card;
   }
 

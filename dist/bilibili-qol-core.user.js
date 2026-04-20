@@ -1086,6 +1086,11 @@
   var diagnosticEvents = [];
   var listeners = /* @__PURE__ */ new Set();
   var nextDiagnosticId = 1;
+  var diagnosticDebugOverride = null;
+  function isNodeRuntime() {
+    var _a;
+    return typeof process !== "undefined" && ((_a = process.release) == null ? void 0 : _a.name) === "node";
+  }
   function cleanString(input) {
     return input.replace(/<[^>]*>/gu, "").replace(/\s+/gu, " ").trim().slice(0, 1200);
   }
@@ -1139,7 +1144,10 @@
     notifyDiagnosticsChanged();
   }
   function isDiagnosticDebugEnabled() {
-    if (typeof process !== "undefined" && process.release && process.release.name === "node") {
+    if (diagnosticDebugOverride !== null) {
+      return diagnosticDebugOverride;
+    }
+    if (isNodeRuntime()) {
       return false;
     }
     try {
@@ -1155,6 +1163,26 @@
     } catch (_error) {
       return false;
     }
+  }
+  function setDiagnosticDebugEnabled(enabled) {
+    diagnosticDebugOverride = enabled;
+    if (!isNodeRuntime()) {
+      try {
+        if (enabled) {
+          window.localStorage.setItem("qol_core_debug", "1");
+        } else {
+          window.localStorage.removeItem("qol_core_debug");
+        }
+      } catch (error) {
+        reportDiagnostic({
+          severity: "warn",
+          area: "storage",
+          message: "\u8BCA\u65AD\u8C03\u8BD5\u5F00\u5173\u6301\u4E45\u5316\u5931\u8D25\uFF0C\u4EC5\u5728\u5F53\u524D\u9875\u9762\u751F\u6548",
+          detail: error
+        });
+      }
+    }
+    return isDiagnosticDebugEnabled();
   }
   function reportDiagnostic(input) {
     var _a, _b;
@@ -1183,8 +1211,11 @@
   function formatDiagnosticReport() {
     const lines = [
       `${PRODUCT_NAME} diagnostics`,
+      `Version: ${SCRIPT_VERSION}`,
       `Generated: ${(/* @__PURE__ */ new Date()).toISOString()}`,
+      `Debug: ${isDiagnosticDebugEnabled() ? "enabled" : "disabled"}`,
       `Page: ${cleanString(window.location.href)}`,
+      `UserAgent: ${cleanString(navigator.userAgent)}`,
       `Events: ${diagnosticEvents.length}`
     ];
     for (const event of diagnosticEvents) {
@@ -3564,10 +3595,7 @@ ${inlineSurfaceFrostedGlass.overlay}
           }
         ])
       ];
-      const diagnosticsCard = this.createDeveloperDiagnosticsCard();
-      if (diagnosticsCard) {
-        children.push(diagnosticsCard);
-      }
+      children.push(this.createDeveloperDiagnosticsCard());
       children.push(
         this.createInfoBox(
           "\u81F4\u8C22\u4E0E\u514D\u8D23\u58F0\u660E",
@@ -3578,9 +3606,8 @@ ${inlineSurfaceFrostedGlass.overlay}
     }
     createDeveloperDiagnosticsCard() {
       const events = this.diagnosticEvents.slice(-8).reverse();
-      if (events.length === 0 && !isDiagnosticDebugEnabled()) {
-        return null;
-      }
+      const warnCount = this.diagnosticEvents.filter((event) => event.severity === "warn").length;
+      const errorCount = this.diagnosticEvents.filter((event) => event.severity === "error").length;
       const card = document.createElement("div");
       card.className = "bsb-tm-diagnostics-card";
       const heading = document.createElement("div");
@@ -3589,28 +3616,58 @@ ${inlineSurfaceFrostedGlass.overlay}
       title.textContent = "\u5F00\u53D1\u8005\u8BCA\u65AD";
       const badge = document.createElement("span");
       badge.className = "bsb-tm-diagnostics-count";
-      badge.textContent = `${this.diagnosticEvents.length} \u6761`;
+      badge.textContent = `${this.diagnosticEvents.length} \u6761 \xB7 ${warnCount} \u8B66\u544A \xB7 ${errorCount} \u9519\u8BEF`;
       heading.append(title, badge);
+      const debugToggle = document.createElement("label");
+      debugToggle.className = "bsb-tm-diagnostics-debug-toggle";
+      const debugCopy = document.createElement("span");
+      debugCopy.className = "bsb-tm-diagnostics-debug-copy";
+      const debugTitle = document.createElement("strong");
+      debugTitle.textContent = "\u8BE6\u7EC6\u65E5\u5FD7";
+      const debugStatus = document.createElement("small");
+      debugCopy.append(debugTitle, debugStatus);
+      const debugSwitch = document.createElement("input");
+      debugSwitch.type = "checkbox";
+      debugSwitch.className = "bsb-tm-switch";
+      debugSwitch.setAttribute("data-bsb-diagnostics-debug", "true");
+      const updateDebugStatus = () => {
+        const enabled = isDiagnosticDebugEnabled();
+        debugSwitch.checked = enabled;
+        debugStatus.textContent = enabled ? "\u8BE6\u7EC6\u65E5\u5FD7\u5DF2\u5F00\u542F\uFF0C\u4F1A\u8F93\u51FA\u66F4\u591A\u63A7\u5236\u53F0\u8C03\u8BD5\u4FE1\u606F\u3002" : "\u9ED8\u8BA4\u5173\u95ED\u3002\u666E\u901A\u4F7F\u7528\u65E0\u9700\u5F00\u542F\uFF0C\u6392\u67E5\u95EE\u9898\u65F6\u518D\u6253\u5F00\u3002";
+      };
+      debugSwitch.addEventListener("change", () => {
+        setDiagnosticDebugEnabled(debugSwitch.checked);
+        updateDebugStatus();
+      });
+      updateDebugStatus();
+      debugToggle.append(debugCopy, debugSwitch);
       const description = document.createElement("p");
       description.className = "bsb-tm-section-description";
-      description.textContent = events.length > 0 ? "\u8FD9\u91CC\u4EC5\u5C55\u793A\u53EF\u5E2E\u52A9\u6392\u67E5\u95EE\u9898\u7684\u6700\u8FD1\u4E8B\u4EF6\u3002\u62A5\u544A\u4F1A\u81EA\u52A8\u6E05\u6D17\u7528\u6237 ID\u3001\u8BC4\u8BBA\u539F\u6587\u3001token \u7B49\u654F\u611F\u5B57\u6BB5\u3002" : '\u5F53\u524D\u6682\u65E0\u8BCA\u65AD\u4E8B\u4EF6\u3002\u9700\u8981\u66F4\u8BE6\u7EC6\u65E5\u5FD7\u65F6\uFF0C\u53EF\u5728\u63A7\u5236\u53F0\u6267\u884C localStorage.qol_core_debug = "1" \u540E\u5237\u65B0\u9875\u9762\u3002';
+      description.textContent = "\u8BCA\u65AD\u62A5\u544A\u53EA\u4FDD\u7559\u6700\u8FD1\u4E8B\u4EF6\uFF0C\u5E76\u4F1A\u81EA\u52A8\u6E05\u6D17\u7528\u6237 ID\u3001\u8BC4\u8BBA\u539F\u6587\u3001token \u7B49\u654F\u611F\u5B57\u6BB5\u3002";
       const list = document.createElement("div");
       list.className = "bsb-tm-diagnostics-list";
-      for (const event of events) {
-        const item = document.createElement("article");
-        item.className = "bsb-tm-diagnostics-item";
-        item.dataset.severity = event.severity;
-        const meta = document.createElement("small");
-        meta.textContent = `${event.severity} / ${event.area} \xB7 ${new Date(event.at).toLocaleTimeString()}`;
-        const message = document.createElement("strong");
-        message.textContent = event.message;
-        item.append(meta, message);
-        if (event.detail) {
-          const detail = document.createElement("code");
-          detail.textContent = event.detail;
-          item.appendChild(detail);
+      if (events.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "bsb-tm-diagnostics-empty";
+        empty.textContent = "\u6682\u65E0\u8BCA\u65AD\u4E8B\u4EF6\u3002\u590D\u5236\u62A5\u544A\u4ECD\u4F1A\u5305\u542B\u7248\u672C\u3001\u9875\u9762\u3001\u6D4F\u89C8\u5668\u548C debug \u72B6\u6001\u3002";
+        list.appendChild(empty);
+      } else {
+        for (const event of events) {
+          const item = document.createElement("article");
+          item.className = "bsb-tm-diagnostics-item";
+          item.dataset.severity = event.severity;
+          const meta = document.createElement("small");
+          meta.textContent = `${event.severity} / ${event.area} \xB7 ${new Date(event.at).toLocaleTimeString()}`;
+          const message = document.createElement("strong");
+          message.textContent = event.message;
+          item.append(meta, message);
+          if (event.detail) {
+            const detail = document.createElement("code");
+            detail.textContent = event.detail;
+            item.appendChild(detail);
+          }
+          list.appendChild(item);
         }
-        list.appendChild(item);
       }
       const actions = document.createElement("div");
       actions.className = "bsb-tm-diagnostics-actions";
@@ -3627,12 +3684,13 @@ ${inlineSurfaceFrostedGlass.overlay}
       clearButton.className = "bsb-tm-button secondary compact";
       clearButton.textContent = "\u6E05\u7A7A";
       clearButton.setAttribute("data-bsb-diagnostics-clear", "true");
+      clearButton.disabled = this.diagnosticEvents.length === 0;
       clearButton.addEventListener("click", () => {
         clearDiagnostics();
         this.renderHelp();
       });
       actions.append(copyButton, clearButton);
-      card.append(heading, description, list, actions);
+      card.append(heading, debugToggle, description, list, actions);
       return card;
     }
     copyDiagnosticReport(button) {
@@ -12387,12 +12445,46 @@ ${titleSurfaceFrostedGlass.overlay}
   font-weight: 650;
 }
 
+.bsb-tm-diagnostics-debug-toggle {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(244, 248, 252, 0.5)),
+    rgba(255, 255, 255, 0.36);
+}
+
+.bsb-tm-diagnostics-debug-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.bsb-tm-diagnostics-debug-copy small,
+.bsb-tm-diagnostics-empty {
+  margin: 0;
+  color: var(--bsb-subtle);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .bsb-tm-diagnostics-list {
   display: grid;
   gap: 8px;
   max-height: 260px;
   overflow: auto;
   padding-right: 2px;
+}
+
+.bsb-tm-diagnostics-empty {
+  padding: 10px 12px;
+  border: 1px dashed rgba(148, 163, 184, 0.28);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.42);
 }
 
 .bsb-tm-diagnostics-item {
