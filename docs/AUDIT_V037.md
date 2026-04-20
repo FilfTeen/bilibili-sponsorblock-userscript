@@ -1,6 +1,6 @@
 # Bilibili QoL Core v0.3.7 审计记录
 
-本记录基于 `codex/BSC_v0_3_7_final_tuning_and_improvement` 分支当前实现。审计范围包括菜单入口、功能蓝图、代码结构、安全边界、UI 一致性和测试链路。
+本记录基于 `codex/v0.3.7-integration` 当前 release candidate。审计范围包括菜单入口、功能蓝图、代码结构、安全边界、UI 一致性和测试链路。
 
 ## 结论摘要
 
@@ -55,8 +55,8 @@
 - Status: `fixed-with-safari-risk`
 - Evidence: 紧凑顶栏隐藏原生顶部栏后，原生顶部栏 badge 统计请求仍可能继续发起。
 - Impact: 多余请求会增加页面加载期噪音和潜在 UI 抖动。
-- Fix: document-start 安装轻量 guard，默认观察；只有紧凑顶栏已挂载且页面支持时，才阻断 `/x/msgfeed/unread`、`/x/web-interface/nav/stat` 等窄白名单请求。
-- Residual risk: Safari 主窗口还需确认 B 站当前实验流下这些请求确实只服务原生顶部栏 badge，且不影响头像、搜索、登录态或播放。
+- Fix: document-start 安装轻量 guard，默认观察；只有紧凑顶栏已挂载且页面支持时，才对确认冗余的 fetch 顶栏请求执行窄范围 guard，命中 `/x/msgfeed/unread`、`/x/web-interface/nav/stat` 等白名单路径时返回合成 204。
+- Residual risk: XHR 路径当前只做观测记录，命中时记录 `would-block-xhr`，不实际阻断。Safari 主窗口还需确认 B 站当前实验流下这些 fetch 请求确实只服务原生顶部栏 badge，且不影响头像、搜索、登录态或播放。
 - Verification: `test/native-request-guard.test.ts`。
 
 ## A-002 文档版本和能力描述漂移
@@ -146,11 +146,12 @@
 
 ## 分支健康审计
 
-- `main` 与 `codex/v0.3.7-integration` 当前指向同一提交 `ed7ff31`，均为干净工作树。
-- `codex/BSC_v0_3_7_final_tuning_and_improvement` 是本轮活动分支，当前未合入 main 属预期状态。
+- `main` 当前提交为 `ed7ff31`，尚不包含 QoL Core final tuning。
+- `codex/v0.3.7-integration` 当前提交为 `c0998a8`，已包含 QoL Core final tuning，当前领先 `main`，尚待最终合入 `main`。
+- `codex/BSC_v0_3_7_final_tuning_and_improvement` 已合入 `codex/v0.3.7-integration`，但尚未直接合入 `main`。
 - `codex/b-video-recognition-upgrade`、`codex/bsc-v037_new_tag_transparency_effect`、`codex/v0.3.7-console-fix-main-sync` 显示为未 merged，但 `git cherry main` 标记为等价吸收。
 - `codex/main-docs-sidecar`、`codex/v0.3.7-player-overlay-audit-fix`、`codex/v0.3.7-transparency-audit-fix` 仍有未等价吸收提交，需要主线程决定是否补合入或归档。
-- `/Users/dwight/.codex/worktrees/c5ef/bilibili-sponsorblock-userscript` 存在未提交改动，涉及旧发布产物路径、`src/ui/compact-header.ts`、`src/ui/styles.ts`、`test/compact-header.test.ts`。该现场不属于本轮可安全归因改动，未擅自提交或回退。
+- 一个未纳入本轮集成的旧工作树仍存在未提交改动，涉及旧发布产物、`src/ui/compact-header.ts`、`src/ui/styles.ts`、`test/compact-header.test.ts`。该现场不属于 v0.3.7 release candidate 的可安全归因改动，未擅自提交或回退。
 
 ## 后续建议
 

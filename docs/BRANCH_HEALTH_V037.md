@@ -4,9 +4,9 @@
 
 ## 当前基线
 
-- `main`：干净，当前提交 `ed7ff31`。
-- `codex/v0.3.7-integration`：干净，当前提交 `ed7ff31`，与 `main` 对齐。
-- `codex/BSC_v0_3_7_final_tuning_and_improvement`：本轮活动分支，尚未合入 `main` 属预期。
+- `main`：干净，当前提交 `ed7ff31`，尚不包含 QoL Core final tuning。
+- `codex/v0.3.7-integration`：干净，当前提交 `c0998a8`，已包含 QoL Core final tuning，当前领先 `main`。
+- `codex/BSC_v0_3_7_final_tuning_and_improvement`：已通过 `c0998a8` 合入 `codex/v0.3.7-integration`，尚未直接合入 `main`。
 
 ## 已合入 main 的分支
 
@@ -18,7 +18,6 @@
 - `codex/mbga-audit-fix`
 - `codex/title-badge-long-title-stability`
 - `codex/v0.3.7-compact-header-placeholder`
-- `codex/v0.3.7-integration`
 
 ## 等价吸收但未显示 merged 的分支
 
@@ -40,14 +39,14 @@
 
 ## 脏工作树
 
-`/Users/dwight/.codex/worktrees/c5ef/bilibili-sponsorblock-userscript` 当前存在未提交改动：
+一个未纳入本轮集成的旧工作树当前仍存在未提交改动：
 
 - `dist/bilibili-qol-core.user.js`
 - `src/ui/compact-header.ts`
 - `src/ui/styles.ts`
 - `test/compact-header.test.ts`
 
-这些改动不属于本轮可安全归因范围，因此未提交、未回退、未合并。后续应由主线程确认来源后再处理。
+这些改动不属于 v0.3.7 release candidate 的可安全归因范围，因此未提交、未回退、未合并。旧现场需主线程另行确认来源后再处理。
 
 ## 安全原则
 
