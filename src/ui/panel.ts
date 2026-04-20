@@ -22,6 +22,16 @@ import type {
 } from "../types";
 import { normalizeHexColor, resolveCategoryAccent, resolveCategoryStyle } from "../utils/color";
 import { validateStoredPattern } from "../utils/pattern";
+import {
+  clearDiagnostics,
+  formatDiagnosticReport,
+  getDiagnosticEvents,
+  isDiagnosticDebugEnabled,
+  reportDiagnostic,
+  setDiagnosticDebugEnabled,
+  subscribeDiagnostics,
+  type DiagnosticEvent
+} from "../utils/diagnostics";
 import { createSponsorShieldIcon } from "./icons";
 import { createInlineBadge, type InlineBadgeAppearance, type InlineTone } from "./inline-feedback";
 
@@ -85,6 +95,7 @@ export class SettingsPanel {
   private readonly contentScrollByTab: Partial<Record<PanelTab, number>> = {};
   private activeTab: PanelTab = "overview";
   private filterValidationMessage: string | null = null;
+  private diagnosticEvents: DiagnosticEvent[] = getDiagnosticEvents();
   private config: StoredConfig;
   private stats: StoredStats;
   private fullVideoLabels: string[] = [];
@@ -96,6 +107,8 @@ export class SettingsPanel {
   };
   private readonly activeFeedbacks = new Map<string, string>(); // id -> originalText
   private readonly pendingConfirmations = new Set<string>(); // id
+  private inlineControlUpdateDepth = 0;
+  private unsubscribeDiagnostics: (() => void) | null = null;
   private readonly handleKeydown = (event: KeyboardEvent) => {
     if (event.key === "Escape" && !this.backdrop.hidden) {
       this.close("user");
@@ -151,6 +164,12 @@ export class SettingsPanel {
     this.backdrop.appendChild(this.panel);
     this.render();
     this.setActiveTab("overview");
+    this.unsubscribeDiagnostics = subscribeDiagnostics((events) => {
+      this.diagnosticEvents = events;
+      if (this.activeTab === "help") {
+        this.renderHelp();
+      }
+    });
   }
 
   mount(): void {
@@ -177,10 +196,11 @@ export class SettingsPanel {
   }
 
   open(tab: PanelTab = this.activeTab): void {
+    const wasHidden = this.backdrop.hidden;
     this.mount();
     this.attachViewportListeners();
     this.syncViewportMetrics();
-    this.setActiveTab(tab);
+    this.setActiveTab(tab, { preserveScroll: true, scrollTop: this.contentScrollByTab[tab] ?? 0, skipRemember: wasHidden });
     this.backdrop.hidden = false;
     document.documentElement.classList.add("bsb-tm-panel-open");
     document.addEventListener("keydown", this.handleKeydown);
@@ -188,6 +208,9 @@ export class SettingsPanel {
 
   close(reason: PanelCloseReason = "user"): void {
     const wasOpen = !this.backdrop.hidden;
+    if (wasOpen) {
+      this.rememberActiveScroll();
+    }
     this.backdrop.hidden = true;
     this.detachViewportListeners();
     document.documentElement.classList.remove("bsb-tm-panel-open");
@@ -199,13 +222,18 @@ export class SettingsPanel {
 
   unmount(): void {
     this.close("system");
+    this.unsubscribeDiagnostics?.();
+    this.unsubscribeDiagnostics = null;
     this.backdrop.remove();
   }
 
   updateConfig(config: StoredConfig): void {
-    this.rememberActiveScroll();
     this.config = config;
     this.filterValidationMessage = null;
+    if (this.inlineControlUpdateDepth > 0 && !this.backdrop.hidden) {
+      return;
+    }
+    this.rememberActiveScroll();
     this.render(true);
   }
 
@@ -436,8 +464,31 @@ export class SettingsPanel {
         option.selected = this.config.categoryModes[category] === mode;
         select.appendChild(option);
       }
+      let pointerDrivenSelection = false;
+      select.addEventListener("pointerdown", () => {
+        pointerDrivenSelection = true;
+      });
+      this.bindPointerFocusSuppression(row, select);
       select.addEventListener("change", async () => {
-        await this.callbacks.onCategoryModeChange(category, select.value as CategoryMode);
+        const finishInlineUpdate = this.beginInlineControlUpdate();
+        try {
+          await this.callbacks.onCategoryModeChange(category, select.value as CategoryMode);
+          if (pointerDrivenSelection) {
+            select.blur();
+          }
+        } catch (error) {
+          select.value = this.config.categoryModes[category];
+          this.markControlError(row);
+          reportDiagnostic({
+            severity: "warn",
+            area: "storage",
+            message: `${CATEGORY_LABELS[category]} 分类策略保存失败，已回退`,
+            detail: error
+          });
+        } finally {
+          pointerDrivenSelection = false;
+          finishInlineUpdate();
+        }
       });
 
       row.append(copy, select);
@@ -721,7 +772,7 @@ export class SettingsPanel {
   }
 
   private renderHelp(): void {
-    this.sections.get("help")?.replaceChildren(
+    const children: HTMLElement[] = [
       this.createSectionHeading("帮助与反馈", "这里说明脚本在页面上会看到什么，以及如何判断标签是否工作正常。"),
       this.createFeatureGrid(
         [
@@ -765,16 +816,145 @@ export class SettingsPanel {
           label: "SponsorBlock 服务器",
           href: "https://www.bsbsb.top"
         }
-      ]),
+      ])
+    ];
+    children.push(this.createDeveloperDiagnosticsCard());
+    children.push(
       this.createInfoBox(
         "致谢与免责声明",
         `Bilibili QoL Core 由 ${AUTHOR_NAME} 维护。本脚本基于 GPL-3.0 的 BilibiliSponsorBlock 上游实现思路移植而来；评论区属地显示功能参考并适配了 mscststs 的 ISC 脚本「B站评论区开盒」。所有片段和社区 full 标签来自上游社区记录，本地推理只作为辅助判断，结果仅供参考。`
       )
     );
+    this.sections.get("help")?.replaceChildren(...children);
   }
 
-  private setActiveTab(tab: PanelTab, options?: { preserveScroll?: boolean; scrollTop?: number }): void {
-    this.rememberActiveScroll();
+  private createDeveloperDiagnosticsCard(): HTMLElement {
+    const events = this.diagnosticEvents.slice(-8).reverse();
+    const warnCount = this.diagnosticEvents.filter((event) => event.severity === "warn").length;
+    const errorCount = this.diagnosticEvents.filter((event) => event.severity === "error").length;
+
+    const card = document.createElement("div");
+    card.className = "bsb-tm-diagnostics-card";
+
+    const heading = document.createElement("div");
+    heading.className = "bsb-tm-diagnostics-heading";
+    const title = document.createElement("strong");
+    title.textContent = "开发者诊断";
+    const badge = document.createElement("span");
+    badge.className = "bsb-tm-diagnostics-count";
+    badge.textContent = `${this.diagnosticEvents.length} 条 · ${warnCount} 警告 · ${errorCount} 错误`;
+    heading.append(title, badge);
+
+    const debugToggle = document.createElement("label");
+    debugToggle.className = "bsb-tm-diagnostics-debug-toggle";
+    const debugCopy = document.createElement("span");
+    debugCopy.className = "bsb-tm-diagnostics-debug-copy";
+    const debugTitle = document.createElement("strong");
+    debugTitle.textContent = "详细日志";
+    const debugStatus = document.createElement("small");
+    debugCopy.append(debugTitle, debugStatus);
+    const debugSwitch = document.createElement("input");
+    debugSwitch.type = "checkbox";
+    debugSwitch.className = "bsb-tm-switch";
+    debugSwitch.setAttribute("data-bsb-diagnostics-debug", "true");
+    const updateDebugStatus = () => {
+      const enabled = isDiagnosticDebugEnabled();
+      debugSwitch.checked = enabled;
+      debugStatus.textContent = enabled
+        ? "详细日志已开启，会输出更多控制台调试信息。"
+        : "默认关闭。普通使用无需开启，排查问题时再打开。";
+    };
+    debugSwitch.addEventListener("change", () => {
+      setDiagnosticDebugEnabled(debugSwitch.checked);
+      updateDebugStatus();
+    });
+    updateDebugStatus();
+    debugToggle.append(debugCopy, debugSwitch);
+
+    const description = document.createElement("p");
+    description.className = "bsb-tm-section-description";
+    description.textContent = "诊断报告只保留最近事件，并会自动清洗用户 ID、评论原文、token 等敏感字段。";
+
+    const list = document.createElement("div");
+    list.className = "bsb-tm-diagnostics-list";
+    if (events.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "bsb-tm-diagnostics-empty";
+      empty.textContent = "暂无诊断事件。复制报告仍会包含版本、页面、浏览器和 debug 状态。";
+      list.appendChild(empty);
+    } else {
+      for (const event of events) {
+        const item = document.createElement("article");
+        item.className = "bsb-tm-diagnostics-item";
+        item.dataset.severity = event.severity;
+        const meta = document.createElement("small");
+        meta.textContent = `${event.severity} / ${event.area} · ${new Date(event.at).toLocaleTimeString()}`;
+        const message = document.createElement("strong");
+        message.textContent = event.message;
+        item.append(meta, message);
+        if (event.detail) {
+          const detail = document.createElement("code");
+          detail.textContent = event.detail;
+          item.appendChild(detail);
+        }
+        list.appendChild(item);
+      }
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "bsb-tm-diagnostics-actions";
+    const copyButton = document.createElement("button");
+    copyButton.type = "button";
+    copyButton.className = "bsb-tm-button secondary compact";
+    copyButton.textContent = "复制诊断报告";
+    copyButton.setAttribute("data-bsb-diagnostics-copy", "true");
+    copyButton.addEventListener("click", () => {
+      void this.copyDiagnosticReport(copyButton);
+    });
+    const clearButton = document.createElement("button");
+    clearButton.type = "button";
+    clearButton.className = "bsb-tm-button secondary compact";
+    clearButton.textContent = "清空";
+    clearButton.setAttribute("data-bsb-diagnostics-clear", "true");
+    clearButton.disabled = this.diagnosticEvents.length === 0;
+    clearButton.addEventListener("click", () => {
+      clearDiagnostics();
+      this.renderHelp();
+    });
+    actions.append(copyButton, clearButton);
+
+    card.append(heading, debugToggle, description, list, actions);
+    return card;
+  }
+
+  private async copyDiagnosticReport(button: HTMLButtonElement): Promise<void> {
+    const originalText = button.textContent ?? "复制诊断报告";
+    try {
+      const clipboard = navigator.clipboard;
+      if (!clipboard || typeof clipboard.writeText !== "function") {
+        throw new Error("Clipboard API unavailable");
+      }
+      await clipboard.writeText(formatDiagnosticReport());
+      button.textContent = "已复制";
+    } catch (error) {
+      button.textContent = "复制失败";
+      reportDiagnostic({
+        severity: "warn",
+        area: "ui",
+        message: "诊断报告复制失败",
+        detail: error
+      });
+    } finally {
+      window.setTimeout(() => {
+        button.textContent = originalText;
+      }, 1400);
+    }
+  }
+
+  private setActiveTab(tab: PanelTab, options?: { preserveScroll?: boolean; scrollTop?: number; skipRemember?: boolean }): void {
+    if (!options?.skipRemember) {
+      this.rememberActiveScroll();
+    }
     this.activeTab = tab;
     for (const button of this.nav.querySelectorAll<HTMLButtonElement>("[data-tab]")) {
       const active = button.dataset.tab === tab;
@@ -788,6 +968,13 @@ export class SettingsPanel {
       section.dataset.active = String(active);
     }
     this.content.scrollTop = options?.preserveScroll ? (options.scrollTop ?? this.contentScrollByTab[tab] ?? 0) : 0;
+  }
+
+  private beginInlineControlUpdate(): () => void {
+    this.inlineControlUpdateDepth += 1;
+    return () => {
+      this.inlineControlUpdateDepth = Math.max(0, this.inlineControlUpdateDepth - 1);
+    };
   }
 
   private createTabButton(tab: PanelTab): HTMLButtonElement {
@@ -806,10 +993,48 @@ export class SettingsPanel {
     description.textContent = TAB_DESCRIPTIONS[tab];
 
     button.append(title, description);
+    let pointerDrivenActivation = false;
+    button.addEventListener("pointerdown", () => {
+      pointerDrivenActivation = true;
+      button.dataset.pointerFocus = "true";
+    });
+    button.addEventListener("keydown", () => {
+      pointerDrivenActivation = false;
+      delete button.dataset.pointerFocus;
+    });
+    button.addEventListener("blur", () => {
+      pointerDrivenActivation = false;
+      delete button.dataset.pointerFocus;
+    });
     button.addEventListener("click", () => {
       this.setActiveTab(tab, { preserveScroll: true, scrollTop: this.contentScrollByTab[tab] ?? 0 });
+      if (pointerDrivenActivation) {
+        button.blur();
+        pointerDrivenActivation = false;
+        delete button.dataset.pointerFocus;
+      }
     });
     return button;
+  }
+
+  private bindPointerFocusSuppression(container: HTMLElement, control: HTMLElement): void {
+    const group = container.closest<HTMLElement>(".bsb-tm-form-group");
+    const markPointerFocus = () => {
+      container.dataset.pointerFocus = "true";
+      if (group) {
+        group.dataset.pointerFocus = "true";
+      }
+    };
+    const clearPointerFocus = () => {
+      delete container.dataset.pointerFocus;
+      if (group) {
+        delete group.dataset.pointerFocus;
+      }
+    };
+    control.addEventListener("pointerdown", markPointerFocus);
+    control.addEventListener("mousedown", markPointerFocus);
+    control.addEventListener("keydown", clearPointerFocus);
+    control.addEventListener("blur", clearPointerFocus);
   }
 
   private createCheckbox(
@@ -846,18 +1071,40 @@ export class SettingsPanel {
     input.className = "bsb-tm-switch";
     input.setAttribute("role", "switch");
     input.checked = checked;
+    this.bindPointerFocusSuppression(label, input);
+    let saving = false;
+    let savingChecked = checked;
     input.addEventListener("change", async () => {
+      if (saving) {
+        input.checked = savingChecked;
+        return;
+      }
       const nextChecked = input.checked;
       const previousChecked = !nextChecked;
+      saving = true;
+      savingChecked = nextChecked;
       label.dataset.controlState = nextChecked ? "on" : "off";
-      input.disabled = true;
+      label.dataset.controlSaving = "true";
+      input.setAttribute("aria-busy", "true");
+      const finishInlineUpdate = this.beginInlineControlUpdate();
       try {
         await onChange(nextChecked);
-      } catch (_error) {
+      } catch (error) {
         input.checked = previousChecked;
+        savingChecked = previousChecked;
         label.dataset.controlState = previousChecked ? "on" : "off";
+        this.markControlError(label);
+        reportDiagnostic({
+          severity: "warn",
+          area: "storage",
+          message: `${labelText} 保存失败，已回退`,
+          detail: error
+        });
       } finally {
-        input.disabled = false;
+        finishInlineUpdate();
+        saving = false;
+        label.removeAttribute("data-control-saving");
+        input.removeAttribute("aria-busy");
       }
     });
 
@@ -946,8 +1193,31 @@ export class SettingsPanel {
       option.selected = optionValue === value;
       select.appendChild(option);
     }
+    let pointerDrivenSelection = false;
+    select.addEventListener("pointerdown", () => {
+      pointerDrivenSelection = true;
+    });
+    this.bindPointerFocusSuppression(wrapper, select);
     select.addEventListener("change", async () => {
-      await onCommit(select.value as T);
+      const finishInlineUpdate = this.beginInlineControlUpdate();
+      try {
+        await onCommit(select.value as T);
+        if (pointerDrivenSelection) {
+          select.blur();
+        }
+      } catch (error) {
+        select.value = value;
+        this.markControlError(wrapper);
+        reportDiagnostic({
+          severity: "warn",
+          area: "storage",
+          message: `${labelText} 保存失败，已回退`,
+          detail: error
+        });
+      } finally {
+        pointerDrivenSelection = false;
+        finishInlineUpdate();
+      }
     });
 
     wrapper.append(select);
@@ -1137,6 +1407,14 @@ export class SettingsPanel {
         await options.onCommit(normalized);
         savedValue = normalized;
         updatePreview(savedValue);
+      } catch (error) {
+        this.markControlError(field);
+        reportDiagnostic({
+          severity: "warn",
+          area: "storage",
+          message: `${options.label} 颜色保存失败，已保留草稿`,
+          detail: error
+        });
       } finally {
         isCommitting = false;
         updateButtons();
@@ -1198,6 +1476,13 @@ export class SettingsPanel {
     editorRow.append(controls, actions);
     field.append(preview, editorRow);
     return field;
+  }
+
+  private markControlError(element: HTMLElement): void {
+    element.dataset.controlError = "true";
+    window.setTimeout(() => {
+      delete element.dataset.controlError;
+    }, 2200);
   }
 
   private createResetButton(compact: boolean): HTMLElement {

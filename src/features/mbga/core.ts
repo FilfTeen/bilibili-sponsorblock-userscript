@@ -10,6 +10,8 @@ const MBGA_MARKS = {
   videoFitMode: "__BSB_MBGA_VIDEO_FIT_MODE__",
   grayscaleObserver: "__BSB_MBGA_GRAYSCALE_OBSERVER__"
 } as const;
+const ARTICLE_COPY_UNLOCKED_ATTR = "data-bsb-mbga-copy-unlocked";
+const ARTICLE_COPY_UNLOCK_TIMEOUT_MS = 10_000;
 
 const USELESS_URL_PARAMS = [
   "buvid",
@@ -759,18 +761,51 @@ function mountArticleCopyUnlock(ctx: MbgaContext): void {
   if (win.original) {
     win.original.reprint = "1";
   }
-  const holder = ctx.doc.querySelector(".article-holder");
-  if (!(holder instanceof HTMLElement)) {
+
+  const unlockArticleHolder = (holder: HTMLElement): boolean => {
+    if (holder.getAttribute(ARTICLE_COPY_UNLOCKED_ATTR) === "true") {
+      return true;
+    }
+    holder.classList.remove("unable-reprint");
+    holder.setAttribute(ARTICLE_COPY_UNLOCKED_ATTR, "true");
+    holder.addEventListener(
+      "copy",
+      (event) => {
+        event.stopImmediatePropagation();
+      },
+      true
+    );
+    return true;
+  };
+
+  const existingHolder = ctx.doc.querySelector(".article-holder");
+  if (existingHolder instanceof HTMLElement) {
+    unlockArticleHolder(existingHolder);
     return;
   }
-  holder.classList.remove("unable-reprint");
-  holder.addEventListener(
-    "copy",
-    (event) => {
-      event.stopImmediatePropagation();
-    },
-    true
-  );
+
+  let timeoutId: number | null = null;
+  const observer = new MutationObserver(() => {
+    const holder = ctx.doc.querySelector(".article-holder");
+    if (!(holder instanceof HTMLElement)) {
+      return;
+    }
+    unlockArticleHolder(holder);
+    observer.disconnect();
+    if (timeoutId !== null) {
+      win.clearTimeout(timeoutId);
+      timeoutId = null;
+    }
+  });
+
+  observer.observe(ctx.doc.documentElement, {
+    childList: true,
+    subtree: true
+  });
+  timeoutId = win.setTimeout(() => {
+    observer.disconnect();
+    timeoutId = null;
+  }, ARTICLE_COPY_UNLOCK_TIMEOUT_MS);
 }
 
 function mountLiveUiCleanup(ctx: MbgaContext): void {

@@ -3,7 +3,7 @@ import path from "node:path";
 import { chromium } from "playwright-core";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
-const scriptPath = path.join(rootDir, "dist", "bilibili-sponsorblock.user.js");
+const scriptPath = path.join(rootDir, "dist", "bilibili-qol-core.user.js");
 const outputDir = path.join(rootDir, "output", "playwright");
 const browserPath =
   process.env.BSB_SMOKE_BROWSER_PATH ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";

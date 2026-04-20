@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
-const distFile = path.join(rootDir, "dist", "bilibili-sponsorblock.user.js");
+const distFile = path.join(rootDir, "dist", "bilibili-qol-core.user.js");
 
 const source = await readFile(distFile, "utf8");
 const bannedChecks = [

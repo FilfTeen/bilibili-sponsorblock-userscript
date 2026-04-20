@@ -10,7 +10,7 @@ from selenium.common.exceptions import WebDriverException
 from selenium.webdriver.safari.options import Options
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DIST_PATH = REPO_ROOT / "dist" / "bilibili-sponsorblock.user.js"
+DIST_PATH = REPO_ROOT / "dist" / "bilibili-qol-core.user.js"
 OUTPUT_DIR = REPO_ROOT / "output" / "safari"
 
 TARGETS = [

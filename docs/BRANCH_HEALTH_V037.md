@@ -42,7 +42,7 @@
 
 `/Users/dwight/.codex/worktrees/c5ef/bilibili-sponsorblock-userscript` 当前存在未提交改动：
 
-- `dist/bilibili-sponsorblock.user.js`
+- `dist/bilibili-qol-core.user.js`
 - `src/ui/compact-header.ts`
 - `src/ui/styles.ts`
 - `test/compact-header.test.ts`

@@ -33,4 +33,13 @@ describe("ensureUserId", () => {
     expect(created).toHaveLength(36);
     expect(setValue).toHaveBeenCalledWith("bsb_tm_user_id_v1", created);
   });
+
+  it("surfaces persistence failures for new user ids", async () => {
+    vi.stubGlobal("GM_getValue", vi.fn(async () => null));
+    vi.stubGlobal("GM_setValue", vi.fn(async () => {
+      throw new Error("user id save failed");
+    }));
+
+    await expect(ensureUserId()).rejects.toThrow("user id save failed");
+  });
 });

@@ -137,7 +137,7 @@ describe("shared glass contexts", () => {
       /\.bsb-tm-summary-line,[\s\S]*\.bsb-tm-link-card \{[\s\S]*0 10px 22px rgba\(15, 23, 42, 0\.045\),[\s\S]*box-shadow 170ms var\(--bsb-ease-swift\),/
     );
     expect(styles).toMatch(
-      /\.bsb-tm-form-group:hover,[\s\S]*\.bsb-tm-form-group:focus-within \{[\s\S]*0 18px 38px rgba\(15, 23, 42, 0\.095\),/
+      /\.bsb-tm-form-group:hover,[\s\S]*\.bsb-tm-form-group:not\(\[data-pointer-focus="true"\]\):focus-within \{[\s\S]*0 18px 38px rgba\(15, 23, 42, 0\.095\),/
     );
   });
 
@@ -157,6 +157,42 @@ describe("shared glass contexts", () => {
     expect(styles).toMatch(
       /\.bsb-tm-color-field\.compact:hover \.bsb-tm-color-controls input:not\(:focus\),[\s\S]*\.bsb-tm-color-field\.compact:focus-within \.bsb-tm-color-controls input:not\(:focus\) \{[\s\S]*0 6px 14px rgba\(15, 23, 42, 0\.045\);/
     );
+  });
+
+  it("does not keep pointer-origin focus as a persistent selected card state", () => {
+    expect(styles).toMatch(
+      /\.bsb-tm-field:not\(\[data-pointer-focus="true"\]\):focus-within,[\s\S]*\.bsb-tm-category-row:not\(\[data-pointer-focus="true"\]\):focus-within,[\s\S]*\.bsb-tm-link-card:focus-visible \{/
+    );
+    expect(styles).not.toContain(".bsb-tm-field:focus-within,\n.bsb-tm-category-row:focus-within");
+  });
+
+  it("styles developer diagnostics without promoting them to global alerts", () => {
+    expect(styles).toContain(".bsb-tm-diagnostics-card");
+    expect(styles).toContain(".bsb-tm-diagnostics-debug-toggle");
+    expect(styles).toContain(".bsb-tm-diagnostics-empty");
+    expect(styles).toContain(".bsb-tm-diagnostics-item[data-severity=\"warn\"]");
+    expect(styles).toContain(".bsb-tm-diagnostics-item[data-severity=\"error\"]");
+    expect(styles).toContain(".bsb-tm-field[data-control-error=\"true\"]");
+  });
+
+  it("uses a custom stable switch surface instead of Safari native checkbox painting", () => {
+    const switchBlock = styles.match(/\.bsb-tm-panel input\.bsb-tm-switch \{[\s\S]*?\n\}/)?.[0] ?? "";
+    const checkmarkBlock = styles.match(/\.bsb-tm-panel input\.bsb-tm-switch::before \{[\s\S]*?\n\}/)?.[0] ?? "";
+    const checkedCheckmarkBlock =
+      styles.match(/\.bsb-tm-panel input\.bsb-tm-switch:checked::before \{[\s\S]*?\n\}/)?.[0] ?? "";
+
+    expect(switchBlock).toContain("appearance: none;");
+    expect(switchBlock).toContain("-webkit-appearance: none;");
+    expect(switchBlock).not.toContain("-webkit-appearance: checkbox;");
+    expect(switchBlock).not.toContain("appearance: auto;");
+    expect(switchBlock).toContain("contain: paint;");
+    expect(switchBlock).toContain("inline-size: 28px;");
+    expect(switchBlock).toContain("block-size: 28px;");
+    expect(switchBlock).toContain("box-shadow 170ms var(--bsb-ease-swift)");
+    expect(checkmarkBlock).toContain('content: "";');
+    expect(checkmarkBlock).toContain("opacity: 0;");
+    expect(checkmarkBlock).toContain("border-width: 0 2px 2px 0;");
+    expect(checkedCheckmarkBlock).toContain("opacity: 1;");
   });
 
   it("keeps color editing previews inside the panel instead of a floating duplicate", () => {

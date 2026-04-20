@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { classifyDynamicItem } from "../src/features/dynamic-filter";
+import { describe, expect, it, vi } from "vitest";
+import { ConfigStore } from "../src/core/config-store";
+import { DynamicSponsorController, classifyDynamicItem } from "../src/features/dynamic-filter";
 import { DEFAULT_DYNAMIC_REGEX_PATTERN } from "../src/constants";
 import { DYNAMIC_RECOGNITION_SAMPLES } from "./fixtures/recognition-samples";
 
@@ -93,5 +94,21 @@ describe("dynamic filter classification", () => {
       null,
       "dynamicSponsor_forward_sponsor"
     ]);
+  });
+
+  it("cancels pending refresh work after stop", () => {
+    vi.useFakeTimers();
+
+    const controller = new DynamicSponsorController(new ConfigStore());
+    Reflect.set(controller, "started", true);
+    const refreshSpy = vi.spyOn(controller as never, "refresh" as never);
+
+    Reflect.get(controller, "scheduleRefresh").call(controller);
+    controller.stop();
+    vi.advanceTimersByTime(120);
+
+    expect(refreshSpy).not.toHaveBeenCalled();
+    expect(Reflect.get(controller, "started")).toBe(false);
+    vi.useRealTimers();
   });
 });

@@ -407,6 +407,23 @@ describe("MBGA page guards", () => {
     expect((window as Window & typeof globalThis & { original?: { reprint?: string } }).original?.reprint).toBe("1");
   });
 
+  it("unlocks article copy behavior when the article holder mounts late", async () => {
+    const rule = getRule("article-copy-unlock");
+    (window as Window & typeof globalThis & { original?: { reprint?: string } }).original = { reprint: "0" };
+
+    const ctx = createContext("https://www.bilibili.com/read/cv123456");
+    rule.apply(ctx);
+
+    const holder = document.createElement("div");
+    holder.className = "article-holder unable-reprint";
+    document.body.appendChild(holder);
+    await Promise.resolve();
+
+    expect(holder.classList.contains("unable-reprint")).toBe(false);
+    expect(holder.getAttribute("data-bsb-mbga-copy-unlocked")).toBe("true");
+    expect((window as Window & typeof globalThis & { original?: { reprint?: string } }).original?.reprint).toBe("1");
+  });
+
   it("neutralizes grayscale only when the page is actually gray", () => {
     const rule = getRule("neutralize-page-grayscale");
     document.documentElement.style.filter = "";
