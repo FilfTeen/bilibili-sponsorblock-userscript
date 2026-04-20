@@ -4,6 +4,7 @@ import { ConfigStore } from "../core/config-store";
 import { collectPatternMatches, isLikelyPromoText, regexFromStoredPattern } from "../utils/pattern";
 import { analyzeCommercialIntent, inspectCommercialActionability } from "../utils/commercial-intent";
 import { debugLog } from "../utils/dom";
+import { reportDiagnostic } from "../utils/diagnostics";
 import { mutationsTouchSelectors } from "../utils/mutation";
 import { observeUrlChanges } from "../utils/navigation";
 import { supportsCommentFilters } from "../utils/page";
@@ -713,6 +714,12 @@ async function loadSubmittedCommentFeedbackKeys(): Promise<void> {
     })
     .catch((error) => {
       debugLog("Failed to load comment feedback state", error);
+      reportDiagnostic({
+        severity: "warn",
+        area: "storage",
+        message: "评论反馈状态读取失败，已降级为当前页面临时状态",
+        detail: error
+      });
       submittedCommentFeedbackLoaded = true;
     })
     .finally(() => {
@@ -867,6 +874,12 @@ function createFeedbackMenu(match: CommentSponsorMatch, feedbackKey: string | nu
       submitted = true;
       void rememberSubmittedCommentFeedbackKey(feedbackKey).catch((error) => {
         debugLog("Failed to persist comment feedback state", error);
+        reportDiagnostic({
+          severity: "warn",
+          area: "storage",
+          message: "评论反馈状态写入失败，已保留当前页面临时状态",
+          detail: error
+        });
       });
       dispatchVideoSignalFeedback(match, "confirm", feedbackToken, feedbackKey);
       setFeedbackMenuSubmitted(menu, trigger, choices, keepButton, dismissButton);
@@ -883,6 +896,12 @@ function createFeedbackMenu(match: CommentSponsorMatch, feedbackKey: string | nu
       submitted = true;
       void rememberSubmittedCommentFeedbackKey(feedbackKey).catch((error) => {
         debugLog("Failed to persist comment feedback state", error);
+        reportDiagnostic({
+          severity: "warn",
+          area: "storage",
+          message: "评论反馈状态写入失败，已保留当前页面临时状态",
+          detail: error
+        });
       });
       dispatchVideoSignalFeedback(match, "dismiss", feedbackToken, feedbackKey);
       setFeedbackMenuSubmitted(menu, trigger, choices, keepButton, dismissButton);

@@ -6,6 +6,7 @@ import {
 } from "../constants";
 import { gmGetValue, gmSetValue } from "../platform/gm";
 import type { CacheEntry, CachePayload } from "../types";
+import { reportDiagnostic } from "../utils/diagnostics";
 import { debugLog } from "../utils/dom";
 
 function estimateSize(value: unknown): number {
@@ -26,6 +27,12 @@ export class PersistentCache<T> {
     this.loaded = true;
     void this.persist().catch((error) => {
       debugLog("Failed to persist normalized cache payload", error);
+      reportDiagnostic({
+        severity: "warn",
+        area: "storage",
+        message: "缓存后台整理写入失败，已继续使用内存缓存",
+        detail: error
+      });
     });
   }
 

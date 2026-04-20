@@ -3,8 +3,10 @@ import { CATEGORY_LABELS } from "../src/constants";
 import { cloneDefaultConfig } from "../src/core/config-store";
 import { SettingsPanel } from "../src/ui/panel";
 import { styles } from "../src/ui/styles";
+import { clearDiagnostics, getDiagnosticEvents, reportDiagnostic } from "../src/utils/diagnostics";
 
 beforeEach(() => {
+  clearDiagnostics();
   const style = document.createElement("style");
   style.textContent = styles;
   document.head.appendChild(style);
@@ -652,5 +654,48 @@ describe("settings panel", () => {
     expect(adPreview?.dataset.appearance).toBe("glass");
     expect(adPreview?.textContent).toContain("评论广告");
     expect(adPreview?.getAttribute("data-bsb-color-preview-inline")).toBe("true");
+  });
+
+  it("shows a sanitized developer diagnostics card when diagnostics exist", async () => {
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText }
+    });
+    reportDiagnostic({
+      severity: "warn",
+      area: "storage",
+      message: "设置保存失败，已回退",
+      detail: {
+        userId: "secret-user-id",
+        reason: "GM_setValue failed"
+      }
+    });
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig: vi.fn(async () => {}),
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("help");
+
+    const card = document.querySelector<HTMLElement>(".bsb-tm-diagnostics-card");
+    expect(card).toBeTruthy();
+    expect(card?.textContent).toContain("开发者诊断");
+    expect(card?.textContent).toContain("设置保存失败，已回退");
+    expect(card?.textContent).not.toContain("secret-user-id");
+
+    card?.querySelector<HTMLButtonElement>("[data-bsb-diagnostics-copy='true']")?.click();
+    await Promise.resolve();
+    expect(writeText).toHaveBeenCalledTimes(1);
+    const copiedReport = String((writeText.mock.calls as unknown as string[][])[0]?.[0] ?? "");
+    expect(copiedReport).toContain("GM_setValue failed");
+    expect(copiedReport).not.toContain("secret-user-id");
+
+    card?.querySelector<HTMLButtonElement>("[data-bsb-diagnostics-clear='true']")?.click();
+    expect(getDiagnosticEvents()).toHaveLength(0);
+    expect(document.querySelector(".bsb-tm-diagnostics-card")).toBeNull();
   });
 });

@@ -1080,6 +1080,121 @@
     }
   };
 
+  // src/utils/diagnostics.ts
+  var MAX_DIAGNOSTIC_EVENTS = 40;
+  var SENSITIVE_KEY_PATTERN = /user.?id|token|cookie|authorization|comment.?text|reply.?text|raw.?text|feedback.?token/iu;
+  var diagnosticEvents = [];
+  var listeners = /* @__PURE__ */ new Set();
+  var nextDiagnosticId = 1;
+  function cleanString(input) {
+    return input.replace(/<[^>]*>/gu, "").replace(/\s+/gu, " ").trim().slice(0, 1200);
+  }
+  function sanitizeValue(key, value) {
+    if (SENSITIVE_KEY_PATTERN.test(key)) {
+      return "[redacted]";
+    }
+    if (value instanceof Error) {
+      return `${value.name}: ${cleanString(value.message)}`;
+    }
+    if (typeof value === "string") {
+      return cleanString(value);
+    }
+    return value;
+  }
+  function sanitizeDiagnosticDetail(input) {
+    if (input === null || typeof input === "undefined") {
+      return void 0;
+    }
+    if (input instanceof Error) {
+      return `${input.name}: ${cleanString(input.message)}`;
+    }
+    if (typeof input === "string") {
+      return cleanString(input);
+    }
+    try {
+      return cleanString(
+        JSON.stringify(input, (key, value) => sanitizeValue(key, value))
+      );
+    } catch (_error) {
+      return "[unserializable diagnostic detail]";
+    }
+  }
+  function getDiagnosticEvents() {
+    return diagnosticEvents.map((event) => __spreadValues({}, event));
+  }
+  function notifyDiagnosticsChanged() {
+    const snapshot = getDiagnosticEvents();
+    for (const listener of listeners) {
+      listener(snapshot);
+    }
+  }
+  function subscribeDiagnostics(listener) {
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+    };
+  }
+  function clearDiagnostics() {
+    diagnosticEvents.splice(0, diagnosticEvents.length);
+    notifyDiagnosticsChanged();
+  }
+  function isDiagnosticDebugEnabled() {
+    if (typeof process !== "undefined" && process.release && process.release.name === "node") {
+      return false;
+    }
+    try {
+      const stored = window.localStorage.getItem("qol_core_debug");
+      if (stored === "1" || stored === "true") {
+        return true;
+      }
+    } catch (_error) {
+    }
+    try {
+      const locationText = `${window.location.search}${window.location.hash}`;
+      return /(?:[?&#])qol_core_debug(?:=1|=true|(?=&|$))/iu.test(locationText);
+    } catch (_error) {
+      return false;
+    }
+  }
+  function reportDiagnostic(input) {
+    var _a, _b;
+    const event = {
+      id: `diag-${nextDiagnosticId}`,
+      at: Date.now(),
+      severity: input.severity,
+      area: input.area,
+      message: cleanString(input.message),
+      detail: sanitizeDiagnosticDetail(input.detail)
+    };
+    nextDiagnosticId += 1;
+    diagnosticEvents.push(event);
+    while (diagnosticEvents.length > MAX_DIAGNOSTIC_EVENTS) {
+      diagnosticEvents.shift();
+    }
+    notifyDiagnosticsChanged();
+    const prefix = `[${PRODUCT_NAME}] ${event.message}`;
+    if (event.severity === "error") {
+      console.error(prefix, (_a = event.detail) != null ? _a : "");
+    } else if (isDiagnosticDebugEnabled()) {
+      console.warn(prefix, (_b = event.detail) != null ? _b : "");
+    }
+    return __spreadValues({}, event);
+  }
+  function formatDiagnosticReport() {
+    const lines = [
+      `${PRODUCT_NAME} diagnostics`,
+      `Generated: ${(/* @__PURE__ */ new Date()).toISOString()}`,
+      `Page: ${cleanString(window.location.href)}`,
+      `Events: ${diagnosticEvents.length}`
+    ];
+    for (const event of diagnosticEvents) {
+      lines.push(
+        `- ${new Date(event.at).toISOString()} [${event.severity}/${event.area}] ${event.message}${event.detail ? ` | ${event.detail}` : ""}`
+      );
+    }
+    return lines.join("\n");
+  }
+
   // src/utils/page.ts
   var SUPPORTED_HOSTS = /* @__PURE__ */ new Set([
     "www.bilibili.com",
@@ -1254,7 +1369,9 @@
     return `${formatSegmentTime(start)} - ${formatSegmentTime(end)}`;
   }
   function debugLog(message, ...extra) {
-    console.debug(`[${SCRIPT_NAME}] ${message}`, ...extra);
+    if (isDiagnosticDebugEnabled()) {
+      console.debug(`[${SCRIPT_NAME}] ${message}`, ...extra);
+    }
   }
 
   // src/core/cache.ts
@@ -1277,6 +1394,12 @@
         this.loaded = true;
         void this.persist().catch((error) => {
           debugLog("Failed to persist normalized cache payload", error);
+          reportDiagnostic({
+            severity: "warn",
+            area: "storage",
+            message: "\u7F13\u5B58\u540E\u53F0\u6574\u7406\u5199\u5165\u5931\u8D25\uFF0C\u5DF2\u7EE7\u7EED\u4F7F\u7528\u5185\u5B58\u7F13\u5B58",
+            detail: error
+          });
         });
       });
     }
@@ -2759,6 +2882,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       __publicField(this, "contentScrollByTab", {});
       __publicField(this, "activeTab", "overview");
       __publicField(this, "filterValidationMessage", null);
+      __publicField(this, "diagnosticEvents", getDiagnosticEvents());
       __publicField(this, "config");
       __publicField(this, "stats");
       __publicField(this, "fullVideoLabels", []);
@@ -2773,6 +2897,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       __publicField(this, "pendingConfirmations", /* @__PURE__ */ new Set());
       // id
       __publicField(this, "inlineControlUpdateDepth", 0);
+      __publicField(this, "unsubscribeDiagnostics", null);
       __publicField(this, "handleKeydown", (event) => {
         if (event.key === "Escape" && !this.backdrop.hidden) {
           this.close("user");
@@ -2816,6 +2941,12 @@ ${inlineSurfaceFrostedGlass.overlay}
       this.backdrop.appendChild(this.panel);
       this.render();
       this.setActiveTab("overview");
+      this.unsubscribeDiagnostics = subscribeDiagnostics((events) => {
+        this.diagnosticEvents = events;
+        if (this.activeTab === "help") {
+          this.renderHelp();
+        }
+      });
     }
     mount() {
       if (!this.backdrop.isConnected) {
@@ -2862,7 +2993,10 @@ ${inlineSurfaceFrostedGlass.overlay}
       }
     }
     unmount() {
+      var _a;
       this.close("system");
+      (_a = this.unsubscribeDiagnostics) == null ? void 0 : _a.call(this);
+      this.unsubscribeDiagnostics = null;
       this.backdrop.remove();
     }
     updateConfig(config) {
@@ -3105,6 +3239,15 @@ ${inlineSurfaceFrostedGlass.overlay}
             if (pointerDrivenSelection) {
               select.blur();
             }
+          } catch (error) {
+            select.value = this.config.categoryModes[category];
+            this.markControlError(row);
+            reportDiagnostic({
+              severity: "warn",
+              area: "storage",
+              message: `${CATEGORY_LABELS[category]} \u5206\u7C7B\u7B56\u7565\u4FDD\u5B58\u5931\u8D25\uFF0C\u5DF2\u56DE\u9000`,
+              detail: error
+            });
           } finally {
             pointerDrivenSelection = false;
             finishInlineUpdate();
@@ -3375,7 +3518,7 @@ ${inlineSurfaceFrostedGlass.overlay}
     }
     renderHelp() {
       var _a;
-      (_a = this.sections.get("help")) == null ? void 0 : _a.replaceChildren(
+      const children = [
         this.createSectionHeading("\u5E2E\u52A9\u4E0E\u53CD\u9988", "\u8FD9\u91CC\u8BF4\u660E\u811A\u672C\u5728\u9875\u9762\u4E0A\u4F1A\u770B\u5230\u4EC0\u4E48\uFF0C\u4EE5\u53CA\u5982\u4F55\u5224\u65AD\u6807\u7B7E\u662F\u5426\u5DE5\u4F5C\u6B63\u5E38\u3002"),
         this.createFeatureGrid(
           [
@@ -3419,12 +3562,104 @@ ${inlineSurfaceFrostedGlass.overlay}
             label: "SponsorBlock \u670D\u52A1\u5668",
             href: "https://www.bsbsb.top"
           }
-        ]),
+        ])
+      ];
+      const diagnosticsCard = this.createDeveloperDiagnosticsCard();
+      if (diagnosticsCard) {
+        children.push(diagnosticsCard);
+      }
+      children.push(
         this.createInfoBox(
           "\u81F4\u8C22\u4E0E\u514D\u8D23\u58F0\u660E",
           `Bilibili QoL Core \u7531 ${AUTHOR_NAME} \u7EF4\u62A4\u3002\u672C\u811A\u672C\u57FA\u4E8E GPL-3.0 \u7684 BilibiliSponsorBlock \u4E0A\u6E38\u5B9E\u73B0\u601D\u8DEF\u79FB\u690D\u800C\u6765\uFF1B\u8BC4\u8BBA\u533A\u5C5E\u5730\u663E\u793A\u529F\u80FD\u53C2\u8003\u5E76\u9002\u914D\u4E86 mscststs \u7684 ISC \u811A\u672C\u300CB\u7AD9\u8BC4\u8BBA\u533A\u5F00\u76D2\u300D\u3002\u6240\u6709\u7247\u6BB5\u548C\u793E\u533A full \u6807\u7B7E\u6765\u81EA\u4E0A\u6E38\u793E\u533A\u8BB0\u5F55\uFF0C\u672C\u5730\u63A8\u7406\u53EA\u4F5C\u4E3A\u8F85\u52A9\u5224\u65AD\uFF0C\u7ED3\u679C\u4EC5\u4F9B\u53C2\u8003\u3002`
         )
       );
+      (_a = this.sections.get("help")) == null ? void 0 : _a.replaceChildren(...children);
+    }
+    createDeveloperDiagnosticsCard() {
+      const events = this.diagnosticEvents.slice(-8).reverse();
+      if (events.length === 0 && !isDiagnosticDebugEnabled()) {
+        return null;
+      }
+      const card = document.createElement("div");
+      card.className = "bsb-tm-diagnostics-card";
+      const heading = document.createElement("div");
+      heading.className = "bsb-tm-diagnostics-heading";
+      const title = document.createElement("strong");
+      title.textContent = "\u5F00\u53D1\u8005\u8BCA\u65AD";
+      const badge = document.createElement("span");
+      badge.className = "bsb-tm-diagnostics-count";
+      badge.textContent = `${this.diagnosticEvents.length} \u6761`;
+      heading.append(title, badge);
+      const description = document.createElement("p");
+      description.className = "bsb-tm-section-description";
+      description.textContent = events.length > 0 ? "\u8FD9\u91CC\u4EC5\u5C55\u793A\u53EF\u5E2E\u52A9\u6392\u67E5\u95EE\u9898\u7684\u6700\u8FD1\u4E8B\u4EF6\u3002\u62A5\u544A\u4F1A\u81EA\u52A8\u6E05\u6D17\u7528\u6237 ID\u3001\u8BC4\u8BBA\u539F\u6587\u3001token \u7B49\u654F\u611F\u5B57\u6BB5\u3002" : '\u5F53\u524D\u6682\u65E0\u8BCA\u65AD\u4E8B\u4EF6\u3002\u9700\u8981\u66F4\u8BE6\u7EC6\u65E5\u5FD7\u65F6\uFF0C\u53EF\u5728\u63A7\u5236\u53F0\u6267\u884C localStorage.qol_core_debug = "1" \u540E\u5237\u65B0\u9875\u9762\u3002';
+      const list = document.createElement("div");
+      list.className = "bsb-tm-diagnostics-list";
+      for (const event of events) {
+        const item = document.createElement("article");
+        item.className = "bsb-tm-diagnostics-item";
+        item.dataset.severity = event.severity;
+        const meta = document.createElement("small");
+        meta.textContent = `${event.severity} / ${event.area} \xB7 ${new Date(event.at).toLocaleTimeString()}`;
+        const message = document.createElement("strong");
+        message.textContent = event.message;
+        item.append(meta, message);
+        if (event.detail) {
+          const detail = document.createElement("code");
+          detail.textContent = event.detail;
+          item.appendChild(detail);
+        }
+        list.appendChild(item);
+      }
+      const actions = document.createElement("div");
+      actions.className = "bsb-tm-diagnostics-actions";
+      const copyButton = document.createElement("button");
+      copyButton.type = "button";
+      copyButton.className = "bsb-tm-button secondary compact";
+      copyButton.textContent = "\u590D\u5236\u8BCA\u65AD\u62A5\u544A";
+      copyButton.setAttribute("data-bsb-diagnostics-copy", "true");
+      copyButton.addEventListener("click", () => {
+        void this.copyDiagnosticReport(copyButton);
+      });
+      const clearButton = document.createElement("button");
+      clearButton.type = "button";
+      clearButton.className = "bsb-tm-button secondary compact";
+      clearButton.textContent = "\u6E05\u7A7A";
+      clearButton.setAttribute("data-bsb-diagnostics-clear", "true");
+      clearButton.addEventListener("click", () => {
+        clearDiagnostics();
+        this.renderHelp();
+      });
+      actions.append(copyButton, clearButton);
+      card.append(heading, description, list, actions);
+      return card;
+    }
+    copyDiagnosticReport(button) {
+      return __async(this, null, function* () {
+        var _a;
+        const originalText = (_a = button.textContent) != null ? _a : "\u590D\u5236\u8BCA\u65AD\u62A5\u544A";
+        try {
+          const clipboard = navigator.clipboard;
+          if (!clipboard || typeof clipboard.writeText !== "function") {
+            throw new Error("Clipboard API unavailable");
+          }
+          yield clipboard.writeText(formatDiagnosticReport());
+          button.textContent = "\u5DF2\u590D\u5236";
+        } catch (error) {
+          button.textContent = "\u590D\u5236\u5931\u8D25";
+          reportDiagnostic({
+            severity: "warn",
+            area: "ui",
+            message: "\u8BCA\u65AD\u62A5\u544A\u590D\u5236\u5931\u8D25",
+            detail: error
+          });
+        } finally {
+          window.setTimeout(() => {
+            button.textContent = originalText;
+          }, 1400);
+        }
+      });
     }
     setActiveTab(tab, options) {
       var _a, _b;
@@ -3548,10 +3783,17 @@ ${inlineSurfaceFrostedGlass.overlay}
         const finishInlineUpdate = this.beginInlineControlUpdate();
         try {
           yield onChange(nextChecked);
-        } catch (_error) {
+        } catch (error) {
           input.checked = previousChecked;
           savingChecked = previousChecked;
           label.dataset.controlState = previousChecked ? "on" : "off";
+          this.markControlError(label);
+          reportDiagnostic({
+            severity: "warn",
+            area: "storage",
+            message: `${labelText} \u4FDD\u5B58\u5931\u8D25\uFF0C\u5DF2\u56DE\u9000`,
+            detail: error
+          });
         } finally {
           finishInlineUpdate();
           saving = false;
@@ -3634,6 +3876,15 @@ ${inlineSurfaceFrostedGlass.overlay}
           if (pointerDrivenSelection) {
             select.blur();
           }
+        } catch (error) {
+          select.value = value;
+          this.markControlError(wrapper);
+          reportDiagnostic({
+            severity: "warn",
+            area: "storage",
+            message: `${labelText} \u4FDD\u5B58\u5931\u8D25\uFF0C\u5DF2\u56DE\u9000`,
+            detail: error
+          });
         } finally {
           pointerDrivenSelection = false;
           finishInlineUpdate();
@@ -3783,6 +4034,14 @@ ${inlineSurfaceFrostedGlass.overlay}
           yield options.onCommit(normalized);
           savedValue = normalized;
           updatePreview(savedValue);
+        } catch (error) {
+          this.markControlError(field);
+          reportDiagnostic({
+            severity: "warn",
+            area: "storage",
+            message: `${options.label} \u989C\u8272\u4FDD\u5B58\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u8349\u7A3F`,
+            detail: error
+          });
         } finally {
           isCommitting = false;
           updateButtons();
@@ -3841,6 +4100,12 @@ ${inlineSurfaceFrostedGlass.overlay}
       editorRow.append(controls, actions);
       field.append(preview, editorRow);
       return field;
+    }
+    markControlError(element) {
+      element.dataset.controlError = "true";
+      window.setTimeout(() => {
+        delete element.dataset.controlError;
+      }, 2200);
     }
     createResetButton(compact) {
       const button = document.createElement("button");
@@ -5156,7 +5421,7 @@ ${inlineSurfaceFrostedGlass.overlay}
   }
 
   // src/utils/navigation.ts
-  var listeners = /* @__PURE__ */ new Set();
+  var listeners2 = /* @__PURE__ */ new Set();
   var originalHistoryMethods = /* @__PURE__ */ new Map();
   var currentHref = window.location.href;
   var fallbackIntervalId = null;
@@ -5168,7 +5433,7 @@ ${inlineSurfaceFrostedGlass.overlay}
     }
     const previousHref = currentHref;
     currentHref = nextHref;
-    for (const listener of listeners) {
+    for (const listener of listeners2) {
       listener(nextHref, previousHref);
     }
   }
@@ -5193,7 +5458,7 @@ ${inlineSurfaceFrostedGlass.overlay}
     originalHistoryMethods.clear();
   }
   function ensureStarted() {
-    if (listeners.size !== 1) {
+    if (listeners2.size !== 1) {
       return;
     }
     currentHref = window.location.href;
@@ -5214,7 +5479,7 @@ ${inlineSurfaceFrostedGlass.overlay}
     }, 1200);
   }
   function maybeStop() {
-    if (listeners.size > 0) {
+    if (listeners2.size > 0) {
       return;
     }
     if (fallbackIntervalId !== null) {
@@ -5230,10 +5495,10 @@ ${inlineSurfaceFrostedGlass.overlay}
     restoreHistoryMethods();
   }
   function observeUrlChanges(listener) {
-    listeners.add(listener);
+    listeners2.add(listener);
     ensureStarted();
     return () => {
-      listeners.delete(listener);
+      listeners2.delete(listener);
       maybeStop();
     };
   }
@@ -5741,6 +6006,12 @@ ${inlineSurfaceFrostedGlass.overlay}
         submittedCommentFeedbackLoaded = true;
       }).catch((error) => {
         debugLog("Failed to load comment feedback state", error);
+        reportDiagnostic({
+          severity: "warn",
+          area: "storage",
+          message: "\u8BC4\u8BBA\u53CD\u9988\u72B6\u6001\u8BFB\u53D6\u5931\u8D25\uFF0C\u5DF2\u964D\u7EA7\u4E3A\u5F53\u524D\u9875\u9762\u4E34\u65F6\u72B6\u6001",
+          detail: error
+        });
         submittedCommentFeedbackLoaded = true;
       }).finally(() => {
         submittedCommentFeedbackLoadPromise = null;
@@ -5876,6 +6147,12 @@ ${inlineSurfaceFrostedGlass.overlay}
         submitted = true;
         void rememberSubmittedCommentFeedbackKey(feedbackKey).catch((error) => {
           debugLog("Failed to persist comment feedback state", error);
+          reportDiagnostic({
+            severity: "warn",
+            area: "storage",
+            message: "\u8BC4\u8BBA\u53CD\u9988\u72B6\u6001\u5199\u5165\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u5F53\u524D\u9875\u9762\u4E34\u65F6\u72B6\u6001",
+            detail: error
+          });
         });
         dispatchVideoSignalFeedback(match, "confirm", feedbackToken, feedbackKey);
         setFeedbackMenuSubmitted(menu, trigger, choices, keepButton, dismissButton);
@@ -5892,6 +6169,12 @@ ${inlineSurfaceFrostedGlass.overlay}
         submitted = true;
         void rememberSubmittedCommentFeedbackKey(feedbackKey).catch((error) => {
           debugLog("Failed to persist comment feedback state", error);
+          reportDiagnostic({
+            severity: "warn",
+            area: "storage",
+            message: "\u8BC4\u8BBA\u53CD\u9988\u72B6\u6001\u5199\u5165\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u5F53\u524D\u9875\u9762\u4E34\u65F6\u72B6\u6001",
+            detail: error
+          });
         });
         dispatchVideoSignalFeedback(match, "dismiss", feedbackToken, feedbackKey);
         setFeedbackMenuSubmitted(menu, trigger, choices, keepButton, dismissButton);
@@ -7052,6 +7335,12 @@ ${inlineSurfaceFrostedGlass.overlay}
         if (shouldPersistLocalVideoSignal(signal)) {
           void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal).catch((error) => {
             debugLog("Failed to persist runtime local video signal", error);
+            reportDiagnostic({
+              severity: "warn",
+              area: "storage",
+              message: "\u672C\u5730\u89C6\u9891\u63A8\u7406\u7ED3\u679C\u5199\u5165\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u5F53\u524D\u9875\u9762\u4E34\u65F6\u663E\u793A",
+              detail: error
+            });
           });
         }
       });
@@ -7107,6 +7396,12 @@ ${inlineSurfaceFrostedGlass.overlay}
           if (shouldPersistLocalVideoSignal(signal)) {
             void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal).catch((error) => {
               debugLog("Failed to persist comment local video signal", error);
+              reportDiagnostic({
+                severity: "warn",
+                area: "storage",
+                message: "\u8BC4\u8BBA\u89E6\u53D1\u7684\u672C\u5730\u89C6\u9891\u63A8\u7406\u5199\u5165\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u5F53\u524D\u9875\u9762\u4E34\u65F6\u663E\u793A",
+                detail: error
+              });
             });
           }
         }
@@ -7495,6 +7790,12 @@ ${inlineSurfaceFrostedGlass.overlay}
           });
         } catch (error) {
           debugLog("Failed to refresh video context", error);
+          reportDiagnostic({
+            severity: "error",
+            area: "upstream",
+            message: "\u89C6\u9891\u4E0A\u4E0B\u6587\u6216\u4E0A\u6E38\u7247\u6BB5\u8BFB\u53D6\u5931\u8D25",
+            detail: error
+          });
           this.updateRuntimeStatus({
             kind: "error",
             message: error instanceof Error ? `\u7247\u6BB5\u8BFB\u53D6\u5931\u8D25\uFF1A${error.message}` : "\u7247\u6BB5\u8BFB\u53D6\u5931\u8D25",
@@ -12043,6 +12344,84 @@ ${titleSurfaceFrostedGlass.overlay}
     inset 0 1px 0 rgba(255, 255, 255, 0.84),
     0 12px 26px rgba(15, 23, 42, 0.065),
     0 0 0 3px rgba(var(--bsb-brand-blue-rgb), 0.08);
+}
+
+.bsb-tm-field[data-control-error="true"],
+.bsb-tm-category-row[data-control-error="true"],
+.bsb-tm-color-field[data-control-error="true"] {
+  border-color: rgba(var(--bsb-danger-rgb), 0.32);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 12px 26px rgba(var(--bsb-danger-rgb), 0.1),
+    0 0 0 3px rgba(var(--bsb-danger-rgb), 0.08);
+}
+
+.bsb-tm-diagnostics-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.84), transparent 34%),
+    linear-gradient(180deg, rgba(248, 251, 255, 0.94), rgba(236, 243, 251, 0.82));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 12px 28px rgba(15, 23, 42, 0.06);
+}
+
+.bsb-tm-diagnostics-heading,
+.bsb-tm-diagnostics-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.bsb-tm-diagnostics-count {
+  padding: 4px 9px;
+  border-radius: 999px;
+  color: var(--bsb-text-secondary);
+  background: rgba(var(--bsb-brand-blue-rgb), 0.1);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.bsb-tm-diagnostics-list {
+  display: grid;
+  gap: 8px;
+  max-height: 260px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.bsb-tm-diagnostics-item {
+  display: grid;
+  gap: 5px;
+  padding: 10px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.bsb-tm-diagnostics-item[data-severity="warn"] {
+  border-color: rgba(217, 119, 6, 0.22);
+}
+
+.bsb-tm-diagnostics-item[data-severity="error"] {
+  border-color: rgba(var(--bsb-danger-rgb), 0.24);
+}
+
+.bsb-tm-diagnostics-item small {
+  color: var(--bsb-subtle);
+  font-size: 11px;
+  letter-spacing: 0.01em;
+}
+
+.bsb-tm-diagnostics-item code {
+  overflow-wrap: anywhere;
+  color: var(--bsb-text-secondary);
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 ${inlineFeedbackStyles}

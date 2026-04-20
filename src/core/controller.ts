@@ -49,6 +49,7 @@ import {
 } from "../utils/local-learning";
 import { inferLocalVideoSignal } from "../utils/local-video-signal";
 import { resolveVideoContext } from "../utils/video-context";
+import { reportDiagnostic } from "../utils/diagnostics";
 import { debugLog, findVideoElement, formatDurationLabel, resolvePlayerHost } from "../utils/dom";
 import { observeUrlChanges } from "../utils/navigation";
 import { isCompactVideoHeaderSuppressed, supportsCompactVideoHeader, supportsVideoFeatures } from "../utils/page";
@@ -184,6 +185,12 @@ export class ScriptController {
     if (shouldPersistLocalVideoSignal(signal)) {
       void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal).catch((error) => {
         debugLog("Failed to persist runtime local video signal", error);
+        reportDiagnostic({
+          severity: "warn",
+          area: "storage",
+          message: "本地视频推理结果写入失败，已保留当前页面临时显示",
+          detail: error
+        });
       });
     }
   };
@@ -255,6 +262,12 @@ export class ScriptController {
       if (shouldPersistLocalVideoSignal(signal)) {
         void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal).catch((error) => {
           debugLog("Failed to persist comment local video signal", error);
+          reportDiagnostic({
+            severity: "warn",
+            area: "storage",
+            message: "评论触发的本地视频推理写入失败，已保留当前页面临时显示",
+            detail: error
+          });
         });
       }
     }
@@ -690,6 +703,12 @@ export class ScriptController {
       });
     } catch (error) {
       debugLog("Failed to refresh video context", error);
+      reportDiagnostic({
+        severity: "error",
+        area: "upstream",
+        message: "视频上下文或上游片段读取失败",
+        detail: error
+      });
       this.updateRuntimeStatus({
         kind: "error",
         message: error instanceof Error ? `片段读取失败：${error.message}` : "片段读取失败",

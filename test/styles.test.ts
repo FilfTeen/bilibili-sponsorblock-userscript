@@ -166,6 +166,13 @@ describe("shared glass contexts", () => {
     expect(styles).not.toContain(".bsb-tm-field:focus-within,\n.bsb-tm-category-row:focus-within");
   });
 
+  it("styles developer diagnostics without promoting them to global alerts", () => {
+    expect(styles).toContain(".bsb-tm-diagnostics-card");
+    expect(styles).toContain(".bsb-tm-diagnostics-item[data-severity=\"warn\"]");
+    expect(styles).toContain(".bsb-tm-diagnostics-item[data-severity=\"error\"]");
+    expect(styles).toContain(".bsb-tm-field[data-control-error=\"true\"]");
+  });
+
   it("uses a custom stable switch surface instead of Safari native checkbox painting", () => {
     const switchBlock = styles.match(/\.bsb-tm-panel input\.bsb-tm-switch \{[\s\S]*?\n\}/)?.[0] ?? "";
     const checkmarkBlock = styles.match(/\.bsb-tm-panel input\.bsb-tm-switch::before \{[\s\S]*?\n\}/)?.[0] ?? "";

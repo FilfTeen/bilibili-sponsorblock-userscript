@@ -22,6 +22,15 @@ import type {
 } from "../types";
 import { normalizeHexColor, resolveCategoryAccent, resolveCategoryStyle } from "../utils/color";
 import { validateStoredPattern } from "../utils/pattern";
+import {
+  clearDiagnostics,
+  formatDiagnosticReport,
+  getDiagnosticEvents,
+  isDiagnosticDebugEnabled,
+  reportDiagnostic,
+  subscribeDiagnostics,
+  type DiagnosticEvent
+} from "../utils/diagnostics";
 import { createSponsorShieldIcon } from "./icons";
 import { createInlineBadge, type InlineBadgeAppearance, type InlineTone } from "./inline-feedback";
 
@@ -85,6 +94,7 @@ export class SettingsPanel {
   private readonly contentScrollByTab: Partial<Record<PanelTab, number>> = {};
   private activeTab: PanelTab = "overview";
   private filterValidationMessage: string | null = null;
+  private diagnosticEvents: DiagnosticEvent[] = getDiagnosticEvents();
   private config: StoredConfig;
   private stats: StoredStats;
   private fullVideoLabels: string[] = [];
@@ -97,6 +107,7 @@ export class SettingsPanel {
   private readonly activeFeedbacks = new Map<string, string>(); // id -> originalText
   private readonly pendingConfirmations = new Set<string>(); // id
   private inlineControlUpdateDepth = 0;
+  private unsubscribeDiagnostics: (() => void) | null = null;
   private readonly handleKeydown = (event: KeyboardEvent) => {
     if (event.key === "Escape" && !this.backdrop.hidden) {
       this.close("user");
@@ -152,6 +163,12 @@ export class SettingsPanel {
     this.backdrop.appendChild(this.panel);
     this.render();
     this.setActiveTab("overview");
+    this.unsubscribeDiagnostics = subscribeDiagnostics((events) => {
+      this.diagnosticEvents = events;
+      if (this.activeTab === "help") {
+        this.renderHelp();
+      }
+    });
   }
 
   mount(): void {
@@ -204,6 +221,8 @@ export class SettingsPanel {
 
   unmount(): void {
     this.close("system");
+    this.unsubscribeDiagnostics?.();
+    this.unsubscribeDiagnostics = null;
     this.backdrop.remove();
   }
 
@@ -456,6 +475,15 @@ export class SettingsPanel {
           if (pointerDrivenSelection) {
             select.blur();
           }
+        } catch (error) {
+          select.value = this.config.categoryModes[category];
+          this.markControlError(row);
+          reportDiagnostic({
+            severity: "warn",
+            area: "storage",
+            message: `${CATEGORY_LABELS[category]} 分类策略保存失败，已回退`,
+            detail: error
+          });
         } finally {
           pointerDrivenSelection = false;
           finishInlineUpdate();
@@ -743,7 +771,7 @@ export class SettingsPanel {
   }
 
   private renderHelp(): void {
-    this.sections.get("help")?.replaceChildren(
+    const children: HTMLElement[] = [
       this.createSectionHeading("帮助与反馈", "这里说明脚本在页面上会看到什么，以及如何判断标签是否工作正常。"),
       this.createFeatureGrid(
         [
@@ -787,12 +815,112 @@ export class SettingsPanel {
           label: "SponsorBlock 服务器",
           href: "https://www.bsbsb.top"
         }
-      ]),
+      ])
+    ];
+    const diagnosticsCard = this.createDeveloperDiagnosticsCard();
+    if (diagnosticsCard) {
+      children.push(diagnosticsCard);
+    }
+    children.push(
       this.createInfoBox(
         "致谢与免责声明",
         `Bilibili QoL Core 由 ${AUTHOR_NAME} 维护。本脚本基于 GPL-3.0 的 BilibiliSponsorBlock 上游实现思路移植而来；评论区属地显示功能参考并适配了 mscststs 的 ISC 脚本「B站评论区开盒」。所有片段和社区 full 标签来自上游社区记录，本地推理只作为辅助判断，结果仅供参考。`
       )
     );
+    this.sections.get("help")?.replaceChildren(...children);
+  }
+
+  private createDeveloperDiagnosticsCard(): HTMLElement | null {
+    const events = this.diagnosticEvents.slice(-8).reverse();
+    if (events.length === 0 && !isDiagnosticDebugEnabled()) {
+      return null;
+    }
+
+    const card = document.createElement("div");
+    card.className = "bsb-tm-diagnostics-card";
+
+    const heading = document.createElement("div");
+    heading.className = "bsb-tm-diagnostics-heading";
+    const title = document.createElement("strong");
+    title.textContent = "开发者诊断";
+    const badge = document.createElement("span");
+    badge.className = "bsb-tm-diagnostics-count";
+    badge.textContent = `${this.diagnosticEvents.length} 条`;
+    heading.append(title, badge);
+
+    const description = document.createElement("p");
+    description.className = "bsb-tm-section-description";
+    description.textContent =
+      events.length > 0
+        ? "这里仅展示可帮助排查问题的最近事件。报告会自动清洗用户 ID、评论原文、token 等敏感字段。"
+        : "当前暂无诊断事件。需要更详细日志时，可在控制台执行 localStorage.qol_core_debug = \"1\" 后刷新页面。";
+
+    const list = document.createElement("div");
+    list.className = "bsb-tm-diagnostics-list";
+    for (const event of events) {
+      const item = document.createElement("article");
+      item.className = "bsb-tm-diagnostics-item";
+      item.dataset.severity = event.severity;
+      const meta = document.createElement("small");
+      meta.textContent = `${event.severity} / ${event.area} · ${new Date(event.at).toLocaleTimeString()}`;
+      const message = document.createElement("strong");
+      message.textContent = event.message;
+      item.append(meta, message);
+      if (event.detail) {
+        const detail = document.createElement("code");
+        detail.textContent = event.detail;
+        item.appendChild(detail);
+      }
+      list.appendChild(item);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "bsb-tm-diagnostics-actions";
+    const copyButton = document.createElement("button");
+    copyButton.type = "button";
+    copyButton.className = "bsb-tm-button secondary compact";
+    copyButton.textContent = "复制诊断报告";
+    copyButton.setAttribute("data-bsb-diagnostics-copy", "true");
+    copyButton.addEventListener("click", () => {
+      void this.copyDiagnosticReport(copyButton);
+    });
+    const clearButton = document.createElement("button");
+    clearButton.type = "button";
+    clearButton.className = "bsb-tm-button secondary compact";
+    clearButton.textContent = "清空";
+    clearButton.setAttribute("data-bsb-diagnostics-clear", "true");
+    clearButton.addEventListener("click", () => {
+      clearDiagnostics();
+      this.renderHelp();
+    });
+    actions.append(copyButton, clearButton);
+
+    card.append(heading, description, list, actions);
+    return card;
+  }
+
+  private async copyDiagnosticReport(button: HTMLButtonElement): Promise<void> {
+    const originalText = button.textContent ?? "复制诊断报告";
+    try {
+      const clipboard = navigator.clipboard;
+      if (!clipboard || typeof clipboard.writeText !== "function") {
+        throw new Error("Clipboard API unavailable");
+      }
+      await clipboard.writeText(formatDiagnosticReport());
+      button.textContent = "已复制";
+    } catch (error) {
+      button.textContent = "复制失败";
+      reportDiagnostic({
+        severity: "warn",
+        area: "ui",
+        message: "诊断报告复制失败",
+        detail: error
+      });
+    } finally {
+      window.setTimeout(() => {
+        button.textContent = originalText;
+      }, 1400);
+    }
   }
 
   private setActiveTab(tab: PanelTab, options?: { preserveScroll?: boolean; scrollTop?: number; skipRemember?: boolean }): void {
@@ -933,10 +1061,17 @@ export class SettingsPanel {
       const finishInlineUpdate = this.beginInlineControlUpdate();
       try {
         await onChange(nextChecked);
-      } catch (_error) {
+      } catch (error) {
         input.checked = previousChecked;
         savingChecked = previousChecked;
         label.dataset.controlState = previousChecked ? "on" : "off";
+        this.markControlError(label);
+        reportDiagnostic({
+          severity: "warn",
+          area: "storage",
+          message: `${labelText} 保存失败，已回退`,
+          detail: error
+        });
       } finally {
         finishInlineUpdate();
         saving = false;
@@ -1042,6 +1177,15 @@ export class SettingsPanel {
         if (pointerDrivenSelection) {
           select.blur();
         }
+      } catch (error) {
+        select.value = value;
+        this.markControlError(wrapper);
+        reportDiagnostic({
+          severity: "warn",
+          area: "storage",
+          message: `${labelText} 保存失败，已回退`,
+          detail: error
+        });
       } finally {
         pointerDrivenSelection = false;
         finishInlineUpdate();
@@ -1235,6 +1379,14 @@ export class SettingsPanel {
         await options.onCommit(normalized);
         savedValue = normalized;
         updatePreview(savedValue);
+      } catch (error) {
+        this.markControlError(field);
+        reportDiagnostic({
+          severity: "warn",
+          area: "storage",
+          message: `${options.label} 颜色保存失败，已保留草稿`,
+          detail: error
+        });
       } finally {
         isCommitting = false;
         updateButtons();
@@ -1296,6 +1448,13 @@ export class SettingsPanel {
     editorRow.append(controls, actions);
     field.append(preview, editorRow);
     return field;
+  }
+
+  private markControlError(element: HTMLElement): void {
+    element.dataset.controlError = "true";
+    window.setTimeout(() => {
+      delete element.dataset.controlError;
+    }, 2200);
   }
 
   private createResetButton(compact: boolean): HTMLElement {

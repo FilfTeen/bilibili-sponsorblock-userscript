@@ -1,4 +1,5 @@
 import { SCRIPT_NAME } from "../constants";
+import { isDiagnosticDebugEnabled } from "./diagnostics";
 export { isSupportedLocation } from "./page";
 
 const PLAYER_HOST_SELECTORS = [
@@ -133,5 +134,7 @@ export function formatDurationLabel(start: number, end: number | null): string {
 }
 
 export function debugLog(message: string, ...extra: unknown[]): void {
-  console.debug(`[${SCRIPT_NAME}] ${message}`, ...extra);
+  if (isDiagnosticDebugEnabled()) {
+    console.debug(`[${SCRIPT_NAME}] ${message}`, ...extra);
+  }
 }
