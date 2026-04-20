@@ -27,7 +27,8 @@ export function cloneDefaultConfig(): StoredConfig {
   return {
     ...DEFAULT_CONFIG,
     categoryModes: { ...DEFAULT_CONFIG.categoryModes },
-    categoryColorOverrides: { ...DEFAULT_CONFIG.categoryColorOverrides }
+    categoryColorOverrides: { ...DEFAULT_CONFIG.categoryColorOverrides },
+    labelTransparency: { ...DEFAULT_CONFIG.labelTransparency }
   };
 }
 
@@ -45,6 +46,10 @@ export function normalizeConfig(input: Partial<StoredConfig> | null | undefined)
   next.enableCache = input.enableCache ?? next.enableCache;
   next.showPreviewBar = input.showPreviewBar ?? next.showPreviewBar;
   next.compactVideoHeader = input.compactVideoHeader ?? next.compactVideoHeader;
+  next.compactHeaderPlaceholderVisible =
+    input.compactHeaderPlaceholderVisible ?? next.compactHeaderPlaceholderVisible;
+  next.compactHeaderSearchPlaceholderEnabled =
+    input.compactHeaderSearchPlaceholderEnabled ?? next.compactHeaderSearchPlaceholderEnabled;
   next.noticeDurationSec = clampNumber(
     Number.isFinite(input.noticeDurationSec) ? Number(input.noticeDurationSec) : next.noticeDurationSec,
     1,
@@ -67,6 +72,13 @@ export function normalizeConfig(input: Partial<StoredConfig> | null | undefined)
   next.commentHideReplies = input.commentHideReplies ?? next.commentHideReplies;
   next.commentIpColor = normalizeHexColor(input.commentIpColor) ?? next.commentIpColor;
   next.commentAdColor = normalizeHexColor(input.commentAdColor) ?? next.commentAdColor;
+  next.labelTransparency = {
+    titleBadge: input.labelTransparency?.titleBadge ?? next.labelTransparency.titleBadge,
+    thumbnailLabel: input.labelTransparency?.thumbnailLabel ?? next.labelTransparency.thumbnailLabel,
+    commentBadge: input.labelTransparency?.commentBadge ?? next.labelTransparency.commentBadge,
+    commentLocation: input.labelTransparency?.commentLocation ?? next.labelTransparency.commentLocation,
+    dynamicBadge: input.labelTransparency?.dynamicBadge ?? next.labelTransparency.dynamicBadge
+  };
   next.mbgaEnabled = input.mbgaEnabled ?? next.mbgaEnabled;
   next.mbgaBlockTracking = input.mbgaBlockTracking ?? next.mbgaBlockTracking;
   next.mbgaDisablePcdn = input.mbgaDisablePcdn ?? next.mbgaDisablePcdn;
@@ -123,6 +135,13 @@ export class ConfigStore {
   private config = cloneDefaultConfig();
   private readonly listeners = new Set<ConfigListener>();
 
+  private notifyListeners(): void {
+    const snapshot = this.getSnapshot();
+    for (const listener of this.listeners) {
+      listener(snapshot);
+    }
+  }
+
   async load(): Promise<StoredConfig> {
     this.config = normalizeConfig(await gmGetValue<StoredConfig | null>(CONFIG_STORAGE_KEY, null));
     return this.getSnapshot();
@@ -132,7 +151,8 @@ export class ConfigStore {
     return {
       ...this.config,
       categoryModes: { ...this.config.categoryModes },
-      categoryColorOverrides: { ...this.config.categoryColorOverrides }
+      categoryColorOverrides: { ...this.config.categoryColorOverrides },
+      labelTransparency: { ...this.config.labelTransparency }
     };
   }
 
@@ -144,19 +164,30 @@ export class ConfigStore {
   }
 
   async update(updater: (config: StoredConfig) => StoredConfig): Promise<StoredConfig> {
-    this.config = normalizeConfig(updater(this.getSnapshot()));
-    await gmSetValue(CONFIG_STORAGE_KEY, this.config);
-    for (const listener of this.listeners) {
-      listener(this.getSnapshot());
+    const previous = this.getSnapshot();
+    const next = normalizeConfig(updater(previous));
+    this.config = next;
+    this.notifyListeners();
+    try {
+      await gmSetValue(CONFIG_STORAGE_KEY, this.config);
+    } catch (error) {
+      this.config = previous;
+      this.notifyListeners();
+      throw error;
     }
     return this.getSnapshot();
   }
 
   async reset(): Promise<StoredConfig> {
-    await gmSetValue(CONFIG_STORAGE_KEY, null);
+    const previous = this.getSnapshot();
     this.config = cloneDefaultConfig();
-    for (const listener of this.listeners) {
-      listener(this.getSnapshot());
+    this.notifyListeners();
+    try {
+      await gmSetValue(CONFIG_STORAGE_KEY, null);
+    } catch (error) {
+      this.config = previous;
+      this.notifyListeners();
+      throw error;
     }
     return this.getSnapshot();
   }
@@ -189,13 +220,22 @@ export class StatsStore {
   }
 
   async patch(update: Partial<StoredStats>): Promise<StoredStats> {
+    const previous = this.getSnapshot();
     this.stats = {
       skipCount: update.skipCount ?? this.stats.skipCount,
       minutesSaved: update.minutesSaved ?? this.stats.minutesSaved
     };
-    await gmSetValue(STATS_STORAGE_KEY, this.stats);
     for (const listener of this.listeners) {
       listener(this.getSnapshot());
+    }
+    try {
+      await gmSetValue(STATS_STORAGE_KEY, this.stats);
+    } catch (error) {
+      this.stats = previous;
+      for (const listener of this.listeners) {
+        listener(this.getSnapshot());
+      }
+      throw error;
     }
     return this.getSnapshot();
   }

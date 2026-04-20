@@ -13,12 +13,20 @@ import { VideoLabelClient } from "../api/video-label-client";
 import { normalizeSegments } from "./segment-filter";
 import { resolveWholeVideoLabels } from "./whole-video-label";
 import { requestPageSnapshot } from "../platform/page-bridge";
+import { configureNativeRequestGuard } from "../platform/native-request-guard";
 import { NoticeCenter } from "../ui/notice-center";
-import { SettingsPanel } from "../ui/panel";
+import { SettingsPanel, type PanelTab } from "../ui/panel";
 import { PreviewBar } from "../ui/preview-bar";
 import { TitleBadge, type TitleBadgeVoteResult } from "../ui/title-badge";
 import { CompactVideoHeader } from "../ui/compact-header";
-import { scanCurrentPageCommentSignal, VIDEO_SIGNAL_EVENT } from "../features/comment-filter";
+import {
+  consumeCommentFeedbackToken,
+  LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT,
+  scanCurrentPageCommentSignal,
+  VIDEO_SIGNAL_EVENT,
+  VIDEO_SIGNAL_FEEDBACK_EVENT
+} from "../features/comment-filter";
+import type { LocalVideoFeedbackAvailabilityDetail } from "../features/comment-filter";
 import type {
   Category,
   CategoryMode,
@@ -33,11 +41,18 @@ import type {
 } from "../types";
 import { roundMinutes } from "../utils/number";
 import { mutationsTouchSelectors } from "../utils/mutation";
+import {
+  pickPreferredLocalVideoSignal,
+  shouldBypassLocalReasoning,
+  shouldPersistLocalVideoSignal,
+  shouldReplaceAutomaticLocalLabel
+} from "../utils/local-learning";
 import { inferLocalVideoSignal } from "../utils/local-video-signal";
 import { resolveVideoContext } from "../utils/video-context";
+import { reportDiagnostic } from "../utils/diagnostics";
 import { debugLog, findVideoElement, formatDurationLabel, resolvePlayerHost } from "../utils/dom";
 import { observeUrlChanges } from "../utils/navigation";
-import { supportsVideoFeatures } from "../utils/page";
+import { isCompactVideoHeaderSuppressed, supportsCompactVideoHeader, supportsVideoFeatures } from "../utils/page";
 
 type RuntimeSegmentState = {
   actionConsumed: boolean;
@@ -91,6 +106,7 @@ export class ScriptController {
   private currentSegments: SegmentRecord[] = [];
   private currentFullVideoLabels: SegmentRecord[] = [];
   private currentTitleLabel: SegmentRecord | null = null;
+  private currentRuntimeLocalSignal: LocalVideoSignal | null = null;
   private activeMuteOwners = new Set<string>();
   private previousMutedState = false;
   private refreshing = false;
@@ -99,6 +115,9 @@ export class ScriptController {
   private pendingRefresh = false;
   private pendingForceFetch = false;
   private pendingVisibleRefresh = false;
+  private pendingPanelOpenTab: PanelTab | null = null;
+  private panelRestoreArmed = false;
+  private upstreamLabelResolutionPending = false;
   private lastTickTime: number | null = null;
   private lastAnnouncedSignature = "";
   private readonly handleVisibilityChange = () => {
@@ -107,6 +126,9 @@ export class ScriptController {
       const nextForceFetch = this.pendingForceFetch;
       this.pendingForceFetch = false;
       this.scheduleRefresh(nextForceFetch);
+    }
+    if (!document.hidden) {
+      this.restorePendingPanelOpen();
     }
   };
   private readonly handleVideoSignal = (event: Event) => {
@@ -118,12 +140,21 @@ export class ScriptController {
     if (!detail?.category || this.currentConfig.categoryModes[detail.category] === "off") {
       return;
     }
-    if (this.currentFullVideoLabels.length > 0 || this.localVideoLabelStore.isDismissed(this.currentContext.bvid)) {
+    if (
+      shouldBypassLocalReasoning({
+        hasUpstreamWholeVideoLabel: this.currentFullVideoLabels.length > 0,
+        isUpstreamLabelPending: this.upstreamLabelResolutionPending
+      }) ||
+      this.localVideoLabelStore.isDismissed(this.currentContext.bvid)
+    ) {
       return;
     }
 
     const existing = this.currentTitleLabel;
-    if (existing && !existing.UUID.startsWith("local-signal:")) {
+    if (
+      existing &&
+      (!existing.UUID.startsWith("local-signal:") || existing.UUID.includes(":manual:") || existing.UUID.includes(":manual-dismiss:"))
+    ) {
       return;
     }
 
@@ -133,8 +164,14 @@ export class ScriptController {
       confidence: detail.confidence ?? 0.76,
       reason: detail.reason ?? "页面出现本地商业线索"
     };
+
+    if (!this.shouldApplyRuntimeLocalSignal(signal)) {
+      return;
+    }
+
     const signalLabel = this.buildLocalSignalSegment(this.currentContext.bvid, signal);
 
+    this.currentRuntimeLocalSignal = signal;
     this.currentTitleLabel = signalLabel;
     this.updateTitleBadge(signalLabel);
     this.panel.setFullVideoLabels([signalLabel]);
@@ -144,7 +181,105 @@ export class ScriptController {
       bvid: this.currentContext.bvid,
       segmentCount: this.currentSegments.length
     });
-    void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal);
+    this.syncLocalFeedbackAvailability();
+    if (shouldPersistLocalVideoSignal(signal)) {
+      void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal).catch((error) => {
+        debugLog("Failed to persist runtime local video signal", error);
+        reportDiagnostic({
+          severity: "warn",
+          area: "storage",
+          message: "本地视频推理结果写入失败，已保留当前页面临时显示",
+          detail: error
+        });
+      });
+    }
+  };
+  private readonly handleVideoSignalFeedback = (event: Event) => {
+    if (!(event instanceof CustomEvent) || !this.started || !this.currentConfig.enabled || !this.currentContext) {
+      return;
+    }
+
+    const detail = event.detail as
+      | {
+          category?: Category;
+          decision?: "confirm" | "dismiss";
+          source?: string;
+          reason?: string;
+          feedbackToken?: unknown;
+          feedbackKey?: unknown;
+        }
+      | null;
+    if (!detail?.category || !detail.decision || this.currentConfig.categoryModes[detail.category] === "off") {
+      return;
+    }
+
+    if (!consumeCommentFeedbackToken(detail.feedbackToken)) {
+      return;
+    }
+
+    if (
+      shouldBypassLocalReasoning({
+        hasUpstreamWholeVideoLabel: this.currentFullVideoLabels.length > 0,
+        isUpstreamLabelPending: this.upstreamLabelResolutionPending
+      })
+    ) {
+      this.notices.show({
+        id: `local-feedback-blocked:${this.currentContext.bvid}`,
+        title: "已使用上游整视频标签",
+        message: "当前视频已有上游整视频记录，本地反馈入口不会覆盖上游结果。",
+        durationMs: 2600
+      });
+      return;
+    }
+
+    const segment = this.buildLocalSignalSegment(this.currentContext.bvid, {
+      category: detail.category,
+      source: detail.source === "comment-goods" || detail.source === "comment-suspicion" ? detail.source : "comment-suspicion",
+      reason: detail.reason ?? "评论区用户反馈"
+    });
+    if (detail.decision === "dismiss") {
+      this.notices.show({
+        id: `comment-feedback-dismiss:${this.currentContext.bvid}:${String(detail.feedbackKey ?? Date.now())}`,
+        title: "已忽略这条评论反馈",
+        message: "已记录为当前评论的反馈状态，不会把这次操作扩散为整支视频的全局忽略。",
+        durationMs: 2600
+      });
+      return;
+    }
+
+    const signal: LocalVideoSignal = {
+      category: segment.category,
+      source: detail.source === "comment-goods" || detail.source === "comment-suspicion" ? detail.source : "comment-suspicion",
+      confidence: detail.source === "comment-goods" ? 0.96 : 0.84,
+      reason: detail.reason ?? "评论区用户确认本地商业线索"
+    };
+
+    if (!this.hasLocalManualDecision(this.currentContext.bvid) && this.shouldApplyRuntimeLocalSignal(signal)) {
+      this.currentRuntimeLocalSignal = signal;
+      this.currentTitleLabel = segment;
+      this.updateTitleBadge(segment);
+      this.panel.setFullVideoLabels([segment]);
+      if (shouldPersistLocalVideoSignal(signal)) {
+        void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal).catch((error) => {
+          debugLog("Failed to persist comment local video signal", error);
+          reportDiagnostic({
+            severity: "warn",
+            area: "storage",
+            message: "评论触发的本地视频推理写入失败，已保留当前页面临时显示",
+            detail: error
+          });
+        });
+      }
+    }
+
+    this.notices.show({
+      id: `comment-feedback-confirm:${this.currentContext.bvid}:${String(detail.feedbackKey ?? Date.now())}`,
+      title: "已保留这条评论反馈",
+      message: this.hasLocalManualDecision(this.currentContext.bvid)
+        ? "已记录为当前评论的反馈状态。当前视频已有手动本地判断，因此不会覆盖整视频标签。"
+        : "已记录为当前评论的反馈状态，并会作为当前视频本地判断的辅助线索。",
+      durationMs: 2800
+    });
   };
   private readonly handleMbgaLiveFallback = () => {
     this.notices.show({
@@ -203,6 +338,17 @@ export class ScriptController {
           message: "所有脚本设置已恢复为初始默认值。",
           durationMs: 4000
         });
+      },
+      onClose: (reason) => {
+        if (reason === "user") {
+          this.panelRestoreArmed = false;
+          this.pendingPanelOpenTab = null;
+          return;
+        }
+
+        if (this.panelRestoreArmed) {
+          this.pendingPanelOpenTab = this.panel.getActiveTab();
+        }
       }
     });
     this.titleBadge = new TitleBadge({
@@ -217,6 +363,7 @@ export class ScriptController {
       }
     });
     this.titleBadge.setColorOverrides(this.currentConfig.categoryColorOverrides);
+    this.titleBadge.setTransparencyEnabled(this.currentConfig.labelTransparency.titleBadge);
     this.previewBar.setCategoryColorOverrides(this.currentConfig.categoryColorOverrides);
 
     this.configStore.subscribe((config) => {
@@ -225,6 +372,7 @@ export class ScriptController {
       this.previewBar.setEnabled(config.enabled && config.showPreviewBar);
       this.previewBar.setCategoryColorOverrides(config.categoryColorOverrides);
       this.titleBadge.setColorOverrides(config.categoryColorOverrides);
+      this.titleBadge.setTransparencyEnabled(config.labelTransparency.titleBadge);
       this.syncCompactVideoHeader();
       if (!config.enabled) {
         this.notices.clear();
@@ -253,8 +401,10 @@ export class ScriptController {
     document.addEventListener("visibilitychange", this.handleVisibilityChange);
     this.panel.mount();
     window.addEventListener(VIDEO_SIGNAL_EVENT, this.handleVideoSignal as EventListener);
+    window.addEventListener(VIDEO_SIGNAL_FEEDBACK_EVENT, this.handleVideoSignalFeedback as EventListener);
     window.addEventListener("bsb_mbga_live_fallback", this.handleMbgaLiveFallback as EventListener);
     await this.refreshCurrentVideo(true);
+    this.restorePendingPanelOpen();
 
     this.stopObservingUrl = observeUrlChanges(() => {
       this.syncCompactVideoHeader();
@@ -286,15 +436,17 @@ export class ScriptController {
   }
 
   togglePanel(): void {
+    this.panelRestoreArmed = false;
+    this.pendingPanelOpenTab = null;
     this.panel.toggle();
   }
 
   openPanel(): void {
-    this.panel.open();
+    this.openPanelWithIntent("overview");
   }
 
   openHelp(): void {
-    this.panel.open("help");
+    this.openPanelWithIntent("help");
   }
 
   async clearCache(): Promise<void> {
@@ -335,6 +487,8 @@ export class ScriptController {
     this.domObserver = null;
     document.removeEventListener("visibilitychange", this.handleVisibilityChange);
     window.removeEventListener(VIDEO_SIGNAL_EVENT, this.handleVideoSignal as EventListener);
+    window.removeEventListener(VIDEO_SIGNAL_FEEDBACK_EVENT, this.handleVideoSignalFeedback as EventListener);
+    window.removeEventListener("bsb_mbga_live_fallback", this.handleMbgaLiveFallback as EventListener);
     this.syncCompactVideoHeader();
     this.clearRuntimeState(true);
   }
@@ -360,6 +514,22 @@ export class ScriptController {
       this.pendingForceFetch = false;
       void this.refreshCurrentVideo(nextForceFetch);
     }, 120);
+  }
+
+  private openPanelWithIntent(tab: PanelTab): void {
+    this.panelRestoreArmed = true;
+    this.pendingPanelOpenTab = tab;
+    this.restorePendingPanelOpen();
+  }
+
+  private restorePendingPanelOpen(): void {
+    if (!this.pendingPanelOpenTab || !this.started || document.hidden) {
+      return;
+    }
+
+    const tab = this.pendingPanelOpenTab;
+    this.pendingPanelOpenTab = null;
+    this.panel.open(tab);
   }
 
   private async refreshCurrentVideo(forceFetch = false): Promise<void> {
@@ -449,6 +619,8 @@ export class ScriptController {
         bvid: context.bvid,
         segmentCount: null
       });
+      this.upstreamLabelResolutionPending = true;
+      this.syncLocalFeedbackAvailability();
 
       const [segments, videoLabelCategory] = await Promise.all([
         this.client.getSegments(context, this.currentConfig),
@@ -461,8 +633,15 @@ export class ScriptController {
         videoLabelCategory,
         this.currentConfig
       );
-      const localTitleLabel = await this.resolveLocalTitleLabel(context);
+      this.upstreamLabelResolutionPending = false;
+      const localTitleLabel =
+        this.currentFullVideoLabels.length > 0 || this.localVideoLabelStore.isDismissed(context.bvid)
+          ? null
+          : await this.resolveLocalTitleLabel(context);
       this.currentTitleLabel = this.currentFullVideoLabels[0] ?? localTitleLabel;
+      if (this.currentFullVideoLabels.length > 0) {
+        this.currentRuntimeLocalSignal = null;
+      }
       this.panel.setFullVideoLabels(
         this.currentFullVideoLabels.length > 0
           ? this.currentFullVideoLabels
@@ -517,12 +696,19 @@ export class ScriptController {
           segmentCount: 0
         });
       }
+      this.syncLocalFeedbackAvailability();
       debugLog("Loaded segments", {
         signature,
         count: this.currentSegments.length
       });
     } catch (error) {
       debugLog("Failed to refresh video context", error);
+      reportDiagnostic({
+        severity: "error",
+        area: "upstream",
+        message: "视频上下文或上游片段读取失败",
+        detail: error
+      });
       this.updateRuntimeStatus({
         kind: "error",
         message: error instanceof Error ? `片段读取失败：${error.message}` : "片段读取失败",
@@ -536,7 +722,9 @@ export class ScriptController {
         durationMs: 4000
       });
       this.titleBadge.clear();
+      this.syncLocalFeedbackAvailability();
     } finally {
+      this.upstreamLabelResolutionPending = false;
       this.refreshing = false;
       if (this.pendingRefresh) {
         const nextForceFetch = this.pendingForceFetch;
@@ -960,6 +1148,55 @@ export class ScriptController {
     return `segment-grace:${segment.UUID}`;
   }
 
+  private hasLocalManualDecision(videoId: string): boolean {
+    const resolved = this.localVideoLabelStore.getResolved(videoId);
+    return resolved?.source === "manual" || this.localVideoLabelStore.isDismissed(videoId);
+  }
+
+  private shouldApplyRuntimeLocalSignal(incoming: LocalVideoSignal): boolean {
+    const existing = this.currentRuntimeLocalSignal;
+    if (!existing) {
+      return true;
+    }
+
+    if (existing.category !== incoming.category && incoming.source !== "comment-goods") {
+      const requiredConfidence = existing.source === "page-heuristic" && incoming.source === "comment-suspicion" ? 0.86 : 0.9;
+      if (incoming.confidence < requiredConfidence) {
+        return false;
+      }
+    }
+
+    return shouldReplaceAutomaticLocalLabel(
+      {
+        category: existing.category,
+        source: existing.source,
+        confidence: existing.confidence,
+        updatedAt: 0,
+        reason: existing.reason
+      },
+      incoming
+    );
+  }
+
+  private isLocalManualSegmentLocked(segment: SegmentRecord): boolean {
+    if (!segment.UUID.startsWith("local-signal:")) {
+      return false;
+    }
+    if (segment.UUID.includes(":manual:") || segment.UUID.includes(":manual-dismiss:")) {
+      return true;
+    }
+    return this.currentContext ? this.hasLocalManualDecision(this.currentContext.bvid) : false;
+  }
+
+  private showDuplicateLocalFeedbackNotice(videoId: string): void {
+    this.notices.show({
+      id: `local-feedback-duplicate:${videoId}`,
+      title: "反馈已提交",
+      message: "你已经对当前视频的本地判断提交过反馈。本地学习已记录，当前页面不会重复处理。",
+      durationMs: 3200
+    });
+  }
+
   private updateTitleBadge(segment: SegmentRecord | null): void {
     if (!segment) {
       this.titleBadge.clear();
@@ -967,7 +1204,7 @@ export class ScriptController {
     }
 
     this.titleBadge.setSegment(segment, {
-      voteLocked: this.voteHistoryStore.has(segment.UUID)
+      voteLocked: this.voteHistoryStore.has(segment.UUID) || this.isLocalManualSegmentLocked(segment)
     });
   }
 
@@ -979,6 +1216,8 @@ export class ScriptController {
     this.currentSegments = [];
     this.currentFullVideoLabels = [];
     this.currentTitleLabel = null;
+    this.currentRuntimeLocalSignal = null;
+    this.upstreamLabelResolutionPending = false;
     this.currentSignature = "";
     this.currentContext = null;
     this.currentVideo = null;
@@ -995,6 +1234,7 @@ export class ScriptController {
       this.syncCompactVideoHeader();
       this.updateRuntimeStatus(this.buildIdleStatus());
     }
+    this.syncLocalFeedbackAvailability();
   }
 
   private buildIdleStatus(): RuntimeStatus {
@@ -1028,17 +1268,65 @@ export class ScriptController {
     this.panel.updateRuntimeStatus(status);
   }
 
+  private syncLocalFeedbackAvailability(): void {
+    const detail = this.resolveLocalFeedbackAvailability();
+    window.dispatchEvent(
+      new CustomEvent(LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT, {
+        detail
+      })
+    );
+  }
+
+  private resolveLocalFeedbackAvailability(): LocalVideoFeedbackAvailabilityDetail {
+    const bvid = this.currentContext?.bvid ?? null;
+    const baseEnabled = this.started && this.currentConfig.enabled && Boolean(bvid);
+    let disabledReason: LocalVideoFeedbackAvailabilityDetail["disabledReason"];
+
+    if (!baseEnabled) {
+      disabledReason = "unavailable";
+    } else if (this.upstreamLabelResolutionPending) {
+      disabledReason = "pending-upstream";
+    } else if (this.currentFullVideoLabels.length > 0) {
+      disabledReason = "upstream-whole-video";
+    }
+
+    return {
+      enabled: baseEnabled && !disabledReason,
+      locked: Boolean(disabledReason && disabledReason !== "unavailable"),
+      disabledReason,
+      bvid
+    };
+  }
+
   private syncCompactVideoHeader(): void {
+    this.compactHeader.setOptions({
+      placeholderVisible: this.currentConfig.compactHeaderPlaceholderVisible,
+      searchPlaceholderEnabled: this.currentConfig.compactHeaderSearchPlaceholderEnabled
+    });
+    const compactSupported = supportsCompactVideoHeader(window.location.href);
     const shouldCompact =
       this.started &&
       this.currentConfig.enabled &&
       this.currentConfig.compactVideoHeader &&
-      supportsVideoFeatures(window.location.href);
+      compactSupported &&
+      !isCompactVideoHeaderSuppressed(document);
     if (shouldCompact) {
       this.compactHeader.mount();
+      configureNativeRequestGuard({
+        enabled: true,
+        supportedPage: true,
+        compactHeaderReady: true,
+        reason: "compact-header-mounted"
+      });
       return;
     }
     this.compactHeader.unmount();
+    configureNativeRequestGuard({
+      enabled: this.started && this.currentConfig.enabled && this.currentConfig.compactVideoHeader,
+      supportedPage: compactSupported,
+      compactHeaderReady: false,
+      reason: "compact-header-inactive"
+    });
   }
 
   private resolveFullVideoSegment(): SegmentRecord | null {
@@ -1065,36 +1353,42 @@ export class ScriptController {
   private async resolveLocalTitleLabel(context: VideoContext): Promise<SegmentRecord | null> {
     const learned = this.localVideoLabelStore.getResolved(context.bvid);
     if (learned?.category && this.currentConfig.categoryModes[learned.category] !== "off") {
+      const learnedAutomaticSource = this.resolveAutomaticLocalSignalSource(learned.source);
+      this.currentRuntimeLocalSignal =
+        learnedAutomaticSource === null
+          ? null
+          : {
+              category: learned.category,
+              source: learnedAutomaticSource,
+              confidence: learned.confidence,
+              reason: learned.reason ?? "已缓存的本地商业线索"
+            };
       return this.buildLocalSignalSegment(context.bvid, learned);
     }
 
     if (this.localVideoLabelStore.isDismissed(context.bvid)) {
+      this.currentRuntimeLocalSignal = null;
       return null;
     }
 
     const commentSignal = scanCurrentPageCommentSignal(this.currentConfig);
     const pageSignal = inferLocalVideoSignal(context);
-    const localSignal = this.pickPreferredLocalSignal(commentSignal, pageSignal);
+    const localSignal = pickPreferredLocalVideoSignal(commentSignal, pageSignal);
     if (!localSignal || this.currentConfig.categoryModes[localSignal.category] === "off") {
+      this.currentRuntimeLocalSignal = null;
       return null;
     }
 
-    if (localSignal.confidence >= 0.72) {
+    if (shouldPersistLocalVideoSignal(localSignal)) {
       await this.localVideoLabelStore.rememberSignal(context.bvid, localSignal);
     }
 
+    this.currentRuntimeLocalSignal = localSignal;
     return this.buildLocalSignalSegment(context.bvid, localSignal);
   }
 
-  private pickPreferredLocalSignal(
-    commentSignal: LocalVideoSignal | null,
-    pageSignal: LocalVideoSignal | null
-  ): LocalVideoSignal | null {
-    if (commentSignal && pageSignal) {
-      return commentSignal.confidence >= pageSignal.confidence ? commentSignal : pageSignal;
-    }
-
-    return commentSignal ?? pageSignal;
+  private resolveAutomaticLocalSignalSource(source: LocalVideoLabelRecord["source"]): LocalVideoSignal["source"] | null {
+    return source === "comment-goods" || source === "comment-suspicion" || source === "page-heuristic" ? source : null;
   }
 
   private async handleLocalBadgeDecision(segment: SegmentRecord, decision: "confirm" | "dismiss"): Promise<void> {
@@ -1102,8 +1396,14 @@ export class ScriptController {
       return;
     }
 
+    if (this.hasLocalManualDecision(this.currentContext.bvid)) {
+      this.showDuplicateLocalFeedbackNotice(this.currentContext.bvid);
+      return;
+    }
+
     if (decision === "confirm") {
       await this.localVideoLabelStore.rememberManual(this.currentContext.bvid, segment.category, `手动保留 ${CATEGORY_LABELS[segment.category]}`);
+      this.currentRuntimeLocalSignal = null;
       this.currentTitleLabel = this.buildLocalSignalSegment(this.currentContext.bvid, {
         category: segment.category,
         source: "manual",
@@ -1114,13 +1414,15 @@ export class ScriptController {
       this.notices.show({
         id: `local-label-confirm:${this.currentContext.bvid}`,
         title: "已保留本地标签",
-        message: `后续会继续把这个视频视作“${CATEGORY_LABELS[segment.category]}”。`,
-        durationMs: 2800
+        message: `已记录为你的本地判断。后续进入当前视频时会继续显示“${CATEGORY_LABELS[segment.category]}”，该本地反馈不可重复提交。`,
+        durationMs: 3600
       });
+      this.syncLocalFeedbackAvailability();
       return;
     }
 
     await this.localVideoLabelStore.dismiss(this.currentContext.bvid, `手动忽略 ${CATEGORY_LABELS[segment.category]}`);
+    this.currentRuntimeLocalSignal = null;
     this.currentTitleLabel = null;
     this.titleBadge.clear();
     this.panel.setFullVideoLabels([]);
@@ -1133,9 +1435,10 @@ export class ScriptController {
     this.notices.show({
       id: `local-label-dismiss:${this.currentContext.bvid}`,
       title: "已忽略本地标签",
-      message: "当前视频后续不会继续显示这条本地商业提示。",
-      durationMs: 2800
+      message: "已记录为你的本地判断。后续当前视频不会再显示这条本地商业提示，该本地反馈不可重复提交。",
+      durationMs: 3600
     });
+    this.syncLocalFeedbackAvailability();
   }
 
   private async submitVote(segment: SegmentRecord, type: 0 | 1): Promise<TitleBadgeVoteResult> {
@@ -1171,15 +1474,29 @@ export class ScriptController {
     this.notices.show({
       id: `segment-vote-error:${segment.UUID}:${type}`,
       title: "反馈提交失败",
-      message:
-        response.statusCode === 403
-          ? "服务端拒绝了这次反馈，稍后可再试一次。"
-          : response.statusCode === -1
-            ? "请求没有送达 SponsorBlock 服务，请检查网络或 Tampermonkey 授权。"
-            : response.responseText || `SponsorBlock API returned ${response.statusCode}`,
+      message: this.formatVoteErrorMessage(response.statusCode, response.responseText),
       durationMs: 3600
     });
     return "error";
+  }
+
+  private formatVoteErrorMessage(statusCode: number, responseText: string): string {
+    if (statusCode === 403) {
+      return "服务端拒绝了这次反馈，稍后可再试一次。";
+    }
+    if (statusCode === 429) {
+      return "SponsorBlock 暂时限制了这次反馈请求，反馈未提交，请稍后再试。";
+    }
+    if (statusCode === -1) {
+      return "请求没有送达 SponsorBlock 服务，请检查网络或 Tampermonkey 授权。";
+    }
+    if (statusCode >= 500) {
+      return `SponsorBlock 服务暂时异常（HTTP ${statusCode}），反馈未提交，请稍后再试。`;
+    }
+    if (/<!doctype\s+html|<html[\s>]|<body[\s>]|<pre[\s>]/iu.test(responseText)) {
+      return `SponsorBlock 返回了非预期页面（HTTP ${statusCode}），反馈未提交，请稍后再试。`;
+    }
+    return responseText.trim() || `SponsorBlock API returned ${statusCode}`;
   }
 
   private shouldResetSegmentState(currentTime: number, state: RuntimeSegmentState): boolean {

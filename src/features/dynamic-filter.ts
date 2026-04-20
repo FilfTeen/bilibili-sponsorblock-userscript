@@ -1,7 +1,7 @@
 import type { DynamicSponsorMatch, StoredConfig } from "../types";
 import { ConfigStore } from "../core/config-store";
 import { collectPatternMatches, isLikelyPromoText, regexFromStoredPattern } from "../utils/pattern";
-import { analyzeCommercialIntent } from "../utils/commercial-intent";
+import { analyzeCommercialIntent, inspectCommercialActionability } from "../utils/commercial-intent";
 import { debugLog } from "../utils/dom";
 import { mutationsTouchSelectors } from "../utils/mutation";
 import { observeUrlChanges } from "../utils/navigation";
@@ -25,6 +25,12 @@ const DYNAMIC_RELEVANT_SELECTORS = [
   ".dyn-card-opus__title"
 ] as const;
 const DYNAMIC_IGNORED_SELECTORS = [BADGE_SELECTOR, TOGGLE_SELECTOR] as const;
+const currentInlineBadgeAppearance = {
+  dynamicBadge: false
+};
+
+const DYNAMIC_STRONG_MATCHES = new Set(["赞助", "商务合作", "商品卡", "优惠券", "购买指引"]);
+const DYNAMIC_INVITATION_PATTERN = /邀请码|体验码|兑换码|注册码/iu;
 
 export function classifyDynamicItem(
   element: HTMLElement,
@@ -51,27 +57,41 @@ export function classifyDynamicItem(
     .map((node) => node.textContent ?? "")
     .join(" ");
   const storedMatches = pattern ? collectPatternMatches(text, pattern) : [];
-  if (pattern && !isLikelyPromoText(text, storedMatches, config.dynamicRegexKeywordMinMatches)) {
-    const assessment = analyzeCommercialIntent(text, {
-      storedMatches,
-      minMatches: config.dynamicRegexKeywordMinMatches
-    });
-    if (!assessment.category) {
-      return null;
-    }
-
-    return {
-      category:
-        assessment.category === "selfpromo" ? "dynamicSponsor_forward_sponsor" : "dynamicSponsor_suspicion_sponsor",
-      matches: storedMatches.length > 0 ? storedMatches : assessment.matches
-    };
-  }
-
   const assessment = analyzeCommercialIntent(text, {
     storedMatches,
     minMatches: config.dynamicRegexKeywordMinMatches
   });
   if (!assessment.category) {
+    return null;
+  }
+
+  const actionability = inspectCommercialActionability(text);
+  const hasStrongToken = assessment.matches.some((match) => DYNAMIC_STRONG_MATCHES.has(match));
+  const hasInvitationLead = DYNAMIC_INVITATION_PATTERN.test(text);
+  const hasStrongEvidence = actionability.hasStrongClosure || hasStrongToken || hasInvitationLead;
+
+  if (actionability.hasQuotedOrMockingContext) {
+    return null;
+  }
+
+  if (
+    pattern &&
+    !isLikelyPromoText(text, storedMatches, config.dynamicRegexKeywordMinMatches) &&
+    !hasStrongEvidence &&
+    assessment.category !== "selfpromo"
+  ) {
+    return null;
+  }
+
+  if (assessment.category === "sponsor" && !hasStrongEvidence) {
+    return null;
+  }
+
+  if (assessment.category === "selfpromo" && !actionability.hasOwnedActionLead) {
+    return null;
+  }
+
+  if (assessment.category === "exclusive_access" && !actionability.hasStrongClosure && assessment.exclusiveScore < 3.2) {
     return null;
   }
 
@@ -121,7 +141,14 @@ function resolveContentBody(element: HTMLElement): HTMLElement | null {
 }
 
 function createBadge(text: string, tone: InlineTone): HTMLElement {
-  return createInlineBadge("data-bsb-dynamic-badge", text, tone, "stack");
+  return createInlineBadge(
+    "data-bsb-dynamic-badge",
+    text,
+    tone,
+    "stack",
+    undefined,
+    currentInlineBadgeAppearance.dynamicBadge ? "glass" : "solid"
+  );
 }
 
 function createToggleButton(onClick: () => void): HTMLButtonElement {
@@ -153,8 +180,10 @@ export class DynamicSponsorController {
 
   constructor(private readonly configStore: ConfigStore) {
     this.currentConfig = this.configStore.getSnapshot();
+    currentInlineBadgeAppearance.dynamicBadge = this.currentConfig.labelTransparency.dynamicBadge;
     this.configStore.subscribe((config) => {
       this.currentConfig = config;
+      currentInlineBadgeAppearance.dynamicBadge = config.labelTransparency.dynamicBadge;
       this.resetProcessedItems();
       this.scheduleRefresh();
     });
@@ -216,6 +245,10 @@ export class DynamicSponsorController {
   }
 
   private scheduleRefresh(): void {
+    if (!this.started) {
+      return;
+    }
+
     if (document.hidden) {
       this.pendingVisibleRefresh = true;
       return;
@@ -227,11 +260,18 @@ export class DynamicSponsorController {
 
     this.refreshTimerId = window.setTimeout(() => {
       this.refreshTimerId = null;
+      if (!this.started) {
+        return;
+      }
       this.refresh();
     }, 120);
   }
 
   private refresh(): void {
+    if (!this.started) {
+      return;
+    }
+
     if (document.hidden) {
       this.pendingVisibleRefresh = true;
       return;

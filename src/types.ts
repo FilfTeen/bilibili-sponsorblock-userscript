@@ -14,6 +14,13 @@ export type CategoryMode = "auto" | "manual" | "notice" | "off";
 export type ContentFilterMode = "hide" | "label" | "off";
 export type ThumbnailLabelMode = "overlay" | "off";
 export type CategoryColorOverrides = Partial<Record<Category, string>>;
+export interface LabelTransparencyConfig {
+  titleBadge: boolean;
+  thumbnailLabel: boolean;
+  commentBadge: boolean;
+  commentLocation: boolean;
+  dynamicBadge: boolean;
+}
 export type LocalVideoLabelSource =
   | "comment-goods"
   | "comment-suspicion"
@@ -83,9 +90,12 @@ export interface StoredConfig {
   minDurationSec: number;
   showPreviewBar: boolean;
   compactVideoHeader: boolean;
+  compactHeaderPlaceholderVisible: boolean;
+  compactHeaderSearchPlaceholderEnabled: boolean;
   thumbnailLabelMode: ThumbnailLabelMode;
   categoryModes: Record<Category, CategoryMode>;
   categoryColorOverrides: CategoryColorOverrides;
+  labelTransparency: LabelTransparencyConfig;
   dynamicFilterMode: ContentFilterMode;
   dynamicRegexPattern: string;
   dynamicRegexKeywordMinMatches: number;
@@ -169,4 +179,30 @@ export interface LocalVideoSignal {
   source: Exclude<LocalVideoLabelSource, "manual" | "manual-dismiss">;
   confidence: number;
   reason: string;
+}
+
+export type MbgaRuleKind = "network" | "ui" | "behavior";
+
+export interface MbgaContext {
+  config: StoredConfig;
+  doc: Document;
+  win: Window & typeof globalThis;
+  url: URL;
+}
+
+export interface MbgaNetworkDecision {
+  action: "allow" | "block";
+  reason: string;
+  matchedUrl?: string;
+  syntheticStatus?: number;
+  syntheticBody?: string;
+}
+
+export interface MbgaRule {
+  id: string;
+  kind: MbgaRuleKind;
+  safetyNotes: string;
+  enabled: (config: StoredConfig) => boolean;
+  match: (context: MbgaContext) => boolean;
+  apply: (context: MbgaContext) => void;
 }

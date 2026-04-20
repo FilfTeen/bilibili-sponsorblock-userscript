@@ -5,11 +5,23 @@ type SearchSeed = {
   value: string;
 };
 
+type CompactHeaderOptions = {
+  placeholderVisible: boolean;
+  searchPlaceholderEnabled: boolean;
+};
+
 type ProfileSeed = {
   href: string;
   label: string;
   avatarSrc: string | null;
 };
+
+const NATIVE_HEADER_HIDDEN_ATTR = "data-bsb-native-header-hidden";
+const NATIVE_HEADER_ROOT_SELECTORS = [
+  "#biliMainHeader",
+  ".bili-header.fixed-header",
+  ".bili-header__bar.mini-header"
+] as const;
 
 const GENERIC_PROFILE_LABELS = new Set([
   "",
@@ -30,6 +42,17 @@ const SEARCH_INPUT_SELECTORS = [
   ".nav-search-input",
   "input[type='search']"
 ] as const;
+
+const GENERIC_SEARCH_PLACEHOLDERS = new Set([
+  "",
+  "搜索 B 站内容",
+  "搜索b站内容",
+  "搜索内容",
+  "搜索视频、番剧或 up 主",
+  "搜索"
+]);
+
+const DEFAULT_SEARCH_PLACEHOLDER = "搜索 B 站内容";
 
 const PROFILE_ROOT_SELECTORS = [
   ".bili-header__bar.mini-header .right-entry",
@@ -129,16 +152,42 @@ function resolveSearchSeed(): SearchSeed {
     const input = document.querySelector(selector);
     if (input instanceof HTMLInputElement) {
       return {
-        placeholder: input.placeholder?.trim() || "搜索 B 站内容",
+        placeholder: input.placeholder?.trim() || DEFAULT_SEARCH_PLACEHOLDER,
         value: input.value?.trim() || ""
       };
     }
   }
 
   return {
-    placeholder: "搜索 B 站内容",
+    placeholder: DEFAULT_SEARCH_PLACEHOLDER,
     value: ""
   };
+}
+
+function resolveDisplayedPlaceholder(seed: SearchSeed, placeholderVisible: boolean): string {
+  const rawPlaceholder = seed.placeholder.trim();
+  if (placeholderVisible && rawPlaceholder) {
+    return rawPlaceholder;
+  }
+  return DEFAULT_SEARCH_PLACEHOLDER;
+}
+
+function resolveSearchKeyword(seed: SearchSeed, options: CompactHeaderOptions): string {
+  const directKeyword = seed.value.trim();
+  if (directKeyword) {
+    return directKeyword;
+  }
+
+  if (!options.searchPlaceholderEnabled) {
+    return "";
+  }
+
+  const placeholder = resolveDisplayedPlaceholder(seed, options.placeholderVisible).trim();
+  if (!placeholder || GENERIC_SEARCH_PLACEHOLDERS.has(placeholder)) {
+    return "";
+  }
+
+  return placeholder;
 }
 
 function resolveProfileSeed(): ProfileSeed {
@@ -174,14 +223,15 @@ function resolveProfileSeed(): ProfileSeed {
   };
 }
 
-function createSearchForm(seed: SearchSeed): HTMLFormElement {
+function createSearchForm(seed: SearchSeed, getOptions: () => CompactHeaderOptions): HTMLFormElement {
   const form = document.createElement("form");
   form.className = "bsb-tm-video-header-fallback-search";
 
   const input = document.createElement("input");
   input.type = "search";
-  input.placeholder = seed.placeholder;
+  input.placeholder = resolveDisplayedPlaceholder(seed, getOptions().placeholderVisible);
   input.value = seed.value;
+  input.dataset.bsbSeedValue = seed.value;
   input.autocomplete = "off";
   input.spellcheck = false;
   input.setAttribute("aria-label", "搜索 B 站内容");
@@ -194,7 +244,13 @@ function createSearchForm(seed: SearchSeed): HTMLFormElement {
   form.append(input, button);
   form.addEventListener("submit", (event) => {
     event.preventDefault();
-    const keyword = input.value.trim();
+    const keyword = resolveSearchKeyword(
+      {
+        placeholder: input.placeholder,
+        value: input.value
+      },
+      getOptions()
+    );
     if (!keyword) {
       return;
     }
@@ -246,6 +302,10 @@ export class CompactVideoHeader {
   private lastResolvedProfileSeed: ProfileSeed | null = null;
   private remoteProfileSeed: ProfileSeed | null = null;
   private remoteProfilePromise: Promise<void> | null = null;
+  private options: CompactHeaderOptions = {
+    placeholderVisible: false,
+    searchPlaceholderEnabled: false
+  };
 
   constructor() {
     this.root.className = "bsb-tm-video-header-shell";
@@ -262,8 +322,20 @@ export class CompactVideoHeader {
       document.body.prepend(this.root);
     }
     document.documentElement.classList.add("bsb-tm-video-header-compact");
+    this.applyNativeHeaderState(true);
     this.retriesRemaining = 10;
     this.sync();
+  }
+
+  setOptions(next: Partial<CompactHeaderOptions>): void {
+    this.options = {
+      ...this.options,
+      ...next
+    };
+
+    if (this.mounted) {
+      this.sync();
+    }
   }
 
   sync(): void {
@@ -271,6 +343,7 @@ export class CompactVideoHeader {
       return;
     }
 
+    this.applyNativeHeaderState(true);
     const searchSeed = resolveSearchSeed();
     const resolvedProfileSeed = resolveProfileSeed();
     const globalProfileSeed = resolveProfileSeedFromGlobals();
@@ -282,11 +355,44 @@ export class CompactVideoHeader {
       this.lastResolvedProfileSeed = authoritativeProfileSeed;
     }
     const profileSeed = authoritativeProfileSeed ?? this.lastResolvedProfileSeed ?? resolvedProfileSeed;
-    this.searchSlot.replaceChildren(createSearchForm(searchSeed));
-    this.profileSlot.replaceChildren(createProfileLink(profileSeed));
+    this.syncSearchForm(searchSeed);
+    this.syncProfileLink(profileSeed);
     this.syncProfileObserver(profileSeed);
     void this.ensureRemoteProfileSeed();
     this.scheduleRetry();
+  }
+
+  private syncSearchForm(seed: SearchSeed): void {
+    const existingForm = this.searchSlot.querySelector<HTMLFormElement>(".bsb-tm-video-header-fallback-search");
+    const existingInput = existingForm?.querySelector<HTMLInputElement>("input[type='search']");
+    if (!existingForm || !existingInput) {
+      this.searchSlot.replaceChildren(createSearchForm(seed, () => this.options));
+      return;
+    }
+
+    const seedValue = existingInput.dataset.bsbSeedValue ?? "";
+    const hasUserDraft = document.activeElement === existingInput || existingInput.value !== seedValue;
+    existingInput.placeholder = resolveDisplayedPlaceholder(seed, this.options.placeholderVisible);
+    if (!hasUserDraft) {
+      existingInput.value = seed.value;
+      existingInput.dataset.bsbSeedValue = seed.value;
+    }
+  }
+
+  private syncProfileLink(seed: ProfileSeed): void {
+    const existingLink = this.profileSlot.querySelector<HTMLAnchorElement>(".bsb-tm-video-header-profile-link");
+    const existingAvatar = existingLink?.querySelector<HTMLImageElement>(".bsb-tm-video-header-avatar");
+    const existingAvatarSrc = normalizeAvatarUrl(existingAvatar?.getAttribute("src"));
+    if (
+      existingLink &&
+      existingLink.href === seed.href &&
+      existingLink.getAttribute("aria-label") === seed.label &&
+      existingAvatarSrc === normalizeAvatarUrl(seed.avatarSrc)
+    ) {
+      return;
+    }
+
+    this.profileSlot.replaceChildren(createProfileLink(seed));
   }
 
   unmount(): void {
@@ -302,6 +408,7 @@ export class CompactVideoHeader {
     this.remoteProfilePromise = null;
     this.root.remove();
     document.documentElement.classList.remove("bsb-tm-video-header-compact");
+    this.applyNativeHeaderState(false);
   }
 
   destroy(): void {
@@ -321,6 +428,33 @@ export class CompactVideoHeader {
       }
       this.sync();
     }, 400);
+  }
+
+  private applyNativeHeaderState(hidden: boolean): void {
+    const roots = this.resolveNativeHeaderRoots();
+    for (const root of roots) {
+      if (hidden) {
+        root.setAttribute(NATIVE_HEADER_HIDDEN_ATTR, "true");
+      } else {
+        root.removeAttribute(NATIVE_HEADER_HIDDEN_ATTR);
+      }
+    }
+
+    if (!hidden) {
+      for (const orphaned of document.querySelectorAll<HTMLElement>(`[${NATIVE_HEADER_HIDDEN_ATTR}="true"]`)) {
+        orphaned.removeAttribute(NATIVE_HEADER_HIDDEN_ATTR);
+      }
+    }
+  }
+
+  private resolveNativeHeaderRoots(): HTMLElement[] {
+    const found = new Set<HTMLElement>();
+    for (const selector of NATIVE_HEADER_ROOT_SELECTORS) {
+      for (const node of document.querySelectorAll<HTMLElement>(selector)) {
+        found.add(node);
+      }
+    }
+    return Array.from(found);
   }
 
   private syncProfileObserver(profileSeed: ProfileSeed): void {

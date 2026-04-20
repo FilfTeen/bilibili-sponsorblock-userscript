@@ -50,8 +50,14 @@ export class VoteHistoryStore {
       return;
     }
 
+    const previous = new Map(this.records);
     this.records.set(uuid, Date.now());
     this.records = pruneRecords(this.records);
-    await gmSetValue(VOTE_HISTORY_STORAGE_KEY, serializeRecords(this.records));
+    try {
+      await gmSetValue(VOTE_HISTORY_STORAGE_KEY, serializeRecords(this.records));
+    } catch (error) {
+      this.records = previous;
+      throw error;
+    }
   }
 }

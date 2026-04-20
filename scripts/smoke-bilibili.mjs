@@ -3,7 +3,7 @@ import path from "node:path";
 import { chromium } from "playwright-core";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
-const scriptPath = path.join(rootDir, "dist", "bilibili-sponsorblock.user.js");
+const scriptPath = path.join(rootDir, "dist", "bilibili-qol-core.user.js");
 const browserPath =
   process.env.BSB_SMOKE_BROWSER_PATH ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const captureDir = process.env.BSB_SMOKE_CAPTURE_DIR ? path.resolve(rootDir, process.env.BSB_SMOKE_CAPTURE_DIR) : null;
@@ -566,6 +566,17 @@ async function verifyVideoPage(browser) {
       undefined,
       { timeout: 12000 }
     );
+    const longTitleText =
+      "【从劣到优】锐评2026热门男士内裤：10-200全价位覆盖，真人上身实测，多维度对比，给兄弟们把长标题胶囊稳定性一次测透";
+    await page.evaluate((titleText) => {
+      const title = document.querySelector(
+        ".video-info-container h1, .video-title-container h1, .media-right h1, h1.video-title, .video-title"
+      );
+      if (title instanceof HTMLElement) {
+        title.textContent = titleText;
+      }
+    }, longTitleText);
+    await page.waitForTimeout(180);
     await page.evaluate(() => {
       document.querySelector(".bsb-tm-title-pill")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
@@ -573,6 +584,44 @@ async function verifyVideoPage(browser) {
     await captureLocator(page.locator(".bsb-tm-video-header-shell").first(), "video-compact-header");
     await captureLocator(page.locator(".bsb-tm-title-popover").first(), "video-title-popover");
     await captureLocator(page.locator(".video-info-container, .video-title-container").first(), "video-title-area");
+    const titleLayoutWideState = await page.evaluate(() => {
+      const title = document.querySelector(
+        ".video-info-container h1, .video-title-container h1, .media-right h1, h1.video-title, .video-title"
+      );
+      const titleContainer = document.querySelector(".video-info-container, .video-title-container, .media-right");
+      const pill = document.querySelector(".bsb-tm-title-pill");
+      const pillRect = pill?.getBoundingClientRect();
+      const titleRect = title?.getBoundingClientRect();
+      const titleContainerRect = titleContainer?.getBoundingClientRect();
+      return {
+        accessoryHostCount: document.querySelectorAll("[data-bsb-title-accessories='true']").length,
+        pillCount: document.querySelectorAll(".bsb-tm-title-pill-wrap").length,
+        pillRect: pillRect
+          ? { width: pillRect.width, height: pillRect.height, top: pillRect.top, left: pillRect.left }
+          : null,
+        titleRect: titleRect ? { width: titleRect.width, height: titleRect.height, top: titleRect.top, left: titleRect.left } : null,
+        titleContainerRect: titleContainerRect
+          ? { width: titleContainerRect.width, height: titleContainerRect.height, top: titleContainerRect.top, left: titleContainerRect.left }
+          : null,
+        titleClientRectCount: title instanceof HTMLElement ? title.getClientRects().length : 0
+      };
+    });
+    await page.setViewportSize({ width: 980, height: 720 });
+    await page.waitForTimeout(220);
+    await captureLocator(page.locator(".video-info-container, .video-title-container").first(), "video-title-area-narrow");
+    const titleLayoutNarrowState = await page.evaluate(() => {
+      const title = document.querySelector(
+        ".video-info-container h1, .video-title-container h1, .media-right h1, h1.video-title, .video-title"
+      );
+      const pill = document.querySelector(".bsb-tm-title-pill");
+      const pillRect = pill?.getBoundingClientRect();
+      return {
+        accessoryHostCount: document.querySelectorAll("[data-bsb-title-accessories='true']").length,
+        pillCount: document.querySelectorAll(".bsb-tm-title-pill-wrap").length,
+        pillRect: pillRect ? { width: pillRect.width, height: pillRect.height } : null,
+        titleClientRectCount: title instanceof HTMLElement ? title.getClientRects().length : 0
+      };
+    });
     const titlePopoverState = await page.evaluate(() => ({
       titlePopoverVisible: (() => {
         const popover = document.querySelector(".bsb-tm-title-popover");
@@ -756,6 +805,26 @@ async function verifyVideoPage(browser) {
     assert(result.requestCount > 0, "Video page did not request SponsorBlock segments.");
     assert(result.currentTime > 86, "Video page did not auto-skip the fixture sponsor segment.");
     assert(result.titlePillText.trim().length > 0, "Video page did not render any title pill.");
+    assert(titleLayoutWideState.accessoryHostCount === 1, "Video page created duplicate title accessory hosts under a long title.");
+    assert(titleLayoutWideState.pillCount === 1, "Video page rendered duplicate title pills under a long title.");
+    assert(titleLayoutWideState.pillRect !== null, "Video page could not measure the title pill under a long title.");
+    assert(titleLayoutWideState.titleRect !== null, "Video page could not measure the title text under a long title.");
+    assert(titleLayoutWideState.titleContainerRect !== null, "Video page could not measure the title container under a long title.");
+    assert(titleLayoutWideState.pillRect.height <= 48, "Video page title pill collapsed into an abnormally tall block under a long title.");
+    assert(
+      titleLayoutWideState.pillRect.width > titleLayoutWideState.pillRect.height * 1.4,
+      "Video page title pill lost its horizontal pill shape under a long title."
+    );
+    assert(titleLayoutWideState.titleClientRectCount <= 2, "Video page title text expanded into too many lines under a long title.");
+    assert(titleLayoutNarrowState.accessoryHostCount === 1, "Video page duplicated accessory hosts after a narrow-width resize.");
+    assert(titleLayoutNarrowState.pillCount === 1, "Video page duplicated title pills after a narrow-width resize.");
+    assert(titleLayoutNarrowState.pillRect !== null, "Video page could not measure the title pill after a narrow-width resize.");
+    assert(titleLayoutNarrowState.pillRect.height <= 52, "Video page title pill collapsed into a tall block after a narrow-width resize.");
+    assert(
+      titleLayoutNarrowState.pillRect.width > titleLayoutNarrowState.pillRect.height * 1.2,
+      "Video page title pill lost horizontal stability after a narrow-width resize."
+    );
+    assert(titleLayoutNarrowState.titleClientRectCount <= 2, "Video page title text expanded into too many lines after a narrow-width resize.");
     assert(titlePopoverState.titlePopoverVisible, "Video page did not keep the title-pill popover visibly open.");
     const hasVoteAction = result.titlePillActions.some((text) => text.includes("标记正确"));
     const hasLocalLearningAction = result.titlePillActions.some((text) => text.includes("保留本地标签"));

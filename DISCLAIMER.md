@@ -1,6 +1,6 @@
 # 免责声明
 
-本项目 `Bilibili SponsorBlock Core` 是一个非官方的 Tampermonkey userscript 派生实现。
+本项目 `Bilibili QoL Core` 是一个非官方的 Tampermonkey userscript 派生实现。
 
 ## 非官方性质
 

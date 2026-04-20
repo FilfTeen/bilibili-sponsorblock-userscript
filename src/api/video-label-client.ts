@@ -1,4 +1,4 @@
-import { REQUEST_TIMEOUT_MS } from "../constants";
+import { REQUEST_TIMEOUT_MS, SCRIPT_VERSION } from "../constants";
 import { PersistentCache } from "../core/cache";
 import { gmXmlHttpRequest } from "../platform/gm";
 import type { Category, FetchResponse, StoredConfig } from "../types";
@@ -17,6 +17,10 @@ const VALID_CATEGORIES = new Set<Category>([
   "poi_highlight",
   "exclusive_access"
 ]);
+const UPSTREAM_HEADERS = {
+  Accept: "application/json",
+  "x-ext-version": SCRIPT_VERSION
+} as const;
 
 type VideoLabelResponse = Array<{
   videoID?: string;
@@ -84,7 +88,7 @@ export class VideoLabelClient {
       method: "GET",
       url,
       headers: {
-        Accept: "application/json"
+        ...UPSTREAM_HEADERS
       },
       timeout: REQUEST_TIMEOUT_MS
     }).finally(() => {

@@ -2,16 +2,22 @@ import type {
   Category,
   CategoryMode,
   ContentFilterMode,
+  LabelTransparencyConfig,
   StoredConfig,
   ThumbnailLabelMode
 } from "./types";
 
-export const SCRIPT_NAME = "Bilibili SponsorBlock Core";
+export const PRODUCT_NAME = "Bilibili QoL Core";
+export const SCRIPT_NAME = PRODUCT_NAME;
+export const AUTHOR_NAME = "Hush_";
+export const SCRIPT_VERSION =
+  typeof __BUILD_VERSION__ === "string" && __BUILD_VERSION__.trim().length > 0 ? __BUILD_VERSION__ : "0.3.7";
 export const CONFIG_STORAGE_KEY = "bsb_tm_config_v1";
 export const STATS_STORAGE_KEY = "bsb_tm_stats_v1";
 export const CACHE_STORAGE_KEY = "bsb_tm_cache_v1";
 export const USER_ID_STORAGE_KEY = "bsb_tm_user_id_v1";
 export const LOCAL_LABEL_STORAGE_KEY = "bsb_tm_local_video_labels_v1";
+export const COMMENT_FEEDBACK_STORAGE_KEY = "bsb_tm_comment_feedback_v1";
 export const VOTE_HISTORY_STORAGE_KEY = "bsb_tm_vote_history_v1";
 export const BRIDGE_FLAG = "__BSB_TM_PAGE_BRIDGE__";
 export const REQUEST_TIMEOUT_MS = 8000;
@@ -134,6 +140,14 @@ export const DEFAULT_CATEGORY_MODES: Record<Category, CategoryMode> = {
   exclusive_access: "notice"
 };
 
+export const DEFAULT_LABEL_TRANSPARENCY: LabelTransparencyConfig = {
+  titleBadge: false,
+  thumbnailLabel: false,
+  commentBadge: false,
+  commentLocation: false,
+  dynamicBadge: false
+};
+
 export const DEFAULT_CONFIG: StoredConfig = {
   enabled: true,
   serverAddress: "https://www.bsbsb.top",
@@ -142,9 +156,12 @@ export const DEFAULT_CONFIG: StoredConfig = {
   minDurationSec: 0,
   showPreviewBar: true,
   compactVideoHeader: true,
+  compactHeaderPlaceholderVisible: false,
+  compactHeaderSearchPlaceholderEnabled: false,
   thumbnailLabelMode: "overlay",
   categoryModes: DEFAULT_CATEGORY_MODES,
   categoryColorOverrides: {},
+  labelTransparency: DEFAULT_LABEL_TRANSPARENCY,
   dynamicFilterMode: "off",
   dynamicRegexPattern: DEFAULT_DYNAMIC_REGEX_PATTERN,
   dynamicRegexKeywordMinMatches: 1,

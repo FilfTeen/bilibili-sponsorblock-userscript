@@ -6,7 +6,8 @@ import esbuild from "esbuild";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
 const outDir = path.join(rootDir, "dist");
-const outFile = path.join(outDir, "bilibili-sponsorblock.user.js");
+const USERSCRIPT_FILE_NAME = "bilibili-qol-core.user.js";
+const outFile = path.join(outDir, USERSCRIPT_FILE_NAME);
 
 const version =
   process.env.GITHUB_REF_NAME?.replace(/^refs\/tags\//u, "") ||
@@ -23,22 +24,22 @@ function getRepositoryUrl() {
 
 function getRawUserscriptUrl() {
   if (process.env.GITHUB_REPOSITORY) {
-    const updateRef = process.env.BSB_USERSCRIPT_UPDATE_REF || "main";
-    return `https://raw.githubusercontent.com/${process.env.GITHUB_REPOSITORY}/${updateRef}/dist/bilibili-sponsorblock.user.js`;
+    const updateRef = process.env.QOL_CORE_USERSCRIPT_UPDATE_REF || process.env.BSB_USERSCRIPT_UPDATE_REF || "main";
+    return `https://raw.githubusercontent.com/${process.env.GITHUB_REPOSITORY}/${updateRef}/dist/${USERSCRIPT_FILE_NAME}`;
   }
 
-  return "https://raw.githubusercontent.com/FilfTeen/bilibili-sponsorblock-userscript/main/dist/bilibili-sponsorblock.user.js";
+  return `https://raw.githubusercontent.com/FilfTeen/bilibili-sponsorblock-userscript/main/dist/${USERSCRIPT_FILE_NAME}`;
 }
 
 const repositoryUrl = getRepositoryUrl();
 const rawUserscriptUrl = getRawUserscriptUrl();
 
 const userscriptBanner = `// ==UserScript==
-// @name         Bilibili SponsorBlock Core
+// @name         Bilibili QoL Core
 // @namespace    ${repositoryUrl}
 // @version      ${version}
-// @description  Tampermonkey core script for skipping sponsor segments on Bilibili.
-// @author       FilfTeen
+// @description  Local-first quality-of-life toolkit for Bilibili: SponsorBlock segments, labels, comment/dynamic signals, MBGA cleanup, and low-intrusion UI.
+// @author       Hush_
 // @license      GPL-3.0-only
 // @match        https://www.bilibili.com/*
 // @match        https://search.bilibili.com/*

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { detectPageType, supportsCommentFilters, supportsDynamicFilters, supportsVideoFeatures } from "../src/utils/page";
+import {
+  detectPageType,
+  isCompactVideoHeaderSuppressed,
+  supportsCommentFilters,
+  supportsCompactVideoHeader,
+  supportsDynamicFilters,
+  supportsVideoFeatures
+} from "../src/utils/page";
 
 describe("page detection", () => {
   it("detects main, dynamic and video style pages", () => {
@@ -18,5 +25,23 @@ describe("page detection", () => {
     expect(supportsVideoFeatures("https://www.bilibili.com/")).toBe(false);
     expect(supportsDynamicFilters("https://www.bilibili.com/")).toBe(true);
     expect(supportsCommentFilters("https://www.bilibili.com/opus/123")).toBe(true);
+  });
+
+  it("supports the compact video header on video-like pages", () => {
+    expect(supportsCompactVideoHeader("https://www.bilibili.com/video/BV1xx411c7mD")).toBe(true);
+    expect(supportsCompactVideoHeader("https://www.bilibili.com/bangumi/play/ep123456")).toBe(true);
+    expect(supportsCompactVideoHeader("https://www.bilibili.com/bangumi/play/ss12345")).toBe(true);
+    expect(supportsCompactVideoHeader("https://www.bilibili.com/opus/123")).toBe(true);
+  });
+
+  it("suppresses the compact video header while the player is in web fullscreen", () => {
+    const doc = document.implementation.createHTMLDocument("fullscreen");
+    expect(isCompactVideoHeaderSuppressed(doc)).toBe(false);
+
+    const player = doc.createElement("div");
+    player.className = "bpx-state-webscreen";
+    doc.body.appendChild(player);
+
+    expect(isCompactVideoHeaderSuppressed(doc)).toBe(true);
   });
 });

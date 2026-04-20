@@ -3,6 +3,17 @@ import { ConfigStore } from "../src/core/config-store";
 import { PersistentCache } from "../src/core/cache";
 import { LocalVideoLabelStore } from "../src/core/local-label-store";
 import { ThumbnailLabelController } from "../src/features/thumbnail-labels";
+import type { FetchResponse } from "../src/types";
+
+function createStartedThumbnailController(
+  configStore = new ConfigStore(),
+  cache: PersistentCache<FetchResponse> = new PersistentCache<FetchResponse>(),
+  localLabelStore = new LocalVideoLabelStore()
+): ThumbnailLabelController {
+  const controller = new ThumbnailLabelController(configStore, cache, localLabelStore);
+  Reflect.set(controller, "started", true);
+  return controller;
+}
 
 describe("thumbnail labels", () => {
   it("labels search cards without mutating the outer layout", async () => {
@@ -21,7 +32,7 @@ describe("thumbnail labels", () => {
     `;
     document.body.appendChild(wrapper);
 
-    const controller = new ThumbnailLabelController(new ConfigStore(), new PersistentCache(), new LocalVideoLabelStore());
+    const controller = createStartedThumbnailController();
     Reflect.set(controller, "client", {
       getWholeVideoLabel: vi.fn(async () => "sponsor")
     });
@@ -32,6 +43,7 @@ describe("thumbnail labels", () => {
     const label = wrapper.querySelector<HTMLElement>(".sponsorThumbnailLabel");
     expect(label).toBeTruthy();
     expect(label?.classList.contains("sponsorThumbnailLabelVisible")).toBe(true);
+    expect(label?.dataset.glassContext).toBe("overlay");
     expect(label?.textContent).toContain("商单广告");
     expect(wrapper.querySelector(".bili-video-card > .bsb-tm-thumbnail-slot > .sponsorThumbnailLabel")).toBeTruthy();
     expect(wrapper.querySelector(".bili-video-card")?.classList.contains("bsb-tm-thumbnail-card-host")).toBe(true);
@@ -94,7 +106,7 @@ describe("thumbnail labels", () => {
         }) as DOMRect
     );
 
-    const controller = new ThumbnailLabelController(new ConfigStore(), new PersistentCache(), new LocalVideoLabelStore());
+    const controller = createStartedThumbnailController();
     Reflect.set(controller, "client", {
       getWholeVideoLabel: vi.fn(async () => "sponsor")
     });
@@ -130,7 +142,7 @@ describe("thumbnail labels", () => {
     `;
     document.body.appendChild(wrapper);
 
-    const controller = new ThumbnailLabelController(new ConfigStore(), new PersistentCache(), new LocalVideoLabelStore());
+    const controller = createStartedThumbnailController();
     const getWholeVideoLabel = vi.fn(async () => null);
     Reflect.set(controller, "client", { getWholeVideoLabel });
 
@@ -177,7 +189,7 @@ describe("thumbnail labels", () => {
       ])
     );
 
-    const controller = new ThumbnailLabelController(new ConfigStore(), new PersistentCache(), localLabelStore);
+    const controller = createStartedThumbnailController(new ConfigStore(), new PersistentCache(), localLabelStore);
     Reflect.set(controller, "client", {
       getWholeVideoLabel: vi.fn(async () => null)
     });
@@ -205,7 +217,7 @@ describe("thumbnail labels", () => {
     `;
     document.body.appendChild(wrapper);
 
-    const controller = new ThumbnailLabelController(new ConfigStore(), new PersistentCache(), new LocalVideoLabelStore());
+    const controller = createStartedThumbnailController();
     Reflect.set(controller, "client", {
       getWholeVideoLabel: vi.fn(async () => "sponsor")
     });
@@ -272,7 +284,7 @@ describe("thumbnail labels", () => {
     `;
     document.body.appendChild(wrapper);
 
-    const controller = new ThumbnailLabelController(new ConfigStore(), new PersistentCache(), new LocalVideoLabelStore());
+    const controller = createStartedThumbnailController();
     Reflect.set(controller, "client", {
       getWholeVideoLabel: vi.fn(async () => "exclusive_access")
     });
@@ -298,7 +310,7 @@ describe("thumbnail labels", () => {
     `;
     document.body.appendChild(wrapper);
 
-    const controller = new ThumbnailLabelController(new ConfigStore(), new PersistentCache(), new LocalVideoLabelStore());
+    const controller = createStartedThumbnailController();
     Reflect.set(controller, "client", {
       getWholeVideoLabel: vi.fn(async () => "sponsor")
     });
@@ -326,7 +338,7 @@ describe("thumbnail labels", () => {
     `;
     document.body.appendChild(wrapper);
 
-    const controller = new ThumbnailLabelController(new ConfigStore(), new PersistentCache(), new LocalVideoLabelStore());
+    const controller = createStartedThumbnailController();
     Reflect.set(controller, "client", {
       getWholeVideoLabel: vi.fn(async () => "exclusive_access")
     });
@@ -342,5 +354,122 @@ describe("thumbnail labels", () => {
     expect(card.dataset.bsbHover).toBe("true");
     expect(slot.dataset.bsbExpanded).toBe("true");
     expect(label.dataset.bsbExpanded).toBe("true");
+  });
+
+  it("clears expanded thumbnail state when a visible label is hidden", async () => {
+    window.history.replaceState({}, "", "/video/BV1xx411c7mD");
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "right-container";
+    wrapper.innerHTML = `
+      <article class="video-page-card-small">
+        <a class="pic-box" href="https://www.bilibili.com/video/BV17x411w7KC/">
+          <img src="https://example.com/a.jpg" alt="cover">
+        </a>
+        <div class="meta">meta</div>
+      </article>
+    `;
+    document.body.appendChild(wrapper);
+
+    const controller = createStartedThumbnailController();
+    Reflect.set(controller, "client", {
+      getWholeVideoLabel: vi.fn().mockResolvedValueOnce("exclusive_access").mockResolvedValueOnce(null)
+    });
+
+    const refresh = Reflect.get(controller, "refresh") as () => Promise<void>;
+    await refresh.call(controller);
+
+    const card = wrapper.querySelector<HTMLElement>(".video-page-card-small")!;
+    const link = wrapper.querySelector<HTMLAnchorElement>(".video-page-card-small .pic-box")!;
+    const label = wrapper.querySelector<HTMLElement>(".video-page-card-small .sponsorThumbnailLabelVisible")!;
+    const slot = wrapper.querySelector<HTMLElement>(".video-page-card-small .bsb-tm-thumbnail-slot")!;
+    card.dispatchEvent(new Event("pointerenter", { bubbles: true }));
+
+    expect(slot.dataset.bsbExpanded).toBe("true");
+    expect(label.dataset.bsbExpanded).toBe("true");
+
+    const originalMatches = card.matches.bind(card);
+    const matches = vi.spyOn(card, "matches").mockImplementation((selector) => {
+      if (selector === ":hover") {
+        return true;
+      }
+      return originalMatches(selector);
+    });
+    card.dispatchEvent(new Event("pointerleave", { bubbles: true }));
+    link.href = "https://www.bilibili.com/video/BV1xx411c7mD/";
+    await refresh.call(controller);
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    matches.mockRestore();
+
+    expect(wrapper.querySelector(".sponsorThumbnailLabelVisible")).toBeNull();
+    expect(card.dataset.bsbHover).toBeUndefined();
+    expect(slot.dataset.bsbExpanded).toBeUndefined();
+    expect(label.dataset.bsbExpanded).toBeUndefined();
+  });
+
+  it("falls back to the light glass variant for near-white thumbnail overrides", async () => {
+    window.history.replaceState({}, "", "/");
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "recommended-container_floor-aside";
+    wrapper.innerHTML = `
+      <div class="container">
+        <article class="bili-video-card">
+          <a class="bili-video-card__cover" href="//www.bilibili.com/video/BV17x411w7KC/">
+            <img src="https://example.com/a.jpg" alt="cover">
+          </a>
+        </article>
+      </div>
+    `;
+    document.body.appendChild(wrapper);
+
+    const configStore = new ConfigStore();
+    const snapshot = configStore.getSnapshot();
+    Reflect.set(configStore, "config", {
+      ...snapshot,
+      categoryColorOverrides: {
+        ...snapshot.categoryColorOverrides,
+        sponsor: "#ffffff"
+      },
+      labelTransparency: {
+        ...snapshot.labelTransparency,
+        thumbnailLabel: true
+      }
+    });
+
+    const controller = createStartedThumbnailController(configStore);
+    Reflect.set(controller, "client", {
+      getWholeVideoLabel: vi.fn(async () => "sponsor")
+    });
+
+    const refresh = Reflect.get(controller, "refresh") as () => Promise<void>;
+    await refresh.call(controller);
+
+    const label = wrapper.querySelector<HTMLElement>(".sponsorThumbnailLabelVisible");
+    expect(label?.dataset.glassContext).toBe("overlay");
+    expect(label?.dataset.glassVariant).toBe("light");
+    expect(label?.style.getPropertyValue("--category-display-accent")).not.toBe("#ffffff");
+    expect(label?.style.getPropertyValue("--category-contrast")).toBe("#0f172a");
+  });
+
+  it("cancels pending idle refresh work after stop", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("requestIdleCallback", (callback: IdleRequestCallback) =>
+      window.setTimeout(() => callback({ didTimeout: false, timeRemaining: () => 0 } as IdleDeadline), 0)
+    );
+    vi.stubGlobal("cancelIdleCallback", (id: number) => window.clearTimeout(id));
+
+    const controller = createStartedThumbnailController();
+    Reflect.set(controller, "started", true);
+    const refreshSpy = vi.spyOn(controller as never, "refresh" as never);
+
+    Reflect.get(controller, "scheduleRefresh").call(controller);
+    vi.advanceTimersByTime(180);
+    controller.stop();
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(refreshSpy).not.toHaveBeenCalled();
+    expect(Reflect.get(controller, "started")).toBe(false);
+    vi.useRealTimers();
   });
 });

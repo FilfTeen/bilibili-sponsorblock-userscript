@@ -18,10 +18,27 @@ export type CommercialIntentAssessment = {
   exclusiveScore: number;
 };
 
+export type CommercialActionability = {
+  hasActionVerb: boolean;
+  hasCommerceSurface: boolean;
+  hasBenefitCue: boolean;
+  hasPurchaseCue: boolean;
+  hasOwnedSurface: boolean;
+  hasOwnedActionLead: boolean;
+  hasExternalLink: boolean;
+  hasExperienceCue: boolean;
+  hasProductOrServiceCue: boolean;
+  hasStrongClosure: boolean;
+  hasQuotedOrMockingContext: boolean;
+};
+
 const BENIGN_CONTEXT_PATTERN =
   /广告位|广告学|推广曲|推广大使|同款(?:bgm|BGM|音乐|滤镜)|团购课|营销课|(?:分享|讨论)广告/iu;
+const VIDEO_BENIGN_TOPIC_PATTERN =
+  /(?:普通)?(?:测评|评测)|体验(?:记录|分享|感受)|发布会|展会|开放日|媒体日|活动记录|现场(?:体验|直击)?|新品(?:解析|说明)|技术说明|参数对比/iu;
 const DISCLAIMER_PATTERN =
-  /(?:不是|并非|完全不算|真不是)(?:广告|商单|恰饭)|(?:无广|无广告|无赞助|非商单|非广告|自费购买|自费购入|自己买的|个人自费|无商业合作)/iu;
+  /(?:不是|并非|完全不算|真不是)(?:广告|商单|恰饭)|(?:无广|无广告|无赞助|非商单|非广告|自费购买|自费购入|自己买的|个人自费|无商业合作|没收钱|未收钱|没有接广告|自己花钱买的|自掏腰包)/iu;
+const NEGATED_MATCH_PREFIX_PATTERN = /(?:无|没|没有|非|不是|并非|不算|并不是|未|并无|别|勿)$/u;
 
 const SPONSOR_STRONG_RULES: readonly CommercialRule[] = [
   { token: "商单", pattern: /商单|恰饭|金主/iu, weight: 4.2 },
@@ -29,7 +46,12 @@ const SPONSOR_STRONG_RULES: readonly CommercialRule[] = [
   { token: "商务合作", pattern: /商务合作|商业合作|品牌合作|联合出品|合作推广/iu, weight: 3.9 },
   { token: "商品卡", pattern: /商品卡|店铺橱窗|购物车|蓝链|专属链接/iu, weight: 3.8 },
   { token: "优惠券", pattern: /优惠(?:券|卷|劵)|折扣码|密令|红包|返利|返现/iu, weight: 3.4 },
-  { token: "购买指引", pattern: /(?:立即|直接|马上)?(?:下单|购买)|购买链接|购买清单|使用清单|开箱清单|评论区(?:置顶)?/iu, weight: 3.3 }
+  {
+    token: "购买指引",
+    pattern:
+      /(?:立即|直接|马上|点击|戳|去)[^。！？\n]{0,6}(?:下单|购买)|(?:下单|购买)(?:链接|入口|方式|清单)|购买链接|购买清单|使用清单|开箱清单|评论区(?:置顶)?[^。！？\n]{0,10}(?:链接|蓝链|商品卡|领券|购买|下单)/iu,
+    weight: 3.3
+  }
 ];
 
 const SPONSOR_SUPPORT_RULES: readonly CommercialRule[] = [
@@ -54,6 +76,19 @@ const EXCLUSIVE_RULES: readonly CommercialRule[] = [
   { token: "工程机", pattern: /工程机|样机|内测|beta|试玩|预览版|体验版/iu, weight: 2.4 }
 ];
 
+const CTA_ACTION_PATTERN =
+  /点击|点开|点进|戳|打开|去|领取|领|抢|下单|购买|买|入手|搜索|看我|看主页|主页见|置顶看我|试一下|试试|体验一下|立即体验|戳体验/iu;
+const CTA_SURFACE_PATTERN =
+  /评论区(?:置顶)?|蓝链|链接|商品卡|店铺|橱窗|主页|频道|直播间|专栏|收藏夹|合集|官网|网址/iu;
+const CTA_BENEFIT_PATTERN = /优惠(?:券|卷|劵)|红包|福利|返利|返现|折扣|到手价|密令/iu;
+const CTA_PURCHASE_PATTERN = /下单|购买|买|入手/u;
+const CTA_OWNED_SURFACE_PATTERN = /(?:我的|本)?(?:店铺|小店|橱窗|主页|频道|直播间|专栏|收藏夹|合集)/iu;
+const EXTERNAL_LINK_PATTERN = /https?:\/\/|www\.|(?:^|[\s:：])(?:[a-z0-9-]+\.)+(?:com|cn|net|org|io|app)(?:\/|\b)/iu;
+const EXPERIENCE_CUE_PATTERN = /戳体验|立即体验|去体验|体验一下|试一下|试试|试用|可以试|值得试/iu;
+const PRODUCT_OR_SERVICE_CUE_PATTERN = /工具|产品|服务|平台|软件|app|APP|官网|网站|做视频|剪辑|素材|后期|效率/iu;
+const QUOTED_OR_MOCKING_CONTEXT_PATTERN =
+  /玩梗|整活|反串|阴阳怪气|吐槽|调侃|引用|复读|照搬|原话|话术|文案|笑死|绷不住|尬|土味|逆天|离谱|“[^”]{0,24}(?:广告|推广|优惠券|购买|下单|链接)[^”]{0,24}”|"[^"]{0,24}(?:广告|推广|优惠券|购买|下单|链接)[^"]{0,24}"/iu;
+
 function normalizeText(text: string): string {
   return text.replace(/\s+/gu, " ").trim();
 }
@@ -62,12 +97,80 @@ function unique(values: Iterable<string>): string[] {
   return [...new Set([...values].map((value) => value.trim()).filter(Boolean))];
 }
 
+function hasNonNegatedPattern(text: string, pattern: RegExp): boolean {
+  const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
+  const globalPattern = new RegExp(pattern.source, flags);
+  for (const result of text.matchAll(globalPattern)) {
+    const matchedText = result[0];
+    const startIndex = result.index ?? text.indexOf(matchedText);
+    if (startIndex < 0 || isNegatedMatch(text, startIndex)) {
+      continue;
+    }
+    return true;
+  }
+  return false;
+}
+
+function isNegatedMatch(text: string, startIndex: number): boolean {
+  const prefix = text.slice(Math.max(0, startIndex - 8), startIndex).replace(/\s+/gu, "");
+  return NEGATED_MATCH_PREFIX_PATTERN.test(prefix);
+}
+
+export function inspectCommercialActionability(text: string): CommercialActionability {
+  const normalized = normalizeText(text);
+  if (!normalized) {
+    return {
+      hasActionVerb: false,
+      hasCommerceSurface: false,
+      hasBenefitCue: false,
+      hasPurchaseCue: false,
+      hasOwnedSurface: false,
+      hasOwnedActionLead: false,
+      hasExternalLink: false,
+      hasExperienceCue: false,
+      hasProductOrServiceCue: false,
+      hasStrongClosure: false,
+      hasQuotedOrMockingContext: false
+    };
+  }
+
+  const hasExternalLink = hasNonNegatedPattern(normalized, EXTERNAL_LINK_PATTERN);
+  const hasExperienceCue = hasNonNegatedPattern(normalized, EXPERIENCE_CUE_PATTERN);
+  const hasProductOrServiceCue = hasNonNegatedPattern(normalized, PRODUCT_OR_SERVICE_CUE_PATTERN);
+  const hasActionVerb = hasNonNegatedPattern(normalized, CTA_ACTION_PATTERN) || hasExperienceCue;
+  const hasCommerceSurface = hasNonNegatedPattern(normalized, CTA_SURFACE_PATTERN) || hasExternalLink;
+  const hasBenefitCue = hasNonNegatedPattern(normalized, CTA_BENEFIT_PATTERN);
+  const hasPurchaseCue = hasNonNegatedPattern(normalized, CTA_PURCHASE_PATTERN);
+  const hasOwnedSurface = hasNonNegatedPattern(normalized, CTA_OWNED_SURFACE_PATTERN);
+  const hasOwnedActionLead = hasOwnedSurface && (hasActionVerb || /主页见|置顶看我/iu.test(normalized));
+  const hasStrongClosure =
+    (hasActionVerb && hasCommerceSurface) ||
+    (hasBenefitCue && (hasCommerceSurface || hasPurchaseCue)) ||
+    (hasPurchaseCue && hasCommerceSurface) ||
+    (hasExternalLink && hasExperienceCue && hasProductOrServiceCue) ||
+    hasOwnedActionLead;
+
+  return {
+    hasActionVerb,
+    hasCommerceSurface,
+    hasBenefitCue,
+    hasPurchaseCue,
+    hasOwnedSurface,
+    hasOwnedActionLead,
+    hasExternalLink,
+    hasExperienceCue,
+    hasProductOrServiceCue,
+    hasStrongClosure,
+    hasQuotedOrMockingContext: QUOTED_OR_MOCKING_CONTEXT_PATTERN.test(normalized)
+  };
+}
+
 function collectRuleHits(text: string, rules: readonly CommercialRule[]): { score: number; matches: string[] } {
   const matches: string[] = [];
   let score = 0;
 
   for (const rule of rules) {
-    if (rule.pattern.test(text)) {
+    if (hasNonNegatedPattern(text, rule.pattern)) {
       matches.push(rule.token);
       score += rule.weight;
     }
@@ -125,6 +228,7 @@ export function analyzeCommercialIntent(
   let sponsorScore = sponsorStrong.score + sponsorSupport.score;
   let selfpromoScore = selfpromo.score;
   let exclusiveScore = exclusive.score;
+  const actionability = inspectCommercialActionability(normalized);
 
   const hasExplicitCTA =
     /评论区(?:置顶)?|(?:购买|下单|点击|打开).{0,8}(?:链接|蓝链)|(?:领|抢)(?:券|红包|福利)|优惠(?:券|卷|劵)|商品卡/iu.test(
@@ -133,6 +237,7 @@ export function analyzeCommercialIntent(
   const hasOwnedSurface =
     /(?:我的|本)?(?:频道|店铺|小店|橱窗|直播间|主页|作品|活动|课程|专栏)/iu.test(normalized);
   const benignContext = BENIGN_CONTEXT_PATTERN.test(normalized);
+  const benignVideoTopic = VIDEO_BENIGN_TOPIC_PATTERN.test(normalized);
 
   if (benignContext && sponsorStrong.score === 0 && exclusive.score === 0 && !hasExplicitCTA && !hasOwnedSurface) {
     return {
@@ -155,6 +260,15 @@ export function analyzeCommercialIntent(
     sponsorScore += 1.45;
   }
 
+  if (
+    actionability.hasExternalLink &&
+    actionability.hasExperienceCue &&
+    actionability.hasProductOrServiceCue &&
+    sponsorSupport.matches.includes("导购词")
+  ) {
+    sponsorScore += 2.25;
+  }
+
   if (hasOwnedSurface && /(?:评论区|置顶|链接|主页|店铺|橱窗|直播间)/iu.test(normalized)) {
     selfpromoScore += 1.4;
   }
@@ -167,6 +281,11 @@ export function analyzeCommercialIntent(
   if (benignContext && sponsorStrong.score === 0 && selfpromoScore < 2.8) {
     sponsorScore = Math.max(0, sponsorScore - 1.8);
     selfpromoScore = Math.max(0, selfpromoScore - 1.5);
+  }
+
+  if (benignVideoTopic && sponsorStrong.score === 0 && !hasExplicitCTA) {
+    sponsorScore = Math.max(0, sponsorScore - 1.9);
+    selfpromoScore = Math.max(0, selfpromoScore - 0.9);
   }
 
   let category: CommercialCategory | null = null;

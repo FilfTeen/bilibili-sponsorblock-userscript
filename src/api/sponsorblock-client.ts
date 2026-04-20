@@ -1,4 +1,4 @@
-import { REQUEST_TIMEOUT_MS } from "../constants";
+import { REQUEST_TIMEOUT_MS, SCRIPT_VERSION } from "../constants";
 import { gmXmlHttpRequest } from "../platform/gm";
 import type {
   ActionType,
@@ -29,6 +29,10 @@ const VALID_CATEGORIES = new Set<Category>([
 ]);
 
 const VALID_ACTION_TYPES = new Set<ActionType>(["skip", "mute", "full", "poi"]);
+const UPSTREAM_HEADERS = {
+  Accept: "application/json",
+  "x-ext-version": SCRIPT_VERSION
+} as const;
 
 function buildUrl(serverAddress: string, path: string): string {
   return `${serverAddress.replace(/\/+$/u, "")}${path}`;
@@ -132,10 +136,11 @@ export class SponsorBlockClient {
       const response = await gmXmlHttpRequest({
         method: "POST",
         url,
+        headers: UPSTREAM_HEADERS,
         timeout: REQUEST_TIMEOUT_MS
       });
 
-      if (response.ok || response.status === 429) {
+      if (response.ok) {
         return {
           successType: 1,
           statusCode: response.status,
@@ -189,7 +194,7 @@ export class SponsorBlockClient {
           method: "GET",
           url,
           headers: {
-            Accept: "application/json"
+            ...UPSTREAM_HEADERS
           },
           timeout: REQUEST_TIMEOUT_MS
         });

@@ -31,6 +31,7 @@ describe("title badge", () => {
     const pill = document.querySelector<HTMLButtonElement>(".bsb-tm-title-pill");
     expect(pill).toBeTruthy();
     expect(document.querySelector(".video-info-container > .bsb-tm-title-accessories")?.contains(document.querySelector(".bsb-tm-title-pill-wrap"))).toBe(true);
+    expect(document.querySelector(".bsb-tm-title-pill-label")?.textContent).toContain("抢先体验");
 
     pill?.click();
     await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
@@ -43,6 +44,100 @@ describe("title badge", () => {
 
     expect(onVote).toHaveBeenCalledWith(fullSegment, 1);
     expect(document.querySelector(".bsb-tm-title-pill-wrap")?.getAttribute("data-category")).toBe("exclusive_access");
+  });
+
+  it("does not reopen the popover from a stale animation frame after immediate close", async () => {
+    document.body.innerHTML = `
+      <div class="video-info-container">
+        <h1>测试视频</h1>
+      </div>
+    `;
+
+    const badge = new TitleBadge({
+      onVote: vi.fn(async () => "submitted" as const),
+      onLocalDecision: vi.fn(async () => {}),
+      onOpenSettings: vi.fn()
+    });
+    badge.setSegment(fullSegment);
+
+    const pill = document.querySelector<HTMLButtonElement>(".bsb-tm-title-pill");
+    pill?.click();
+    pill?.click();
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+
+    const popover = document.querySelector<HTMLElement>(".bsb-tm-title-popover");
+    expect(popover?.classList.contains("open")).toBe(false);
+    expect(pill?.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("mounts inside the title without rewriting the title parent layout", () => {
+    document.body.innerHTML = `
+      <div class="video-info-container">
+        <div class="video-info-title-inner">
+          <h1 class="video-title">这是一条非常非常长的中文标题，用来覆盖长标题胶囊稳定性的基础挂载场景</h1>
+        </div>
+      </div>
+    `;
+
+    const badge = new TitleBadge({
+      onVote: vi.fn(async () => "submitted" as const),
+      onLocalDecision: vi.fn(async () => {}),
+      onOpenSettings: vi.fn()
+    });
+
+    badge.setSegment(fullSegment);
+
+    const title = document.querySelector<HTMLElement>(".video-title");
+    const parent = title?.parentElement;
+    expect(title?.classList.contains("bsb-tm-title-text")).toBe(false);
+    expect(parent?.classList.contains("bsb-tm-title-layout")).toBe(false);
+    expect(parent?.querySelector(":scope > .bsb-tm-title-accessories")).toBeTruthy();
+    expect(document.querySelector(".bsb-tm-title-pill-label")).toBeTruthy();
+
+    badge.destroy();
+
+    expect(parent?.querySelector(":scope > .bsb-tm-title-accessories")).toBeNull();
+    expect(parent?.classList.contains("bsb-tm-title-layout")).toBe(false);
+  });
+
+  it("keeps a single accessory host when the title node is rebuilt", () => {
+    document.body.innerHTML = `
+      <section data-case="old">
+        <div class="video-info-container">
+          <h1 class="video-title">旧标题</h1>
+        </div>
+      </section>
+    `;
+
+    const badge = new TitleBadge({
+      onVote: vi.fn(async () => "submitted" as const),
+      onLocalDecision: vi.fn(async () => {}),
+      onOpenSettings: vi.fn()
+    });
+
+    badge.setSegment(fullSegment);
+
+    const oldTitle = document.querySelector<HTMLElement>("[data-case='old'] .video-title");
+    oldTitle?.remove();
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      `
+        <section data-case="new">
+          <div class="video-info-container">
+            <div class="video-info-title-inner">
+              <h1 class="video-title">这是一条在标题节点重建之后重新挂载的超长中文标题，用来保证 accessory host 不会残留成空壳</h1>
+            </div>
+          </div>
+        </section>
+      `
+    );
+
+    badge.setSegment(fullSegment);
+
+    expect(document.querySelectorAll(".bsb-tm-title-pill-wrap")).toHaveLength(1);
+    expect(document.querySelectorAll("[data-bsb-title-accessories='true']")).toHaveLength(1);
+    expect(document.querySelector("[data-case='new'] [data-bsb-title-accessories='true'] .bsb-tm-title-pill-wrap")).toBeTruthy();
+    expect(document.querySelector("[data-case='old'] [data-bsb-title-accessories='true']")).toBeNull();
   });
 
   it("keeps feedback buttons visible but disabled for label-only badges", async () => {
@@ -72,6 +167,7 @@ describe("title badge", () => {
     const negative = buttons.find((button) => button.textContent?.includes("标记有误"));
     expect(positive?.disabled).toBe(true);
     expect(negative?.disabled).toBe(true);
+    expect(document.querySelector(".bsb-tm-title-popover-copy")?.textContent).toContain("整视频标签接口结果");
     expect(document.querySelector(".bsb-tm-title-popover-hint")?.textContent).toContain("没有可直接投票");
   });
 
@@ -103,6 +199,7 @@ describe("title badge", () => {
     const dismissButton = buttons.find((button) => button.textContent?.includes("忽略此视频"));
     expect(keepButton?.disabled).toBe(false);
     expect(dismissButton?.disabled).toBe(false);
+    expect(document.querySelector(".bsb-tm-title-popover-copy")?.textContent).toContain("本地推理标签");
 
     await dismissButton?.click();
     expect(onLocalDecision).toHaveBeenCalledWith(
@@ -111,6 +208,12 @@ describe("title badge", () => {
       }),
       "dismiss"
     );
+
+    document.querySelector<HTMLButtonElement>(".bsb-tm-title-pill")?.click();
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+    expect(keepButton?.disabled).toBe(true);
+    expect(dismissButton?.disabled).toBe(true);
+    expect(document.querySelector(".bsb-tm-title-popover-hint")?.textContent).toContain("不可重复提交");
   });
 
   it("keeps all three popover actions mounted after layout changes", async () => {
@@ -175,5 +278,53 @@ describe("title badge", () => {
     );
     expect(lockedPositive?.disabled).toBe(true);
     expect(document.querySelector(".bsb-tm-title-popover-hint")?.textContent).toContain("已在本机提交");
+  });
+
+  it("switches the title badge into transparent mode without losing host state", () => {
+    document.body.innerHTML = `
+      <div class="video-info-container">
+        <h1>测试视频</h1>
+      </div>
+    `;
+
+    const badge = new TitleBadge({
+      onVote: vi.fn(async () => "submitted" as const),
+      onLocalDecision: vi.fn(async () => {}),
+      onOpenSettings: vi.fn()
+    });
+
+    badge.setTransparencyEnabled(true);
+    badge.setSegment(fullSegment);
+
+    const wrap = document.querySelector<HTMLElement>(".bsb-tm-title-pill-wrap");
+    expect(wrap?.dataset.transparent).toBe("true");
+    expect(wrap?.dataset.category).toBe("exclusive_access");
+    expect(wrap?.dataset.glassContext).toBe("surface");
+    expect(wrap?.dataset.glassVariant).toBe("dark");
+    expect(wrap?.style.getPropertyValue("--bsb-category-contrast")).toBe("#0f172a");
+  });
+
+  it("falls back to the light glass variant for near-white category overrides", () => {
+    document.body.innerHTML = `
+      <div class="video-info-container">
+        <h1>测试视频</h1>
+      </div>
+    `;
+
+    const badge = new TitleBadge({
+      onVote: vi.fn(async () => "submitted" as const),
+      onLocalDecision: vi.fn(async () => {}),
+      onOpenSettings: vi.fn()
+    });
+
+    badge.setColorOverrides({ exclusive_access: "#ffffff" });
+    badge.setTransparencyEnabled(true);
+    badge.setSegment(fullSegment);
+
+    const wrap = document.querySelector<HTMLElement>(".bsb-tm-title-pill-wrap");
+    expect(wrap?.dataset.glassContext).toBe("surface");
+    expect(wrap?.dataset.glassVariant).toBe("light");
+    expect(wrap?.style.getPropertyValue("--bsb-category-contrast")).toBe("#0f172a");
+    expect(wrap?.style.getPropertyValue("--bsb-category-accent")).toBe("#ffffff");
   });
 });

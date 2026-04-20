@@ -1,11 +1,14 @@
 import type { Category, LocalVideoSignal, StoredConfig } from "../types";
+import { COMMENT_FEEDBACK_STORAGE_KEY } from "../constants";
 import { ConfigStore } from "../core/config-store";
 import { collectPatternMatches, isLikelyPromoText, regexFromStoredPattern } from "../utils/pattern";
-import { analyzeCommercialIntent } from "../utils/commercial-intent";
+import { analyzeCommercialIntent, inspectCommercialActionability } from "../utils/commercial-intent";
 import { debugLog } from "../utils/dom";
+import { reportDiagnostic } from "../utils/diagnostics";
 import { mutationsTouchSelectors } from "../utils/mutation";
 import { observeUrlChanges } from "../utils/navigation";
 import { supportsCommentFilters } from "../utils/page";
+import { gmGetValue, gmSetValue, gmXmlHttpRequest } from "../platform/gm";
 import {
   createInlineBadge,
   createInlineToggle,
@@ -16,8 +19,13 @@ import {
 
 const THREAD_PROCESSED_ATTR = "data-bsb-comment-processed";
 const REPLY_PROCESSED_ATTR = "data-bsb-comment-reply-processed";
+const PROBE_PENDING_ATTR = "data-bsb-comment-author-probe-pending";
 const BADGE_ATTR = "data-bsb-comment-badge";
 const TOGGLE_ATTR = "data-bsb-comment-toggle";
+const FEEDBACK_MENU_ATTR = "data-bsb-comment-feedback-menu";
+const FEEDBACK_TRIGGER_ATTR = "data-bsb-comment-feedback-trigger";
+const FEEDBACK_KEEP_ATTR = "data-bsb-comment-feedback-keep";
+const FEEDBACK_DISMISS_ATTR = "data-bsb-comment-feedback-dismiss";
 const LOCATION_ATTR = "data-bsb-comment-location";
 const HIDDEN_ATTR = "data-bsb-comment-hidden";
 const REPLIES_HIDDEN_ATTR = "data-bsb-comment-replies-hidden";
@@ -26,6 +34,23 @@ const VUE_LOCATION_MARK_ATTR = "data-bsb-comment-location-settled";
 const NO_LOCATION_MARK = "__empty__";
 const ROOT_SWEEP_DELAYS_MS = [120, 240, 420, 760, 1200, 1800] as const;
 export const VIDEO_SIGNAL_EVENT = "bsb:video-signal";
+export const VIDEO_SIGNAL_FEEDBACK_EVENT = "bsb:video-signal-feedback";
+export const LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT = "bsb:local-video-feedback-availability";
+export type LocalVideoFeedbackDisabledReason =
+  | "upstream-whole-video"
+  | "pending-upstream"
+  | "manual-decision"
+  | "unavailable";
+export type LocalVideoFeedbackAvailabilityDetail = {
+  enabled: boolean;
+  locked: boolean;
+  disabledReason?: LocalVideoFeedbackDisabledReason;
+  bvid?: string | null;
+};
+const COMMENT_AUTHOR_PROBE_TIMEOUT_MS = 2000;
+const COMMENT_AUTHOR_PROBE_CACHE_MS = 12 * 60 * 60 * 1000;
+const COMMENT_AUTHOR_PROBE_MAX_IN_FLIGHT = 2;
+const COMMENT_FEEDBACK_MAX_RECORDS = 1000;
 const COMMENT_RELEVANT_SELECTORS = [
   "bili-comments",
   "bili-comment-thread-renderer",
@@ -39,7 +64,19 @@ const COMMENT_RELEVANT_SELECTORS = [
   ".reply-time",
   ".sub-reply-time"
 ] as const;
-const COMMENT_IGNORED_SELECTORS = [`[${BADGE_ATTR}]`, `[${TOGGLE_ATTR}]`, `[${LOCATION_ATTR}]`] as const;
+const COMMENT_IGNORED_SELECTORS = [
+  `[${BADGE_ATTR}]`,
+  `[${TOGGLE_ATTR}]`,
+  `[${FEEDBACK_MENU_ATTR}]`,
+  `[${FEEDBACK_TRIGGER_ATTR}]`,
+  `[${FEEDBACK_KEEP_ATTR}]`,
+  `[${FEEDBACK_DISMISS_ATTR}]`,
+  `[${LOCATION_ATTR}]`
+] as const;
+const currentInlineBadgeAppearance = {
+  commentBadge: false,
+  commentLocation: false
+};
 
 type ReplyLocationPayload = {
   reply_control?: {
@@ -51,8 +88,25 @@ type CommentRenderer = HTMLElement & {
   shadowRoot: ShadowRoot;
   data?: ReplyLocationPayload & Record<string, unknown>;
 };
+export type CommentAuthorProfile = {
+  mid?: string;
+  likelyDormant: boolean;
+  vipStatus?: number | null;
+  level?: number | null;
+  follower?: number | null;
+  likeNum?: number | null;
+  archiveCount?: number | null;
+  isSeniorMember?: boolean | null;
+  officialVerifyType?: number | null;
+  evidence?: string[];
+};
+export type CommentShillAssessment = {
+  state: "hit" | "candidate" | "pass";
+  matches: string[];
+};
 type CommentSponsorMatch =
   | { reason: "goods"; category: "sponsor"; matches: [] }
+  | { reason: "shill"; category: "sponsor"; matches: string[] }
   | { reason: "suspicion"; category: Extract<Category, "sponsor" | "selfpromo" | "exclusive_access">; matches: string[] };
 type CommentTarget = {
   host: HTMLElement;
@@ -61,6 +115,36 @@ type CommentTarget = {
   thread: HTMLElement;
   kind: "comment" | "reply";
 };
+type LocalVideoFeedbackAvailabilityState = Required<Pick<LocalVideoFeedbackAvailabilityDetail, "enabled" | "locked">> &
+  Pick<LocalVideoFeedbackAvailabilityDetail, "disabledReason" | "bvid">;
+
+const COMMENT_STRONG_MATCHES = new Set(["赞助", "商务合作", "商品卡", "优惠券", "购买指引"]);
+const COMMENT_INVITATION_PATTERN = /邀请码|体验码|兑换码|注册码/iu;
+const COMMENT_SHILL_PATTERNS = {
+  purchaseOrUse:
+    /(?:刚|才)?(?:买|入手|拿到|收到|下单|收货|到手)|刚好缺|正好缺|缺(?:个|条|件|款)?|想买|准备买|打算买|买过|有没有买过|试穿|穿上|穿了|穿着|穿一天|用了|用起来|洗了|洗几次|下水洗|轮着穿|回购|复购|淘宝买|试试水/iu,
+  productQuality:
+    /透气|亲肤|弹力|包裹|勒|印子|黏黏|粘粘|闷|性价比|变形|掉色|面料|材质|莫代尔|水洗|下水|洗衣机|丝滑|滑溜|缝线|颜色|尺码|好穿|舒服|舒适|支撑|做工|手感|质感|素材|剪辑|后期|效率|腿粗|卷边|裤腿|往上窜|纯棉|干爽/iu,
+  endorsement: /可以|确实|真(?:的)?|挺|非常|绝了|好用|不错|满意|放心|适合|推荐|希望(?:能|可以)|性价比还行|刚好|不会/iu,
+  videoLead:
+    /up(?:主)?推荐|UP(?:主)?推荐|博主推荐|视频(?:里)?(?:推荐|种草|安利)|刷到|刚好刷到|看(?:了)?评论|评论(?:都|区)?(?:说好|放心)|这(?:个|条|件|款|盒)|同款/iu,
+  question: /有没有买过|买过的(?:大佬|兄弟|姐妹)?|说说|问下|洗几次|会不会|会变形不|变形不|靠谱吗|真的假的/iu,
+  marketingReply: /客服报|专属优惠|优惠码|优惠|返利|包满意|运费险|随时退|放心入手|报[【\[]?[^\s，。,.]{1,8}[】\]]?/iu,
+  problemSolution: /(?:腿粗|卷边|黏|粘|闷|不舒服|勒腿|过敏|春敏|尘螨).{0,40}(?:这个|元力象|这款|商单产品).{0,40}(?:不会|刚好|干爽|舒服|解决|扫清)|(?:以前|之前).{0,18}(?:别家|纯棉|优衣库).{0,32}(?:卷边|黏|粘|闷|不舒服).{0,48}(?:这个|元力象|这款).{0,32}(?:不会|刚好|干爽|舒服)/iu,
+  reviewDiscussion: /横评|测评|评测|对比|版型|讲清楚|参考价值/iu,
+  prospectiveTrial: /(?:看着|看起来|看)?[\s\S]{0,12}(?:质感|做工|性价比|舒服|舒适)[\s\S]{0,12}(?:准备|打算|想)[\s\S]{0,8}(?:入手|买|下单|试试水)|(?:准备|打算|想)[\s\S]{0,8}(?:入手|买|下单)[\s\S]{0,8}试试水/iu,
+  macroPraise: /国产.{0,12}(?:卷|做工|细致|质感)|(?:卷了吗).{0,12}(?:做工|细致|质感)/iu,
+  comfortPraise: /不勒腿|确实爽|真爽|穿着爽|穿起来爽/iu,
+  priceAmazement: /这价格.{0,16}(?:兰精|莫代尔|性价比|高)|(?:性价比).{0,8}(?:有点|挺|真|太)?高/iu,
+  brandComparison: /(?:优衣库|蕉内|ubras|元力象|万力象).{0,24}(?:舒适度|舒服|舒适|比得过|拉踩)|(?:舒适度|舒服|舒适).{0,24}(?:比得过|优衣库|蕉内|ubras|元力象|万力象)/iu,
+  warning: /别(?:买|点|被|信)|不(?:推荐|建议|值|好用|舒服)|踩坑|避雷|退(?:了|货|款)|差评|翻车|广告话术|割韭菜/iu
+} as const;
+const commentAuthorProbeCache = new Map<string, { expiresAt: number; result: CommentAuthorProfile | null }>();
+const commentAuthorProbeInFlight = new Map<string, Array<(profile: CommentAuthorProfile | null) => void>>();
+const commentFeedbackTokens = new Set<string>();
+const submittedCommentFeedbackKeys = new Set<string>();
+let submittedCommentFeedbackLoaded = false;
+let submittedCommentFeedbackLoadPromise: Promise<void> | null = null;
 
 function getActionRendererNode(commentRenderer: CommentRenderer): HTMLElement | null {
   return (
@@ -144,6 +228,19 @@ export function hasSponsoredGoodsLink(commentRenderer: CommentRenderer): boolean
   return false;
 }
 
+export function hasCommentMediaAttachment(commentRenderer: CommentRenderer): boolean {
+  const richTextRoot = commentRenderer.shadowRoot?.querySelector("bili-rich-text")?.shadowRoot;
+  const selector = [
+    "img",
+    "picture",
+    "bili-comment-picture",
+    "bili-rich-text-img",
+    ".reply-picture",
+    ".comment-image"
+  ].join(",");
+  return Boolean(richTextRoot?.querySelector(selector) ?? commentRenderer.shadowRoot?.querySelector(selector));
+}
+
 export function extractCommentText(commentRenderer: CommentRenderer): string {
   const richTextNodes = [
     ...(commentRenderer.shadowRoot?.querySelector("bili-rich-text")?.shadowRoot?.querySelectorAll("span, a") ?? [])
@@ -160,7 +257,8 @@ export function extractCommentText(commentRenderer: CommentRenderer): string {
 
 export function classifyCommentRenderer(
   commentRenderer: CommentRenderer,
-  config: Pick<StoredConfig, "dynamicRegexPattern" | "dynamicRegexKeywordMinMatches">
+  config: Pick<StoredConfig, "dynamicRegexPattern" | "dynamicRegexKeywordMinMatches">,
+  authorProfile: CommentAuthorProfile | null = null
 ): CommentSponsorMatch | null {
   if (hasSponsoredGoodsLink(commentRenderer)) {
     return {
@@ -173,27 +271,50 @@ export function classifyCommentRenderer(
   const pattern = regexFromStoredPattern(config.dynamicRegexPattern);
   const text = extractCommentText(commentRenderer);
   const storedMatches = pattern ? collectPatternMatches(text, pattern) : [];
-  if (pattern && !isLikelyPromoText(text, storedMatches, config.dynamicRegexKeywordMinMatches)) {
-    const assessment = analyzeCommercialIntent(text, {
-      storedMatches,
-      minMatches: config.dynamicRegexKeywordMinMatches
-    });
-    if (!assessment.category) {
-      return null;
-    }
-
-    return {
-      reason: "suspicion",
-      category: assessment.category,
-      matches: storedMatches.length > 0 ? storedMatches : assessment.matches
-    };
-  }
-
   const assessment = analyzeCommercialIntent(text, {
     storedMatches,
     minMatches: config.dynamicRegexKeywordMinMatches
   });
+  const actionability = inspectCommercialActionability(text);
+  const shillAssessment = inspectCommentShillSignals(commentRenderer, text, actionability.hasQuotedOrMockingContext, authorProfile);
+  if (shillAssessment.state === "hit") {
+    return {
+      reason: "shill",
+      category: "sponsor",
+      matches: shillAssessment.matches
+    };
+  }
+
   if (!assessment.category) {
+    return null;
+  }
+
+  const hasStrongToken = assessment.matches.some((match) => COMMENT_STRONG_MATCHES.has(match));
+  const hasInvitationLead = COMMENT_INVITATION_PATTERN.test(text);
+  const hasStrongEvidence = actionability.hasStrongClosure || hasStrongToken || hasInvitationLead;
+
+  if (actionability.hasQuotedOrMockingContext) {
+    return null;
+  }
+
+  if (
+    pattern &&
+    !isLikelyPromoText(text, storedMatches, config.dynamicRegexKeywordMinMatches) &&
+    !hasStrongEvidence &&
+    assessment.category !== "selfpromo"
+  ) {
+    return null;
+  }
+
+  if (assessment.category === "sponsor" && !hasStrongEvidence) {
+    return null;
+  }
+
+  if (assessment.category === "selfpromo" && !actionability.hasOwnedActionLead && assessment.selfpromoScore < 2.6) {
+    return null;
+  }
+
+  if (assessment.category === "exclusive_access" && !actionability.hasStrongClosure && assessment.exclusiveScore < 3.2) {
     return null;
   }
 
@@ -204,6 +325,272 @@ export function classifyCommentRenderer(
   };
 }
 
+export function assessCommentRendererShill(
+  commentRenderer: CommentRenderer,
+  authorProfile: CommentAuthorProfile | null = null
+): CommentShillAssessment {
+  const text = extractCommentText(commentRenderer);
+  const actionability = inspectCommercialActionability(text);
+  return inspectCommentShillSignals(commentRenderer, text, actionability.hasQuotedOrMockingContext, authorProfile);
+}
+
+function inspectCommentShillSignals(
+  commentRenderer: CommentRenderer,
+  text: string,
+  hasQuotedOrMockingContext: boolean,
+  authorProfile: CommentAuthorProfile | null
+): CommentShillAssessment {
+  const normalized = normalizeRepeatedCommentText(text);
+  if (!normalized || hasQuotedOrMockingContext || COMMENT_SHILL_PATTERNS.warning.test(normalized)) {
+    return { state: "pass", matches: [] };
+  }
+
+  if (COMMENT_SHILL_PATTERNS.reviewDiscussion.test(normalized) && !COMMENT_SHILL_PATTERNS.marketingReply.test(normalized)) {
+    return { state: "pass", matches: [] };
+  }
+
+  const hasMedia = hasCommentMediaAttachment(commentRenderer);
+  const hits = [
+    COMMENT_SHILL_PATTERNS.purchaseOrUse.test(normalized) ? "购买/使用反馈" : null,
+    COMMENT_SHILL_PATTERNS.productQuality.test(normalized) ? "产品体验细节" : null,
+    COMMENT_SHILL_PATTERNS.endorsement.test(normalized) ? "正向背书" : null,
+    COMMENT_SHILL_PATTERNS.videoLead.test(normalized) ? "UP推荐语境" : null,
+    COMMENT_SHILL_PATTERNS.question.test(normalized) ? "购买前提问" : null,
+    COMMENT_SHILL_PATTERNS.marketingReply.test(normalized) ? "营销回复" : null,
+    COMMENT_SHILL_PATTERNS.problemSolution.test(normalized) ? "痛点解决背书" : null,
+    hasMedia ? "晒单图" : null
+  ].filter((hit): hit is string => Boolean(hit));
+  const candidateHits = [
+    COMMENT_SHILL_PATTERNS.prospectiveTrial.test(normalized) ? "入手试水话术" : null,
+    COMMENT_SHILL_PATTERNS.macroPraise.test(normalized) ? "宏观话术转商品做工" : null,
+    COMMENT_SHILL_PATTERNS.comfortPraise.test(normalized) ? "商品穿着体验背书" : null,
+    COMMENT_SHILL_PATTERNS.priceAmazement.test(normalized) ? "价格/材质惊叹" : null,
+    COMMENT_SHILL_PATTERNS.brandComparison.test(normalized) ? "品牌拉踩提问" : null
+  ].filter((hit): hit is string => Boolean(hit));
+
+  const hasPurchaseOrUse = hits.includes("购买/使用反馈");
+  const hasProductQuality = hits.includes("产品体验细节");
+  const hasEndorsement = hits.includes("正向背书");
+  const hasVideoLead = hits.includes("UP推荐语境");
+  const hasQuestion = hits.includes("购买前提问");
+  const hasMarketingReply = hits.includes("营销回复");
+  const hasProblemSolution = hits.includes("痛点解决背书");
+
+  const tightlyCoupledToVideoPromo =
+    hasVideoLead && hasPurchaseOrUse && (hasProductQuality || hasEndorsement || hasMedia);
+  const testimonialWithEnoughDetail =
+    hasPurchaseOrUse && hasProductQuality && hasEndorsement && (hasMedia || normalized.length >= 28);
+  const productQuestionWithContext = hasQuestion && hasPurchaseOrUse && hasProductQuality;
+  const mediaBackedOrderClaim = hasMedia && hasPurchaseOrUse && (hasProductQuality || hasVideoLead);
+  const marketingReplyWithClosure = hasMarketingReply && (hasPurchaseOrUse || hasEndorsement || normalized.length >= 12);
+  const problemSolutionTestimonial =
+    hasProblemSolution && hasProductQuality && (hasPurchaseOrUse || hasEndorsement || normalized.length >= 28);
+
+  if (
+    tightlyCoupledToVideoPromo ||
+    testimonialWithEnoughDetail ||
+    productQuestionWithContext ||
+    mediaBackedOrderClaim ||
+    marketingReplyWithClosure ||
+    problemSolutionTestimonial
+  ) {
+    return { state: "hit", matches: hits };
+  }
+
+  if (candidateHits.length > 0) {
+    const matches = uniqueStrings([...hits, ...candidateHits]);
+    if (authorProfile?.likelyDormant) {
+      return { state: "hit", matches: uniqueStrings([...matches, "账号状态补证"]) };
+    }
+    return { state: "candidate", matches };
+  }
+
+  return { state: "pass", matches: [] };
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
+function normalizeRepeatedCommentText(text: string): string {
+  const normalized = text.replace(/\s+/gu, " ").trim();
+  const chunks = normalized.split(" ").filter(Boolean);
+  if (chunks.length === 2 && chunks[0] === chunks[1]) {
+    return chunks[0];
+  }
+  return normalized;
+}
+
+export function extractCommentAuthorMid(commentRenderer: CommentRenderer): string | null {
+  const data = commentRenderer.data as
+    | {
+        member?: { mid?: unknown } | null;
+        user?: { mid?: unknown } | null;
+        mid?: unknown;
+      }
+    | undefined;
+  const dataMid = data?.member?.mid ?? data?.user?.mid ?? data?.mid;
+  const normalizedDataMid = normalizeAuthorMid(dataMid);
+  if (normalizedDataMid) {
+    return normalizedDataMid;
+  }
+
+  const userRoot = commentRenderer.shadowRoot?.querySelector("bili-comment-user-info")?.shadowRoot;
+  const href = userRoot?.querySelector<HTMLAnchorElement>("a[href*='space.bilibili.com']")?.href ?? "";
+  return normalizeAuthorMid(href.match(/space\.bilibili\.com\/(\d+)/iu)?.[1]);
+}
+
+function normalizeAuthorMid(value: unknown): string | null {
+  const text = String(value ?? "").trim();
+  return /^\d{2,}$/u.test(text) ? text : null;
+}
+
+function queueCommentAuthorProbe(mid: string, onResult: (profile: CommentAuthorProfile | null) => void): boolean {
+  const now = Date.now();
+  const cached = commentAuthorProbeCache.get(mid);
+  if (cached && cached.expiresAt > now) {
+    queueMicrotask(() => onResult(cached.result));
+    return true;
+  }
+
+  const callbacks = commentAuthorProbeInFlight.get(mid);
+  if (callbacks) {
+    callbacks.push(onResult);
+    return true;
+  }
+
+  if (commentAuthorProbeInFlight.size >= COMMENT_AUTHOR_PROBE_MAX_IN_FLIGHT) {
+    return false;
+  }
+
+  commentAuthorProbeInFlight.set(mid, [onResult]);
+  void probeCommentAuthorState(mid)
+    .then((result) => {
+      commentAuthorProbeCache.set(mid, {
+        expiresAt: Date.now() + COMMENT_AUTHOR_PROBE_CACHE_MS,
+        result
+      });
+      debugLog("Comment author probe completed", result);
+      notifyCommentAuthorProbeCallbacks(mid, result);
+    })
+    .catch((error) => {
+      commentAuthorProbeCache.set(mid, {
+        expiresAt: Date.now() + Math.floor(COMMENT_AUTHOR_PROBE_CACHE_MS / 2),
+        result: null
+      });
+      debugLog("Comment author probe failed", error);
+      notifyCommentAuthorProbeCallbacks(mid, null);
+    });
+  return true;
+}
+
+function notifyCommentAuthorProbeCallbacks(mid: string, result: CommentAuthorProfile | null): void {
+  const callbacks = commentAuthorProbeInFlight.get(mid) ?? [];
+  commentAuthorProbeInFlight.delete(mid);
+  for (const callback of callbacks) {
+    callback(result);
+  }
+}
+
+async function probeCommentAuthorState(mid: string): Promise<CommentAuthorProfile> {
+  const response = await gmXmlHttpRequest({
+    method: "GET",
+    url: `https://api.bilibili.com/x/web-interface/card?mid=${encodeURIComponent(mid)}&photo=false`,
+    headers: {
+      Referer: "https://www.bilibili.com/",
+      Origin: "https://www.bilibili.com/"
+    },
+    timeout: COMMENT_AUTHOR_PROBE_TIMEOUT_MS
+  });
+  if (!response.ok) {
+    throw new Error(`Bilibili author card request failed with HTTP ${response.status}`);
+  }
+
+  return parseCommentAuthorCardResponse(mid, response.responseText);
+}
+
+export function parseCommentAuthorCardResponse(mid: string, responseText: string): CommentAuthorProfile {
+  const payload = JSON.parse(responseText) as {
+    code?: unknown;
+    data?: {
+      card?: {
+        vip?: { status?: unknown } | null;
+        level_info?: { current_level?: unknown } | null;
+        follower?: unknown;
+        like_num?: unknown;
+        archive_count?: unknown;
+        is_senior_member?: unknown;
+        official_verify?: { type?: unknown } | null;
+      } | null;
+    } | null;
+  };
+  const code = finiteNumberOrNull(payload.code);
+  if (code !== null && code !== 0) {
+    throw new Error(`Bilibili author card returned code ${code}`);
+  }
+  const card = payload.data?.card ?? null;
+  const vipStatus = finiteNumberOrNull(card?.vip?.status);
+  const level = finiteNumberOrNull(card?.level_info?.current_level);
+  const follower = finiteNumberOrNull(card?.follower);
+  const likeNum = finiteNumberOrNull(card?.like_num);
+  const archiveCount = finiteNumberOrNull(card?.archive_count);
+  const isSeniorMember = booleanOrNull(card?.is_senior_member);
+  const officialVerifyType = finiteNumberOrNull(card?.official_verify?.type);
+  const evidence: string[] = [];
+  let dormantScore = 0;
+  if (vipStatus === 0) {
+    dormantScore += 1;
+    evidence.push("非会员");
+  }
+  if (level !== null && level <= 2) {
+    dormantScore += 1;
+    evidence.push("低等级");
+  }
+  if (follower !== null && follower <= 3) {
+    dormantScore += 1;
+    evidence.push("低粉丝");
+  }
+  if (likeNum !== null && likeNum <= 3) {
+    dormantScore += 1;
+    evidence.push("低获赞");
+  }
+  if (archiveCount !== null && archiveCount <= 0) {
+    dormantScore += 1;
+    evidence.push("无投稿");
+  }
+  if (mid.length >= 10) {
+    dormantScore += 1;
+    evidence.push("长UID");
+  }
+  const protectedProfile =
+    isSeniorMember === true ||
+    (officialVerifyType !== null && officialVerifyType >= 0) ||
+    (follower !== null && follower >= 1000) ||
+    (likeNum !== null && likeNum >= 1000) ||
+    (archiveCount !== null && archiveCount >= 5);
+  return {
+    mid,
+    likelyDormant: dormantScore >= 4 && !protectedProfile,
+    vipStatus,
+    level,
+    follower,
+    likeNum,
+    archiveCount,
+    isSeniorMember,
+    officialVerifyType,
+    evidence
+  };
+}
+
+function finiteNumberOrNull(value: unknown): number | null {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : null;
+}
+
+function booleanOrNull(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
+}
+
 export function commentMatchToVideoSignal(match: CommentSponsorMatch): LocalVideoSignal {
   return {
     source: match.reason === "goods" ? "comment-goods" : "comment-suspicion",
@@ -211,6 +598,8 @@ export function commentMatchToVideoSignal(match: CommentSponsorMatch): LocalVide
     confidence:
       match.reason === "goods"
         ? 0.96
+        : match.reason === "shill"
+          ? 0.84
         : match.category === "sponsor"
           ? 0.87
           : match.category === "exclusive_access"
@@ -219,6 +608,8 @@ export function commentMatchToVideoSignal(match: CommentSponsorMatch): LocalVide
     reason:
       match.reason === "goods"
         ? "评论区命中商品卡广告"
+        : match.reason === "shill"
+          ? `评论区命中疑似托评线索：${match.matches.join(" / ")}`
         : `评论区命中商业线索：${match.matches.join(" / ")}`
   };
 }
@@ -226,6 +617,9 @@ export function commentMatchToVideoSignal(match: CommentSponsorMatch): LocalVide
 function getBadgeText(match: CommentSponsorMatch): string {
   if (match.reason === "goods") {
     return "评论区商品广告";
+  }
+  if (match.reason === "shill") {
+    return "疑似托评评论";
   }
   if (match.category === "selfpromo") {
     return `疑似导流评论: ${match.matches.join(" / ")}`;
@@ -257,6 +651,136 @@ function dispatchVideoSignal(match: CommentSponsorMatch): void {
       detail
     })
   );
+}
+
+export function createCommentFeedbackToken(): string {
+  const randomUUID =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  const token = `comment-feedback:${randomUUID}`;
+  commentFeedbackTokens.add(token);
+  return token;
+}
+
+export function consumeCommentFeedbackToken(token: unknown): boolean {
+  if (typeof token !== "string" || !commentFeedbackTokens.has(token)) {
+    return false;
+  }
+  commentFeedbackTokens.delete(token);
+  return true;
+}
+
+function dispatchVideoSignalFeedback(
+  match: CommentSponsorMatch,
+  decision: "confirm" | "dismiss",
+  feedbackToken: string,
+  feedbackKey: string | null
+): void {
+  const detail = {
+    decision,
+    feedbackToken,
+    feedbackKey,
+    ...commentMatchToVideoSignal(match),
+    matches: match.matches
+  };
+
+  window.dispatchEvent(
+    new CustomEvent(VIDEO_SIGNAL_FEEDBACK_EVENT, {
+      detail
+    })
+  );
+}
+
+async function loadSubmittedCommentFeedbackKeys(): Promise<void> {
+  if (submittedCommentFeedbackLoaded) {
+    return;
+  }
+  if (submittedCommentFeedbackLoadPromise) {
+    return submittedCommentFeedbackLoadPromise;
+  }
+
+  submittedCommentFeedbackLoadPromise = gmGetValue<Record<string, number> | null>(COMMENT_FEEDBACK_STORAGE_KEY, null)
+    .then((payload) => {
+      submittedCommentFeedbackKeys.clear();
+      const entries = Object.entries(payload ?? {})
+        .filter(([key, value]) => key.startsWith("BV") && Number.isFinite(value))
+        .sort((left, right) => right[1] - left[1])
+        .slice(0, COMMENT_FEEDBACK_MAX_RECORDS);
+      for (const [key] of entries) {
+        submittedCommentFeedbackKeys.add(key);
+      }
+      submittedCommentFeedbackLoaded = true;
+    })
+    .catch((error) => {
+      debugLog("Failed to load comment feedback state", error);
+      reportDiagnostic({
+        severity: "warn",
+        area: "storage",
+        message: "评论反馈状态读取失败，已降级为当前页面临时状态",
+        detail: error
+      });
+      submittedCommentFeedbackLoaded = true;
+    })
+    .finally(() => {
+      submittedCommentFeedbackLoadPromise = null;
+    });
+  return submittedCommentFeedbackLoadPromise;
+}
+
+async function rememberSubmittedCommentFeedbackKey(key: string | null): Promise<void> {
+  if (!key) {
+    return;
+  }
+  await loadSubmittedCommentFeedbackKeys();
+  const previousKeys = new Set(submittedCommentFeedbackKeys);
+  submittedCommentFeedbackKeys.add(key);
+  const existing = await gmGetValue<Record<string, number> | null>(COMMENT_FEEDBACK_STORAGE_KEY, null);
+  const now = Date.now();
+  const payload = Object.fromEntries(
+    Object.entries({ ...(existing ?? {}), [key]: now })
+      .filter(([entryKey, value]) => entryKey.startsWith("BV") && Number.isFinite(value))
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, COMMENT_FEEDBACK_MAX_RECORDS)
+  );
+  submittedCommentFeedbackKeys.clear();
+  for (const entryKey of Object.keys(payload)) {
+    submittedCommentFeedbackKeys.add(entryKey);
+  }
+  try {
+    await gmSetValue(COMMENT_FEEDBACK_STORAGE_KEY, payload);
+  } catch (error) {
+    submittedCommentFeedbackKeys.clear();
+    for (const entryKey of previousKeys) {
+      submittedCommentFeedbackKeys.add(entryKey);
+    }
+    throw error;
+  }
+}
+
+function hasSubmittedCommentFeedbackKey(key: string | null): boolean {
+  return Boolean(key && submittedCommentFeedbackKeys.has(key));
+}
+
+function createCommentFeedbackKey(bvid: string | null | undefined, commentRenderer: CommentRenderer, match: CommentSponsorMatch): string | null {
+  if (!bvid) {
+    return null;
+  }
+  const text = normalizeRepeatedCommentText(extractCommentText(commentRenderer)).slice(0, 220);
+  if (!text) {
+    return null;
+  }
+  const authorMid = extractCommentAuthorMid(commentRenderer) ?? "anonymous";
+  return `${bvid}:${hashCommentFeedbackIdentity(`${authorMid}|${match.reason}|${match.category}|${text}`)}`;
+}
+
+function hashCommentFeedbackIdentity(value: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
 }
 
 function getBadgeRoot(commentRenderer: CommentRenderer): ShadowRoot | null {
@@ -297,7 +821,14 @@ export function scanCurrentPageCommentSignal(
 }
 
 function createBadge(text: string, tone: InlineTone, color?: string): HTMLElement {
-  return createInlineBadge(BADGE_ATTR, text, tone, "inline", color);
+  return createInlineBadge(
+    BADGE_ATTR,
+    text,
+    tone,
+    "inline",
+    color,
+    currentInlineBadgeAppearance.commentBadge ? "glass" : "solid"
+  );
 }
 
 function createToggleButton(onClick: () => void): HTMLButtonElement {
@@ -305,8 +836,180 @@ function createToggleButton(onClick: () => void): HTMLButtonElement {
   return button;
 }
 
+function createFeedbackButton(
+  attrName: string,
+  text: string,
+  title: string,
+  onClick: () => void
+): HTMLButtonElement {
+  const button = createInlineToggle(attrName, onClick, "inline");
+  button.dataset.state = "hidden";
+  button.setAttribute("aria-pressed", "false");
+  button.textContent = text;
+  button.title = title;
+  return button;
+}
+
+function createFeedbackMenu(match: CommentSponsorMatch, feedbackKey: string | null, alreadySubmitted = false): HTMLElement {
+  const menu = document.createElement("span");
+  const choices = document.createElement("span");
+  const feedbackToken = createCommentFeedbackToken();
+  let submitted = alreadySubmitted;
+  const trigger = createFeedbackButton(
+    FEEDBACK_TRIGGER_ATTR,
+    "反馈",
+    "反馈这条评论对当前视频本地标签的影响",
+    () => {
+      setFeedbackMenuOpen(trigger, choices, trigger.getAttribute("aria-expanded") !== "true");
+    }
+  );
+  const keepButton = createFeedbackButton(
+    FEEDBACK_KEEP_ATTR,
+    "保留",
+    "保留这条本地推理结果。提交后这条评论不可重复反馈。",
+    () => {
+      if (submitted) {
+        return;
+      }
+      submitted = true;
+      void rememberSubmittedCommentFeedbackKey(feedbackKey).catch((error) => {
+        debugLog("Failed to persist comment feedback state", error);
+        reportDiagnostic({
+          severity: "warn",
+          area: "storage",
+          message: "评论反馈状态写入失败，已保留当前页面临时状态",
+          detail: error
+        });
+      });
+      dispatchVideoSignalFeedback(match, "confirm", feedbackToken, feedbackKey);
+      setFeedbackMenuSubmitted(menu, trigger, choices, keepButton, dismissButton);
+    }
+  );
+  const dismissButton = createFeedbackButton(
+    FEEDBACK_DISMISS_ATTR,
+    "忽略",
+    "忽略这条本地推理结果。提交后这条评论不可重复反馈。",
+    () => {
+      if (submitted) {
+        return;
+      }
+      submitted = true;
+      void rememberSubmittedCommentFeedbackKey(feedbackKey).catch((error) => {
+        debugLog("Failed to persist comment feedback state", error);
+        reportDiagnostic({
+          severity: "warn",
+          area: "storage",
+          message: "评论反馈状态写入失败，已保留当前页面临时状态",
+          detail: error
+        });
+      });
+      dispatchVideoSignalFeedback(match, "dismiss", feedbackToken, feedbackKey);
+      setFeedbackMenuSubmitted(menu, trigger, choices, keepButton, dismissButton);
+    }
+  );
+
+  menu.className = "bsb-tm-inline-feedback-menu";
+  menu.setAttribute(FEEDBACK_MENU_ATTR, "true");
+  menu.dataset.open = "false";
+  menu.dataset.submitted = String(alreadySubmitted);
+  choices.className = "bsb-tm-inline-feedback-menu__choices";
+  choices.setAttribute("role", "menu");
+  choices.setAttribute("aria-hidden", "true");
+  trigger.setAttribute("aria-haspopup", "menu");
+  trigger.setAttribute("aria-expanded", "false");
+  keepButton.setAttribute("role", "menuitem");
+  dismissButton.setAttribute("role", "menuitem");
+
+  choices.append(keepButton, dismissButton);
+  menu.append(trigger, choices);
+  if (alreadySubmitted) {
+    setFeedbackMenuSubmitted(menu, trigger, choices, keepButton, dismissButton);
+  }
+  return menu;
+}
+
+function createDisabledFeedbackMenu(state: LocalVideoFeedbackAvailabilityState): HTMLElement {
+  const menu = document.createElement("span");
+  const trigger = createFeedbackButton(
+    FEEDBACK_TRIGGER_ATTR,
+    resolveDisabledFeedbackLabel(state),
+    resolveDisabledFeedbackTitle(state),
+    () => {}
+  );
+  menu.className = "bsb-tm-inline-feedback-menu";
+  menu.setAttribute(FEEDBACK_MENU_ATTR, "true");
+  menu.dataset.open = "false";
+  menu.dataset.submitted = state.disabledReason === "manual-decision" ? "true" : "false";
+  menu.dataset.disabled = "true";
+  trigger.disabled = true;
+  trigger.dataset.state = state.disabledReason === "manual-decision" ? "shown" : "hidden";
+  trigger.setAttribute("aria-expanded", "false");
+  trigger.setAttribute("aria-disabled", "true");
+  menu.append(trigger);
+  return menu;
+}
+
+function resolveDisabledFeedbackLabel(state: LocalVideoFeedbackAvailabilityState): string {
+  if (state.disabledReason === "manual-decision") {
+    return "已提交";
+  }
+  if (state.disabledReason === "upstream-whole-video") {
+    return "上游已接管";
+  }
+  if (state.disabledReason === "pending-upstream") {
+    return "同步中";
+  }
+  return "反馈不可用";
+}
+
+function resolveDisabledFeedbackTitle(state: LocalVideoFeedbackAvailabilityState): string {
+  if (state.disabledReason === "manual-decision") {
+    return "你已对当前视频提交过本地反馈，本地学习不会重复处理。";
+  }
+  if (state.disabledReason === "upstream-whole-video") {
+    return "当前视频已有上游整视频记录，本地评论反馈不会覆盖上游判断。";
+  }
+  if (state.disabledReason === "pending-upstream") {
+    return "正在等待上游整视频记录结果，确认后再决定是否允许本地反馈。";
+  }
+  return "当前页面暂时不能提交本地视频反馈。";
+}
+
+function setFeedbackMenuOpen(trigger: HTMLButtonElement, choices: HTMLElement, open: boolean): void {
+  const menu = trigger.closest<HTMLElement>(`[${FEEDBACK_MENU_ATTR}='true']`);
+  if (menu) {
+    menu.dataset.open = String(open);
+  }
+  trigger.dataset.state = open ? "shown" : "hidden";
+  trigger.setAttribute("aria-expanded", String(open));
+  choices.setAttribute("aria-hidden", String(!open));
+}
+
+function setFeedbackMenuSubmitted(
+  menu: HTMLElement,
+  trigger: HTMLButtonElement,
+  choices: HTMLElement,
+  keepButton: HTMLButtonElement,
+  dismissButton: HTMLButtonElement
+): void {
+  menu.dataset.submitted = "true";
+  setFeedbackMenuOpen(trigger, choices, false);
+  trigger.textContent = "已提交";
+  trigger.title = "已提交，不可重复操作。本地学习会按你的选择处理这条评论。";
+  trigger.disabled = true;
+  keepButton.disabled = true;
+  dismissButton.disabled = true;
+}
+
 function createLocationBadge(text: string, color?: string): HTMLDivElement {
-  return createInlineBadge(LOCATION_ATTR, text, "info", "inline", color);
+  return createInlineBadge(
+    LOCATION_ATTR,
+    text,
+    "info",
+    "inline",
+    color,
+    currentInlineBadgeAppearance.commentLocation ? "glass" : "solid"
+  );
 }
 
 function getMainCommentRenderer(thread: HTMLElement): CommentRenderer | null {
@@ -466,9 +1169,18 @@ function injectVueCommentLocation(node: HTMLElement, color?: string): void {
 
 function removeInjectedDecorations(commentRenderer: CommentRenderer): void {
   getBadgeRoot(commentRenderer)?.querySelectorAll<HTMLElement>(`[${BADGE_ATTR}='true']`).forEach((node) => node.remove());
-  getActionRoot(commentRenderer)
-    ?.querySelectorAll<HTMLElement>(`[${TOGGLE_ATTR}='true'], [${LOCATION_ATTR}='true'], #location, .reply-location`)
-    .forEach((node) => node.remove());
+  const actionRoot = getActionRoot(commentRenderer);
+  const roots = new Set<ParentNode>([commentRenderer.shadowRoot]);
+  if (actionRoot) {
+    roots.add(actionRoot);
+  }
+  for (const root of roots) {
+    root
+      .querySelectorAll<HTMLElement>(
+        `[${TOGGLE_ATTR}='true'], [${FEEDBACK_MENU_ATTR}='true'], [${FEEDBACK_TRIGGER_ATTR}='true'], [${FEEDBACK_KEEP_ATTR}='true'], [${FEEDBACK_DISMISS_ATTR}='true'], [${LOCATION_ATTR}='true'], #location, .reply-location`
+      )
+      .forEach((node) => node.remove());
+  }
 }
 
 function insertAfter(anchor: Node, node: Node): boolean {
@@ -520,10 +1232,17 @@ function restoreReplies(thread: HTMLElement): void {
 export class CommentSponsorController {
   private started = false;
   private currentConfig: StoredConfig;
+  private localVideoFeedbackAvailability: LocalVideoFeedbackAvailabilityState = {
+    enabled: false,
+    locked: false,
+    disabledReason: "unavailable",
+    bvid: null
+  };
   private rootSweepTimerId: number | null = null;
   private rootSweepAttempt = 0;
   private documentObserver: MutationObserver | null = null;
   private refreshTimerId: number | null = null;
+  private cancelIdleRefresh: (() => void) | null = null;
   private stopObservingUrl: (() => void) | null = null;
   private readonly rootObservers = new Map<HTMLElement, MutationObserver>();
   private pendingVisibleRefresh = false;
@@ -533,11 +1252,29 @@ export class CommentSponsorController {
       this.scheduleRefresh();
     }
   };
+  private readonly handleFeedbackAvailability = (event: Event) => {
+    if (!(event instanceof CustomEvent)) {
+      return;
+    }
+
+    const nextState = normalizeLocalVideoFeedbackAvailability(event.detail);
+    if (isSameFeedbackAvailability(nextState, this.localVideoFeedbackAvailability)) {
+      return;
+    }
+
+    this.localVideoFeedbackAvailability = nextState;
+    this.resetProcessedThreads();
+    this.scheduleRefresh();
+  };
 
   constructor(private readonly configStore: ConfigStore) {
     this.currentConfig = this.configStore.getSnapshot();
+    currentInlineBadgeAppearance.commentBadge = this.currentConfig.labelTransparency.commentBadge;
+    currentInlineBadgeAppearance.commentLocation = this.currentConfig.labelTransparency.commentLocation;
     this.configStore.subscribe((config) => {
       this.currentConfig = config;
+      currentInlineBadgeAppearance.commentBadge = config.labelTransparency.commentBadge;
+      currentInlineBadgeAppearance.commentLocation = config.labelTransparency.commentLocation;
       this.resetProcessedThreads();
       this.scheduleRefresh();
     });
@@ -551,6 +1288,13 @@ export class CommentSponsorController {
     this.started = true;
     this.scheduleRefresh();
     this.scheduleRootSweep(true);
+    void loadSubmittedCommentFeedbackKeys().then(() => {
+      if (!this.started) {
+        return;
+      }
+      this.resetProcessedThreads();
+      this.scheduleRefresh();
+    });
 
     this.stopObservingUrl = observeUrlChanges(() => {
       this.resetProcessedThreads();
@@ -571,6 +1315,7 @@ export class CommentSponsorController {
       subtree: true
     });
     document.addEventListener("visibilitychange", this.handleVisibilityChange);
+    window.addEventListener(LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT, this.handleFeedbackAvailability as EventListener);
 
     window.addEventListener(
       "pagehide",
@@ -599,12 +1344,15 @@ export class CommentSponsorController {
       window.clearTimeout(this.refreshTimerId);
       this.refreshTimerId = null;
     }
+    this.cancelIdleRefresh?.();
+    this.cancelIdleRefresh = null;
     this.documentObserver?.disconnect();
     this.documentObserver = null;
     this.disconnectRootObservers();
     this.pendingVisibleRefresh = false;
     this.rootSweepAttempt = 0;
     document.removeEventListener("visibilitychange", this.handleVisibilityChange);
+    window.removeEventListener(LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT, this.handleFeedbackAvailability as EventListener);
     this.resetProcessedThreads();
   }
 
@@ -639,6 +1387,10 @@ export class CommentSponsorController {
   }
 
   private scheduleRefresh(): void {
+    if (!this.started) {
+      return;
+    }
+
     if (document.hidden) {
       this.pendingVisibleRefresh = true;
       return;
@@ -650,17 +1402,32 @@ export class CommentSponsorController {
 
     this.refreshTimerId = window.setTimeout(() => {
       this.refreshTimerId = null;
-      const schedule =
-        typeof requestIdleCallback === "function"
-          ? requestIdleCallback
-          : (cb: () => void) => window.setTimeout(cb, 0);
-      schedule(() => {
+      if (!this.started) {
+        return;
+      }
+      const runRefresh = () => {
+        this.cancelIdleRefresh = null;
+        if (!this.started) {
+          return;
+        }
         this.refresh();
-      });
+      };
+      if (typeof requestIdleCallback === "function" && typeof cancelIdleCallback === "function") {
+        const idleId = requestIdleCallback(runRefresh);
+        this.cancelIdleRefresh = () => cancelIdleCallback(idleId);
+        return;
+      }
+
+      const timeoutId = window.setTimeout(runRefresh, 0);
+      this.cancelIdleRefresh = () => window.clearTimeout(timeoutId);
     }, 160);
   }
 
   private refresh(): void {
+    if (!this.started) {
+      return;
+    }
+
     if (document.hidden) {
       this.pendingVisibleRefresh = true;
       return;
@@ -785,9 +1552,46 @@ export class CommentSponsorController {
 
     const match = classifyCommentRenderer(target.renderer, this.currentConfig);
     if (!match) {
+      this.queueCandidateAuthorUpgrade(target);
       return;
     }
 
+    this.applyTargetMatch(target, match);
+  }
+
+  private queueCandidateAuthorUpgrade(target: CommentTarget): void {
+    if (target.host.getAttribute(PROBE_PENDING_ATTR) === "true") {
+      return;
+    }
+
+    const assessment = assessCommentRendererShill(target.renderer);
+    if (assessment.state !== "candidate") {
+      return;
+    }
+
+    const mid = extractCommentAuthorMid(target.renderer);
+    if (!mid) {
+      return;
+    }
+
+    target.host.setAttribute(PROBE_PENDING_ATTR, "true");
+    const queued = queueCommentAuthorProbe(mid, (profile) => {
+      target.host.removeAttribute(PROBE_PENDING_ATTR);
+      if (!profile?.likelyDormant || !target.host.isConnected || target.host.getAttribute(target.processedAttr) === "true") {
+        return;
+      }
+
+      const match = classifyCommentRenderer(target.renderer, this.currentConfig, profile);
+      if (match?.reason === "shill") {
+        this.applyTargetMatch(target, match);
+      }
+    });
+    if (!queued) {
+      target.host.removeAttribute(PROBE_PENDING_ATTR);
+    }
+  }
+
+  private applyTargetMatch(target: CommentTarget, match: CommentSponsorMatch): void {
     if (target.kind === "comment") {
       dispatchVideoSignal(match);
     }
@@ -809,17 +1613,31 @@ export class CommentSponsorController {
       return;
     }
 
+    const actionAnchor = getActionAnchor(target.renderer);
+    const actionRoot = getActionRoot(target.renderer);
+    if (actionAnchor) {
+      const feedbackRoot = actionRoot ?? target.renderer.shadowRoot;
+      ensureInlineFeedbackStyles(feedbackRoot);
+      const feedbackKey = createCommentFeedbackKey(this.localVideoFeedbackAvailability.bvid, target.renderer, match);
+      const feedbackNode = this.localVideoFeedbackAvailability.enabled
+        ? createFeedbackMenu(match, feedbackKey, hasSubmittedCommentFeedbackKey(feedbackKey))
+        : this.shouldRenderDisabledFeedback()
+          ? createDisabledFeedbackMenu(this.localVideoFeedbackAvailability)
+          : null;
+      if (feedbackNode) {
+        insertAfter(actionAnchor, feedbackNode);
+      }
+    }
+
     if (this.currentConfig.commentFilterMode !== "hide") {
       return;
     }
 
     const content = getContentBody(target.renderer);
-    const actionAnchor = getActionAnchor(target.renderer);
     if (!content || !actionAnchor) {
       return;
     }
 
-    const actionRoot = getActionRoot(target.renderer);
     if (actionRoot) {
       ensureInlineFeedbackStyles(actionRoot);
     }
@@ -843,6 +1661,13 @@ export class CommentSponsorController {
     if (target.kind === "comment" && this.currentConfig.commentHideReplies) {
       hideReplies(target.thread);
     }
+  }
+
+  private shouldRenderDisabledFeedback(): boolean {
+    return (
+      this.localVideoFeedbackAvailability.disabledReason === "upstream-whole-video" ||
+      this.localVideoFeedbackAvailability.disabledReason === "pending-upstream"
+    );
   }
 
   private processVueComments(): void {
@@ -882,6 +1707,7 @@ export class CommentSponsorController {
             content.removeAttribute(HIDDEN_ATTR);
           }
         }
+        thread.removeAttribute(PROBE_PENDING_ATTR);
 
         for (const replyTarget of getReplyTargets(thread)) {
           removeInjectedDecorations(replyTarget.renderer);
@@ -891,6 +1717,7 @@ export class CommentSponsorController {
           }
 
           replyTarget.host.removeAttribute(REPLY_PROCESSED_ATTR);
+          replyTarget.host.removeAttribute(PROBE_PENDING_ATTR);
           const content = getContentBody(replyTarget.renderer);
           if (content) {
             content.style.display = "";
@@ -904,4 +1731,34 @@ export class CommentSponsorController {
     cleanupVueLocationNodes(document);
     debugLog("Comment sponsor state reset");
   }
+}
+
+function normalizeLocalVideoFeedbackAvailability(detail: unknown): LocalVideoFeedbackAvailabilityState {
+  const value = detail && typeof detail === "object" ? (detail as LocalVideoFeedbackAvailabilityDetail) : null;
+  const disabledReason = isLocalVideoFeedbackDisabledReason(value?.disabledReason) ? value.disabledReason : undefined;
+  const enabled = Boolean(value?.enabled) && !disabledReason;
+  return {
+    enabled,
+    locked: Boolean(value?.locked) || Boolean(disabledReason && disabledReason !== "unavailable"),
+    disabledReason: enabled ? undefined : (disabledReason ?? "unavailable"),
+    bvid: typeof value?.bvid === "string" ? value.bvid : null
+  };
+}
+
+function isLocalVideoFeedbackDisabledReason(value: unknown): value is LocalVideoFeedbackDisabledReason {
+  return (
+    value === "upstream-whole-video" ||
+    value === "pending-upstream" ||
+    value === "manual-decision" ||
+    value === "unavailable"
+  );
+}
+
+function isSameFeedbackAvailability(left: LocalVideoFeedbackAvailabilityState, right: LocalVideoFeedbackAvailabilityState): boolean {
+  return (
+    left.enabled === right.enabled &&
+    left.locked === right.locked &&
+    left.disabledReason === right.disabledReason &&
+    left.bvid === right.bvid
+  );
 }

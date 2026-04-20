@@ -1,4 +1,4 @@
-import { gmAddStyle, gmRegisterMenuCommand } from "./platform/gm";
+import { gmAddStyle } from "./platform/gm";
 import { ensurePageBridge } from "./platform/page-bridge";
 import { ConfigStore, StatsStore } from "./core/config-store";
 import { PersistentCache } from "./core/cache";
@@ -8,10 +8,13 @@ import { ScriptController } from "./core/controller";
 import { DynamicSponsorController } from "./features/dynamic-filter";
 import { CommentSponsorController } from "./features/comment-filter";
 import { ThumbnailLabelController } from "./features/thumbnail-labels";
+import { registerQolCoreMenuCommands } from "./runtime/menu";
 import { mountMbga, mountMbgaUi } from "./features/mbga";
 import { createRuntimeLifecycle } from "./runtime/lifecycle";
+import { configureNativeRequestGuard, installNativeRequestGuardBridge } from "./platform/native-request-guard";
 import { mbgaStyles, styles } from "./ui/styles";
 import { debugLog, isSupportedLocation } from "./utils/dom";
+import { supportsCompactVideoHeader } from "./utils/page";
 import type { FetchResponse } from "./types";
 
 function isTopLevelWindow(): boolean {
@@ -50,6 +53,12 @@ async function bootstrap(): Promise<void> {
 
   // Handle MBGA features early
   const currentConfig = configStore.getSnapshot();
+  configureNativeRequestGuard({
+    enabled: currentConfig.enabled && currentConfig.compactVideoHeader,
+    supportedPage: supportsCompactVideoHeader(window.location.href),
+    compactHeaderReady: false,
+    reason: "config-loaded"
+  });
   mountMbga(currentConfig);
 
   if (currentConfig.mbgaEnabled && currentConfig.mbgaSimplifyUi) {
@@ -91,14 +100,10 @@ async function bootstrap(): Promise<void> {
       });
     }
   );
-  await runtime.start();
 
-  gmRegisterMenuCommand("打开 BSB 控制台", () => controller.openPanel());
-  gmRegisterMenuCommand("打开 BSB 帮助", () => controller.openHelp());
-  gmRegisterMenuCommand("切换 BSB 控制台", () => controller.togglePanel());
-  gmRegisterMenuCommand("清理 BSB 缓存", () => {
-    void controller.clearCache();
-  });
+  registerQolCoreMenuCommands(controller);
+
+  await runtime.start();
 }
 
 function ready(): Promise<void> {
@@ -108,6 +113,10 @@ function ready(): Promise<void> {
     });
   }
   return Promise.resolve();
+}
+
+if (isTopLevelWindow() && isSupportedLocation(window.location.href)) {
+  installNativeRequestGuardBridge();
 }
 
 void ready()

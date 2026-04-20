@@ -1,11 +1,29 @@
 import type { FetchResponse } from "../types";
 
-function resolveWindowFunction(name: string): unknown {
-  if (typeof window === "undefined") {
-    return undefined;
+function resolveGlobalObject(): Record<string, unknown> | undefined {
+  if (typeof window !== "undefined") {
+    return window as unknown as Record<string, unknown>;
   }
 
-  return Reflect.get(window as unknown as Record<string, unknown>, name);
+  if (typeof self !== "undefined") {
+    return self as unknown as Record<string, unknown>;
+  }
+
+  if (typeof global !== "undefined") {
+    return global as unknown as Record<string, unknown>;
+  }
+
+  return undefined;
+}
+
+function resolveGlobalFunction(name: string): unknown {
+  const globalObject = resolveGlobalObject();
+  const fromGlobalObject = globalObject ? Reflect.get(globalObject, name) : undefined;
+  if (typeof fromGlobalObject === "function") {
+    return fromGlobalObject;
+  }
+
+  return undefined;
 }
 
 type KnownGrantedFunction =
@@ -46,7 +64,7 @@ function resolveGrantedFunction(name: string): KnownGrantedFunction | undefined 
       break;
   }
 
-  const fallback = resolveWindowFunction(name);
+  const fallback = resolveGlobalFunction(name);
   return typeof fallback === "function" ? (fallback as unknown as KnownGrantedFunction) : undefined;
 }
 
@@ -65,7 +83,7 @@ export async function gmGetValue<T>(key: string, defaultValue: T): Promise<T> {
 
 export async function gmSetValue<T>(key: string, value: T): Promise<void> {
   const fn = assertFunction<typeof GM_setValue>("GM_setValue");
-  fn(key, value);
+  await fn(key, value);
 }
 
 export function gmAddStyle(css: string): void {

@@ -15,9 +15,11 @@ type TitleBadgeCallbacks = {
 
 const DEFAULT_COPY =
   "整个视频都被社区标记为这一类内容。标签仅用于辅助判断，不应替代你自己的观看判断。";
-const LABEL_ONLY_COPY = "这个标签来自整视频标签结果，但当前没有可直接反馈的投票记录。";
-const LOCAL_SIGNAL_COPY = "这个标签来自本地页面线索，而不是 SponsorBlock 社区已收录的整视频记录。";
+const LABEL_ONLY_COPY = "这个标签来自整视频标签接口结果；该接口只提供分类摘要，没有可直接反馈的投票 UUID。";
+const LOCAL_SIGNAL_COPY = "这是本地推理标签，来自本机页面或评论线索，不代表 SponsorBlock 社区已收录的整视频记录。";
 const LOCKED_COPY = "这条整视频标签的反馈已在本机提交。为避免重复投票，当前按钮已锁定。";
+const LOCAL_LOCKED_COPY =
+  "已提交。本地学习会在后续继续保留或忽略此判断；该操作对当前视频不可重复提交。";
 
 function resolveCopy(segment: SegmentRecord, votingAvailable: boolean): string {
   const base = CATEGORY_DESCRIPTIONS[segment.category] ?? DEFAULT_COPY;
@@ -31,7 +33,7 @@ function resolveCopy(segment: SegmentRecord, votingAvailable: boolean): string {
 }
 
 export class TitleBadge {
-  private readonly root = document.createElement("div");
+  private readonly root = document.createElement("span");
   private readonly pillButton = document.createElement("button");
   private readonly titleText = document.createElement("span");
   private readonly popover = document.createElement("div");
@@ -44,9 +46,11 @@ export class TitleBadge {
   private currentSegment: SegmentRecord | null = null;
   private mountedHost: HTMLElement | null = null;
   private isOpen = false;
+  private openFrame: number | null = null;
   private closeTimer: number | null = null;
   private positionFrame: number | null = null;
   private categoryColorOverrides: CategoryColorOverrides = {};
+  private transparencyEnabled = false;
   private votingAvailable = true;
   private localActionsAvailable = false;
   private voteLocked = false;
@@ -72,11 +76,13 @@ export class TitleBadge {
 
   constructor(private readonly callbacks: TitleBadgeCallbacks) {
     this.root.className = "bsb-tm-title-pill-wrap";
+    this.root.dataset.glassContext = "surface";
     this.root.hidden = true;
 
     this.pillButton.type = "button";
     this.pillButton.className = "bsb-tm-title-pill";
     this.pillButton.setAttribute("aria-expanded", "false");
+    this.titleText.className = "bsb-tm-title-pill-label";
     this.pillButton.append(createSponsorShieldIcon(), this.titleText);
     this.pillButton.addEventListener("click", (event) => {
       event.preventDefault();
@@ -134,6 +140,14 @@ export class TitleBadge {
     }
   }
 
+  setTransparencyEnabled(enabled: boolean): void {
+    this.transparencyEnabled = enabled;
+    this.root.dataset.transparent = String(enabled);
+    if (this.currentSegment) {
+      this.applyAppearance(this.currentSegment);
+    }
+  }
+
   setSegment(segment: SegmentRecord | null, options?: { voteLocked?: boolean }): void {
     this.currentSegment = segment;
     this.voteLocked = options?.voteLocked ?? false;
@@ -164,6 +178,10 @@ export class TitleBadge {
       window.cancelAnimationFrame(this.positionFrame);
       this.positionFrame = null;
     }
+    if (this.openFrame !== null) {
+      window.cancelAnimationFrame(this.openFrame);
+      this.openFrame = null;
+    }
     const host = this.root.parentElement as HTMLElement | null;
     this.root.remove();
     cleanupVideoTitleAccessoryHost(host);
@@ -173,6 +191,9 @@ export class TitleBadge {
 
   private applyAppearance(segment: SegmentRecord): void {
     const style = resolveCategoryStyle(segment.category, this.categoryColorOverrides);
+    const glassVariant = this.transparencyEnabled ? style.transparentVariant : "dark";
+    const transparentContrast = "#0f172a";
+    const transparentSurface = style.glassSurface;
     this.votingAvailable =
       segment.actionType === "full" &&
       segment.UUID.length > 0 &&
@@ -181,17 +202,24 @@ export class TitleBadge {
     this.localActionsAvailable = segment.UUID.startsWith("local-signal:");
 
     this.root.dataset.category = segment.category;
+    this.root.dataset.transparent = String(this.transparencyEnabled);
+    this.root.dataset.glassContext = "surface";
+    this.root.dataset.glassVariant = glassVariant;
     this.root.style.setProperty("--bsb-category-accent", style.accent);
     this.root.style.setProperty("--bsb-category-accent-strong", style.accentStrong);
-    this.root.style.setProperty("--bsb-category-contrast", style.contrast);
+    this.root.style.setProperty("--bsb-category-display-accent", style.transparentDisplayAccent);
+    this.root.style.setProperty(
+      "--bsb-category-contrast",
+      this.transparencyEnabled ? transparentContrast : style.contrast
+    );
     this.root.style.setProperty("--bsb-category-soft-surface", style.softSurface);
     this.root.style.setProperty("--bsb-category-soft-border", style.softBorder);
-    this.root.style.setProperty("--bsb-category-glass-surface", style.glassSurface);
+    this.root.style.setProperty("--bsb-category-glass-surface", this.transparencyEnabled ? transparentSurface : style.glassSurface);
     this.root.style.setProperty("--bsb-category-glass-border", style.glassBorder);
     this.titleText.textContent = CATEGORY_LABELS[segment.category];
     this.description.textContent = resolveCopy(segment, this.votingAvailable);
-    this.upvoteButton.disabled = !this.localActionsAvailable && (!this.votingAvailable || this.voteLocked);
-    this.downvoteButton.disabled = !this.localActionsAvailable && (!this.votingAvailable || this.voteLocked);
+    this.upvoteButton.disabled = this.voteLocked || (!this.localActionsAvailable && !this.votingAvailable);
+    this.downvoteButton.disabled = this.voteLocked || (!this.localActionsAvailable && !this.votingAvailable);
     this.upvoteButton.hidden = false;
     this.downvoteButton.hidden = false;
     this.upvoteButton.title = this.votingAvailable
@@ -199,23 +227,29 @@ export class TitleBadge {
         ? "这条整视频标签的反馈已提交"
         : "把这条整视频标签标记为正确"
       : this.localActionsAvailable
-        ? "把这条本地标签记为可信，并在后续继续保留"
+        ? this.voteLocked
+          ? "本地反馈已提交，当前视频不可重复操作"
+          : "把这条本地标签记为可信，并在后续继续保留"
         : "当前没有可直接反馈的 SponsorBlock 投票记录";
     this.downvoteButton.title = this.votingAvailable
       ? this.voteLocked
         ? "这条整视频标签的反馈已提交"
         : "把这条整视频标签标记为有误"
       : this.localActionsAvailable
-        ? "忽略这条本地标签，并停止继续提示当前视频"
+        ? this.voteLocked
+          ? "本地反馈已提交，当前视频不可重复操作"
+          : "忽略这条本地标签，并停止继续提示当前视频"
         : "当前没有可直接反馈的 SponsorBlock 投票记录";
     this.upvoteButton.lastChild && (this.upvoteButton.lastChild.textContent = this.votingAvailable ? "标记正确" : this.localActionsAvailable ? "保留本地标签" : "标记正确");
     this.downvoteButton.lastChild && (this.downvoteButton.lastChild.textContent = this.votingAvailable ? "标记有误" : this.localActionsAvailable ? "忽略此视频" : "标记有误");
     this.feedbackHint.hidden = this.votingAvailable && !this.localActionsAvailable && !this.voteLocked;
     this.feedbackHint.textContent = this.localActionsAvailable
-      ? "这条提示来自本地评论或页面线索。你可以保留它，也可以忽略并阻止当前视频继续触发本地提示。"
+      ? this.voteLocked
+        ? LOCAL_LOCKED_COPY
+        : "这条提示来自本地评论或页面线索。你可以保留它，也可以忽略并阻止当前视频继续触发本地提示。提交后当前视频不可重复反馈。"
       : this.voteLocked
         ? LOCKED_COPY
-      : "这条标签目前只有整视频标签结果，没有可直接投票的 SponsorBlock UUID。";
+      : "这条标签目前只有整视频标签接口结果，没有可直接投票的 SponsorBlock UUID。";
     this.actions.classList.toggle("vote-unavailable", !this.votingAvailable);
     this.pillButton.setAttribute(
       "aria-label",
@@ -224,7 +258,9 @@ export class TitleBadge {
           ? `${CATEGORY_LABELS[segment.category]}，点击查看说明，反馈已提交`
           : `${CATEGORY_LABELS[segment.category]}，点击查看说明和反馈按钮`
         : this.localActionsAvailable
-          ? `${CATEGORY_LABELS[segment.category]}，点击查看本地学习按钮`
+          ? this.voteLocked
+            ? `${CATEGORY_LABELS[segment.category]}，点击查看本地学习说明，反馈已提交`
+            : `${CATEGORY_LABELS[segment.category]}，点击查看本地学习按钮`
           : `${CATEGORY_LABELS[segment.category]}，点击查看说明和不可用反馈按钮`
     );
   }
@@ -236,8 +272,12 @@ export class TitleBadge {
     }
 
     if (this.mountedHost !== host || this.root.parentElement !== host) {
+      const previousHost = this.mountedHost;
       host.append(this.root);
       this.mountedHost = host;
+      if (previousHost && previousHost !== host) {
+        cleanupVideoTitleAccessoryHost(previousHost);
+      }
     }
   }
 
@@ -263,7 +303,14 @@ export class TitleBadge {
     this.pillButton.setAttribute("aria-expanded", "true");
     this.popover.hidden = false;
     this.schedulePopoverPosition();
-    requestAnimationFrame(() => {
+    if (this.openFrame !== null) {
+      window.cancelAnimationFrame(this.openFrame);
+    }
+    this.openFrame = window.requestAnimationFrame(() => {
+      this.openFrame = null;
+      if (!this.isOpen || this.popover.hidden) {
+        return;
+      }
       this.popover.classList.add("open");
     });
     this.attachPopoverListeners();
@@ -271,6 +318,10 @@ export class TitleBadge {
 
   private closePopover(): void {
     this.isOpen = false;
+    if (this.openFrame !== null) {
+      window.cancelAnimationFrame(this.openFrame);
+      this.openFrame = null;
+    }
     this.pillButton.setAttribute("aria-expanded", "false");
     this.popover.classList.remove("open");
     this.detachPopoverListeners();
@@ -347,20 +398,25 @@ export class TitleBadge {
   }
 
   private async handleVote(type: TitleBadgeVoteType): Promise<void> {
-    if (!this.currentSegment || (this.voteLocked && this.votingAvailable)) {
+    if (!this.currentSegment || this.voteLocked) {
       return;
     }
 
+    const segment = this.currentSegment;
     this.setBusy(true);
     try {
       if (this.votingAvailable) {
-        const result = await this.callbacks.onVote(this.currentSegment, type);
+        const result = await this.callbacks.onVote(segment, type);
         if (result !== "error") {
           this.voteLocked = true;
-          this.applyAppearance(this.currentSegment);
+          this.applyAppearance(segment);
         }
       } else if (this.localActionsAvailable) {
-        await this.callbacks.onLocalDecision(this.currentSegment, type === 1 ? "confirm" : "dismiss");
+        await this.callbacks.onLocalDecision(segment, type === 1 ? "confirm" : "dismiss");
+        if (this.currentSegment === segment) {
+          this.voteLocked = true;
+          this.applyAppearance(segment);
+        }
       } else {
         return;
       }
@@ -373,7 +429,7 @@ export class TitleBadge {
   private setBusy(busy: boolean): void {
     for (const button of [this.upvoteButton, this.downvoteButton, this.settingsButton]) {
       if (button === this.upvoteButton || button === this.downvoteButton) {
-        button.disabled = busy || (this.localActionsAvailable ? false : !this.votingAvailable || this.voteLocked);
+        button.disabled = busy || this.voteLocked || (!this.localActionsAvailable && !this.votingAvailable);
       } else {
         button.disabled = busy;
       }

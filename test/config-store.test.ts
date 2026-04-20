@@ -1,8 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_DYNAMIC_REGEX_PATTERN } from "../src/constants";
-import { normalizeConfig } from "../src/core/config-store";
+import { ConfigStore, StatsStore, normalizeConfig } from "../src/core/config-store";
 
 describe("config normalization", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("fills dynamic and comment filter defaults", () => {
     const config = normalizeConfig(null);
     expect(config.dynamicFilterMode).toBe("off");
@@ -13,6 +17,13 @@ describe("config normalization", () => {
     expect(config.showPreviewBar).toBe(true);
     expect(config.compactVideoHeader).toBe(true);
     expect(config.thumbnailLabelMode).toBe("overlay");
+    expect(config.labelTransparency).toEqual({
+      titleBadge: false,
+      thumbnailLabel: false,
+      commentBadge: false,
+      commentLocation: false,
+      dynamicBadge: false
+    });
   });
 
   it("clamps dynamic regex match count and accepts new modes", () => {
@@ -71,5 +82,86 @@ describe("config normalization", () => {
     expect(config.categoryColorOverrides.sponsor).toBe("#ff4444");
     expect(config.categoryColorOverrides.selfpromo).toBeUndefined();
     expect(config.categoryColorOverrides.exclusive_access).toBe("#228b5d");
+  });
+
+  it("notifies listeners immediately before config persistence resolves", async () => {
+    vi.stubGlobal("GM_getValue", vi.fn(async (_key, fallback) => fallback));
+    let resolveSave: (() => void) | null = null;
+    vi.stubGlobal(
+      "GM_setValue",
+      vi.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveSave = resolve;
+          })
+      )
+    );
+
+    const store = new ConfigStore();
+    await store.load();
+
+    const states: boolean[] = [];
+    store.subscribe((config) => {
+      states.push(config.compactVideoHeader);
+    });
+
+    const pending = store.update((config) => ({
+      ...config,
+      compactVideoHeader: false
+    }));
+
+    expect(store.getSnapshot().compactVideoHeader).toBe(false);
+    expect(states).toEqual([false]);
+
+    const finishSave = resolveSave as (() => void) | null;
+    if (finishSave) {
+      finishSave();
+    }
+    await pending;
+  });
+
+  it("rolls config back when persistence fails", async () => {
+    vi.stubGlobal("GM_getValue", vi.fn(async (_key, fallback) => fallback));
+    vi.stubGlobal("GM_setValue", vi.fn(async () => {
+      throw new Error("save failed");
+    }));
+
+    const store = new ConfigStore();
+    await store.load();
+
+    const states: boolean[] = [];
+    store.subscribe((config) => {
+      states.push(config.compactVideoHeader);
+    });
+
+    await expect(
+      store.update((config) => ({
+        ...config,
+        compactVideoHeader: false
+      }))
+    ).rejects.toThrow("save failed");
+
+    expect(store.getSnapshot().compactVideoHeader).toBe(true);
+    expect(states).toEqual([false, true]);
+  });
+
+  it("rolls stats back when persistence fails", async () => {
+    vi.stubGlobal("GM_getValue", vi.fn(async (_key, fallback) => fallback));
+    vi.stubGlobal("GM_setValue", vi.fn(async () => {
+      throw new Error("stats save failed");
+    }));
+
+    const store = new StatsStore();
+    await store.load();
+
+    const states: number[] = [];
+    store.subscribe((stats) => {
+      states.push(stats.skipCount);
+    });
+
+    await expect(store.patch({ skipCount: 1 })).rejects.toThrow("stats save failed");
+
+    expect(store.getSnapshot().skipCount).toBe(0);
+    expect(states).toEqual([1, 0]);
   });
 });

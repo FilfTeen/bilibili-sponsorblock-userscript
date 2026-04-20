@@ -1,10 +1,10 @@
 {
-  "name": "bilibili-sponsorblock-userscript",
-  "version": "0.3.6",
+  "name": "bilibili-qol-core-userscript",
+  "version": "0.3.7",
   "private": true,
   "type": "module",
   "license": "GPL-3.0-only",
-  "description": "Tampermonkey userscript port of the core BilibiliSponsorBlock experience.",
+  "description": "Local-first Bilibili quality-of-life userscript with SponsorBlock segments, video labels, local reasoning, MBGA cleanup, and low-intrusion UI.",
   "repository": {
     "type": "git",
     "url": "https://github.com/FilfTeen/bilibili-sponsorblock-userscript.git"
@@ -13,6 +13,8 @@
     "build": "node ./scripts/build.mjs",
     "capture:bilibili": "BSB_SMOKE_CAPTURE_DIR=output/playwright node ./scripts/smoke-bilibili.mjs",
     "check": "tsc --noEmit",
+    "evaluate:recognition": "node ./scripts/evaluate-recognition.mjs",
+    "investigate:safari-player": "python3 ./scripts/safari-investigate-player-overlay.py",
     "smoke:bilibili": "node ./scripts/smoke-bilibili.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
