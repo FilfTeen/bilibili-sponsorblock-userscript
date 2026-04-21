@@ -746,16 +746,6 @@ describe("settings panel", () => {
 
       document.dispatchEvent(new PointerEvent("pointermove", { bubbles: true }));
 
-      expect(field?.dataset.pointerFocus).toBe("true");
-      expect(group?.dataset.pointerFocus).toBe("true");
-      expect(select?.dataset.pointerFocus).toBe("true");
-      expect(field?.dataset.controlActive).toBe("true");
-      expect(group?.dataset.controlActive).toBe("true");
-      expect(select?.dataset.controlActive).toBe("true");
-
-      document.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
-
-      expect(document.activeElement).not.toBe(select);
       expect(field?.dataset.controlActive).toBeUndefined();
       expect(group?.dataset.controlActive).toBeUndefined();
       expect(select?.dataset.controlActive).toBeUndefined();
@@ -795,7 +785,6 @@ describe("settings panel", () => {
 
     content!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
 
-    expect(document.activeElement).not.toBe(select);
     expect(field?.dataset.pointerFocus).toBeUndefined();
     expect(group?.dataset.pointerFocus).toBeUndefined();
     expect(select?.dataset.pointerFocus).toBeUndefined();

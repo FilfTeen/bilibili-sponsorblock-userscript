@@ -3811,6 +3811,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       let focusGuardTimer = null;
       let windowFocusClearArmed = false;
       let nativeSelectClosePointerArmed = false;
+      let nativeSelectClosePointerStart = 0;
       const getGroup = () => container.closest(".bsb-tm-form-group");
       const isInsideControl = (event) => event.target instanceof Node && control.contains(event.target);
       const clearNativeSelectClosePointer = () => {
@@ -3820,6 +3821,8 @@ ${inlineSurfaceFrostedGlass.overlay}
         document.removeEventListener("pointerdown", handleNativeSelectClosePointer);
         document.removeEventListener("mousedown", handleNativeSelectClosePointer);
         document.removeEventListener("click", handleNativeSelectClosePointer);
+        document.removeEventListener("pointermove", handleNativeSelectClosePointer);
+        document.removeEventListener("mousemove", handleNativeSelectClosePointer);
         nativeSelectClosePointerArmed = false;
       };
       const clearActiveVisual = () => {
@@ -3847,9 +3850,12 @@ ${inlineSurfaceFrostedGlass.overlay}
           return;
         }
         nativeSelectClosePointerArmed = true;
+        nativeSelectClosePointerStart = Date.now();
         document.addEventListener("pointerdown", handleNativeSelectClosePointer);
         document.addEventListener("mousedown", handleNativeSelectClosePointer);
         document.addEventListener("click", handleNativeSelectClosePointer);
+        document.addEventListener("pointermove", handleNativeSelectClosePointer);
+        document.addEventListener("mousemove", handleNativeSelectClosePointer);
       };
       const markActiveVisual = () => {
         container.dataset.controlActive = "true";
@@ -3914,7 +3920,7 @@ ${inlineSurfaceFrostedGlass.overlay}
         windowFocusClearArmed = false;
         window.setTimeout(() => {
           if (control.dataset.controlActive === "true") {
-            clearActiveControl();
+            clearPointerFocus();
           }
         }, 0);
       }
@@ -3922,8 +3928,11 @@ ${inlineSurfaceFrostedGlass.overlay}
         if (isInsideControl(event)) {
           return;
         }
+        if ((event.type === "pointermove" || event.type === "mousemove") && Date.now() - nativeSelectClosePointerStart < 300) {
+          return;
+        }
         if (control.dataset.controlActive === "true") {
-          clearActiveControl();
+          clearPointerFocus();
         }
       }
       container.addEventListener("pointerdown", markPointerFocus);
