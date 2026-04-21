@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili QoL Core
 // @namespace    https://github.com/FilfTeen/bilibili-qol-core-userscript
-// @version      0.3.9
+// @version      0.3.10
 // @description  Local-first quality-of-life toolkit for Bilibili: SponsorBlock segments, labels, comment/dynamic signals, MBGA cleanup, and low-intrusion UI.
 // @author       Hush_
 // @license      GPL-3.0-only
@@ -213,7 +213,7 @@
   var PRODUCT_NAME = "Bilibili QoL Core";
   var SCRIPT_NAME = PRODUCT_NAME;
   var AUTHOR_NAME = "Hush_";
-  var SCRIPT_VERSION = "0.3.9".trim().length > 0 ? "0.3.9" : "0.3.9";
+  var SCRIPT_VERSION = "0.3.10".trim().length > 0 ? "0.3.10" : "0.3.10";
   var CONFIG_STORAGE_KEY = "bsb_tm_config_v1";
   var STATS_STORAGE_KEY = "bsb_tm_stats_v1";
   var CACHE_STORAGE_KEY = "bsb_tm_cache_v1";
@@ -1094,6 +1094,19 @@
   function cleanString(input) {
     return input.replace(/<[^>]*>/gu, "").replace(/\s+/gu, " ").trim().slice(0, 1200);
   }
+  function sanitizeDiagnosticPageUrl(input) {
+    var _a;
+    try {
+      const url = new URL(input);
+      if (url.protocol !== "http:" && url.protocol !== "https:") {
+        throw new Error("unsupported diagnostic URL protocol");
+      }
+      return cleanString(`${url.origin}${url.pathname}`);
+    } catch (_error) {
+      const withoutQueryOrHash = (_a = input.split(/[?#]/u, 1)[0]) != null ? _a : "";
+      return cleanString(withoutQueryOrHash);
+    }
+  }
   function sanitizeValue(key, value) {
     if (SENSITIVE_KEY_PATTERN.test(key)) {
       return "[redacted]";
@@ -1214,7 +1227,7 @@
       `Version: ${SCRIPT_VERSION}`,
       `Generated: ${(/* @__PURE__ */ new Date()).toISOString()}`,
       `Debug: ${isDiagnosticDebugEnabled() ? "enabled" : "disabled"}`,
-      `Page: ${cleanString(window.location.href)}`,
+      `Page: ${sanitizeDiagnosticPageUrl(window.location.href)}`,
       `UserAgent: ${cleanString(navigator.userAgent)}`,
       `Events: ${diagnosticEvents.length}`
     ];

@@ -2,7 +2,7 @@
 
 ## 工程目标
 
-Bilibili QoL Core v0.3.9 是运行在 Tampermonkey 中的 Bilibili 增强 userscript。`v0.3.9` 延续 `v0.3.8` 的仓库迁移基线，并补修 QoL Core 控制台的 pointer focus 与诊断交互问题。技术目标：
+Bilibili QoL Core v0.3.10 是运行在 Tampermonkey 中的 Bilibili 增强 userscript。`v0.3.10` 延续控制台交互补丁基线，并修复诊断报告 URL 脱敏和 tag 构建版本规范化问题。技术目标：
 
 - 在 Safari 上稳定复现 SponsorBlock 核心体验。
 - 用低侵入方式增强视频页、评论区、动态页和缩略图卡片。
