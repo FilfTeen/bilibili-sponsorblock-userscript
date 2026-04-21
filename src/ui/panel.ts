@@ -1059,6 +1059,9 @@ export class SettingsPanel {
       if (!nativeSelectClosePointerArmed) {
         return;
       }
+      document.removeEventListener("pointerdown", handleNativeSelectClosePointer);
+      document.removeEventListener("mousedown", handleNativeSelectClosePointer);
+      document.removeEventListener("click", handleNativeSelectClosePointer);
       document.removeEventListener("pointermove", handleNativeSelectClosePointer);
       document.removeEventListener("mousemove", handleNativeSelectClosePointer);
       nativeSelectClosePointerArmed = false;
@@ -1089,6 +1092,9 @@ export class SettingsPanel {
       }
       nativeSelectClosePointerArmed = true;
       nativeSelectClosePointerStart = Date.now();
+      document.addEventListener("pointerdown", handleNativeSelectClosePointer);
+      document.addEventListener("mousedown", handleNativeSelectClosePointer);
+      document.addEventListener("click", handleNativeSelectClosePointer);
       document.addEventListener("pointermove", handleNativeSelectClosePointer);
       document.addEventListener("mousemove", handleNativeSelectClosePointer);
     };
@@ -1158,8 +1164,11 @@ export class SettingsPanel {
         }
       }, 0);
     }
-    function handleNativeSelectClosePointer() {
-      if (Date.now() - nativeSelectClosePointerStart < 300) {
+    function handleNativeSelectClosePointer(event: Event) {
+      if (isInsideControl(event)) {
+        return;
+      }
+      if ((event.type === "pointermove" || event.type === "mousemove") && Date.now() - nativeSelectClosePointerStart < 300) {
         return;
       }
       if (control.dataset.controlActive === "true") {

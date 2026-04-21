@@ -651,6 +651,45 @@ describe("settings panel", () => {
     }
   });
 
+  it("clears pointer select active visuals when blank panel space closes the select", () => {
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig: vi.fn(async () => {}),
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const field = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-field.stacked")).find((candidate) =>
+      candidate.textContent?.includes("首页 / 列表卡片标签")
+    );
+    const group = field?.closest<HTMLElement>(".bsb-tm-form-group");
+    const select = field?.querySelector<HTMLSelectElement>("select");
+    const content = document.querySelector<HTMLElement>(".bsb-tm-panel-content");
+    expect(field).toBeTruthy();
+    expect(group).toBeTruthy();
+    expect(select).toBeTruthy();
+    expect(content).toBeTruthy();
+
+    select!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    select!.focus();
+
+    expect(field?.dataset.controlActive).toBe("true");
+    expect(group?.dataset.controlActive).toBe("true");
+    expect(select?.dataset.controlActive).toBe("true");
+
+    content!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+
+    expect(field?.dataset.pointerFocus).toBeUndefined();
+    expect(group?.dataset.pointerFocus).toBeUndefined();
+    expect(select?.dataset.pointerFocus).toBeUndefined();
+    expect(field?.dataset.controlActive).toBeUndefined();
+    expect(group?.dataset.controlActive).toBeUndefined();
+    expect(select?.dataset.controlActive).toBeUndefined();
+  });
+
   it("clears pointer select active visuals when Escape closes the select", () => {
     const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
       onPatchConfig: vi.fn(async () => {}),
