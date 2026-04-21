@@ -466,12 +466,9 @@ export class SettingsPanel {
         select.appendChild(option);
       }
       let pointerDrivenSelection = false;
-      select.addEventListener("pointerdown", () => {
-        pointerDrivenSelection = true;
-      });
       this.bindPointerFocusSuppression(row, select, {
-        activeVisualMs: 900,
-        onPointerFocus: () => {
+        activateControlOnPointer: true,
+        onControlPointerFocus: () => {
           pointerDrivenSelection = true;
         }
       });
@@ -1049,15 +1046,15 @@ export class SettingsPanel {
   private bindPointerFocusSuppression(
     container: HTMLElement,
     control: HTMLElement,
-    options?: { activeVisualMs?: number; onPointerFocus?: () => void }
+    options?: { activateControlOnPointer?: boolean; onControlPointerFocus?: () => void; onPointerFocus?: () => void }
   ): void {
-    let activeVisualTimer: number | null = null;
     let focusGuardTimer: number | null = null;
+    let windowFocusClearArmed = false;
     const getGroup = (): HTMLElement | null => container.closest<HTMLElement>(".bsb-tm-form-group");
     const clearActiveVisual = () => {
-      if (activeVisualTimer !== null) {
-        window.clearTimeout(activeVisualTimer);
-        activeVisualTimer = null;
+      if (windowFocusClearArmed) {
+        window.removeEventListener("focus", handleWindowFocus);
+        windowFocusClearArmed = false;
       }
       delete container.dataset.controlActive;
       delete control.dataset.controlActive;
@@ -1066,7 +1063,23 @@ export class SettingsPanel {
         delete group.dataset.controlActive;
       }
     };
-    const markPointerFocus = () => {
+    const armWindowFocusClear = () => {
+      if (windowFocusClearArmed) {
+        return;
+      }
+      windowFocusClearArmed = true;
+      window.addEventListener("focus", handleWindowFocus);
+    };
+    const markActiveVisual = () => {
+      container.dataset.controlActive = "true";
+      control.dataset.controlActive = "true";
+      const group = getGroup();
+      if (group) {
+        group.dataset.controlActive = "true";
+      }
+      armWindowFocusClear();
+    };
+    const markPointerFocus = (event: Event) => {
       options?.onPointerFocus?.();
       container.dataset.pointerFocus = "true";
       control.dataset.pointerFocus = "true";
@@ -1074,16 +1087,9 @@ export class SettingsPanel {
       if (group) {
         group.dataset.pointerFocus = "true";
       }
-      if (options?.activeVisualMs !== undefined) {
-        container.dataset.controlActive = "true";
-        control.dataset.controlActive = "true";
-        if (group) {
-          group.dataset.controlActive = "true";
-        }
-        if (activeVisualTimer !== null) {
-          window.clearTimeout(activeVisualTimer);
-        }
-        activeVisualTimer = window.setTimeout(clearActiveVisual, options.activeVisualMs);
+      if (options?.activateControlOnPointer && event.currentTarget === control) {
+        options.onControlPointerFocus?.();
+        markActiveVisual();
       }
       if (focusGuardTimer !== null) {
         window.clearTimeout(focusGuardTimer);
@@ -1108,10 +1114,30 @@ export class SettingsPanel {
         delete group.dataset.pointerFocus;
       }
     };
+    const clearActiveControl = () => {
+      clearPointerFocus();
+      if (document.activeElement === control) {
+        control.blur();
+      }
+    };
+    function handleWindowFocus() {
+      window.removeEventListener("focus", handleWindowFocus);
+      windowFocusClearArmed = false;
+      window.setTimeout(() => {
+        if (control.dataset.controlActive === "true") {
+          clearPointerFocus();
+        }
+      }, 0);
+    }
     container.addEventListener("pointerdown", markPointerFocus);
     container.addEventListener("mousedown", markPointerFocus);
     control.addEventListener("pointerdown", markPointerFocus);
     control.addEventListener("mousedown", markPointerFocus);
+    control.addEventListener("keydown", (event) => {
+      if (options?.activateControlOnPointer && event.key === "Escape") {
+        clearActiveControl();
+      }
+    });
     control.addEventListener("blur", clearPointerFocus);
   }
 
@@ -1281,12 +1307,9 @@ export class SettingsPanel {
       select.appendChild(option);
     }
     let pointerDrivenSelection = false;
-    select.addEventListener("pointerdown", () => {
-      pointerDrivenSelection = true;
-    });
     this.bindPointerFocusSuppression(wrapper, select, {
-      activeVisualMs: 900,
-      onPointerFocus: () => {
+      activateControlOnPointer: true,
+      onControlPointerFocus: () => {
         pointerDrivenSelection = true;
       }
     });

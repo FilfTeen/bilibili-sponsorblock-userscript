@@ -3260,12 +3260,9 @@ ${inlineSurfaceFrostedGlass.overlay}
           select.appendChild(option);
         }
         let pointerDrivenSelection = false;
-        select.addEventListener("pointerdown", () => {
-          pointerDrivenSelection = true;
-        });
         this.bindPointerFocusSuppression(row, select, {
-          activeVisualMs: 900,
-          onPointerFocus: () => {
+          activateControlOnPointer: true,
+          onControlPointerFocus: () => {
             pointerDrivenSelection = true;
           }
         });
@@ -3810,13 +3807,13 @@ ${inlineSurfaceFrostedGlass.overlay}
       return button;
     }
     bindPointerFocusSuppression(container, control, options) {
-      let activeVisualTimer = null;
       let focusGuardTimer = null;
+      let windowFocusClearArmed = false;
       const getGroup = () => container.closest(".bsb-tm-form-group");
       const clearActiveVisual = () => {
-        if (activeVisualTimer !== null) {
-          window.clearTimeout(activeVisualTimer);
-          activeVisualTimer = null;
+        if (windowFocusClearArmed) {
+          window.removeEventListener("focus", handleWindowFocus);
+          windowFocusClearArmed = false;
         }
         delete container.dataset.controlActive;
         delete control.dataset.controlActive;
@@ -3825,8 +3822,24 @@ ${inlineSurfaceFrostedGlass.overlay}
           delete group.dataset.controlActive;
         }
       };
-      const markPointerFocus = () => {
-        var _a;
+      const armWindowFocusClear = () => {
+        if (windowFocusClearArmed) {
+          return;
+        }
+        windowFocusClearArmed = true;
+        window.addEventListener("focus", handleWindowFocus);
+      };
+      const markActiveVisual = () => {
+        container.dataset.controlActive = "true";
+        control.dataset.controlActive = "true";
+        const group = getGroup();
+        if (group) {
+          group.dataset.controlActive = "true";
+        }
+        armWindowFocusClear();
+      };
+      const markPointerFocus = (event) => {
+        var _a, _b;
         (_a = options == null ? void 0 : options.onPointerFocus) == null ? void 0 : _a.call(options);
         container.dataset.pointerFocus = "true";
         control.dataset.pointerFocus = "true";
@@ -3834,16 +3847,9 @@ ${inlineSurfaceFrostedGlass.overlay}
         if (group) {
           group.dataset.pointerFocus = "true";
         }
-        if ((options == null ? void 0 : options.activeVisualMs) !== void 0) {
-          container.dataset.controlActive = "true";
-          control.dataset.controlActive = "true";
-          if (group) {
-            group.dataset.controlActive = "true";
-          }
-          if (activeVisualTimer !== null) {
-            window.clearTimeout(activeVisualTimer);
-          }
-          activeVisualTimer = window.setTimeout(clearActiveVisual, options.activeVisualMs);
+        if ((options == null ? void 0 : options.activateControlOnPointer) && event.currentTarget === control) {
+          (_b = options.onControlPointerFocus) == null ? void 0 : _b.call(options);
+          markActiveVisual();
         }
         if (focusGuardTimer !== null) {
           window.clearTimeout(focusGuardTimer);
@@ -3868,10 +3874,30 @@ ${inlineSurfaceFrostedGlass.overlay}
           delete group.dataset.pointerFocus;
         }
       };
+      const clearActiveControl = () => {
+        clearPointerFocus();
+        if (document.activeElement === control) {
+          control.blur();
+        }
+      };
+      function handleWindowFocus() {
+        window.removeEventListener("focus", handleWindowFocus);
+        windowFocusClearArmed = false;
+        window.setTimeout(() => {
+          if (control.dataset.controlActive === "true") {
+            clearPointerFocus();
+          }
+        }, 0);
+      }
       container.addEventListener("pointerdown", markPointerFocus);
       container.addEventListener("mousedown", markPointerFocus);
       control.addEventListener("pointerdown", markPointerFocus);
       control.addEventListener("mousedown", markPointerFocus);
+      control.addEventListener("keydown", (event) => {
+        if ((options == null ? void 0 : options.activateControlOnPointer) && event.key === "Escape") {
+          clearActiveControl();
+        }
+      });
       control.addEventListener("blur", clearPointerFocus);
     }
     createCheckbox(labelText, helpText, checked, onChange, needsRefresh = false) {
@@ -4006,12 +4032,9 @@ ${inlineSurfaceFrostedGlass.overlay}
         select.appendChild(option);
       }
       let pointerDrivenSelection = false;
-      select.addEventListener("pointerdown", () => {
-        pointerDrivenSelection = true;
-      });
       this.bindPointerFocusSuppression(wrapper, select, {
-        activeVisualMs: 900,
-        onPointerFocus: () => {
+        activateControlOnPointer: true,
+        onControlPointerFocus: () => {
           pointerDrivenSelection = true;
         }
       });

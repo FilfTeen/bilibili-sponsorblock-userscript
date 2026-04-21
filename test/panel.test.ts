@@ -497,9 +497,9 @@ describe("settings panel", () => {
     expect(field?.dataset.pointerFocus).toBe("true");
     expect(select?.dataset.pointerFocus).toBe("true");
     expect(group?.dataset.pointerFocus).toBe("true");
-    expect(field?.dataset.controlActive).toBe("true");
-    expect(select?.dataset.controlActive).toBe("true");
-    expect(group?.dataset.controlActive).toBe("true");
+    expect(field?.dataset.controlActive).toBeUndefined();
+    expect(select?.dataset.controlActive).toBeUndefined();
+    expect(group?.dataset.controlActive).toBeUndefined();
 
     select!.blur();
 
@@ -511,7 +511,47 @@ describe("settings panel", () => {
     expect(group?.dataset.controlActive).toBeUndefined();
   });
 
-  it("expires same-value pointer select active visuals without a change event", () => {
+  it("uses click-selected visuals only when the pointer lands on the real select control", () => {
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig: vi.fn(async () => {}),
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const field = Array.from(document.querySelectorAll<HTMLLabelElement>(".bsb-tm-field.stacked")).find((candidate) =>
+      candidate.textContent?.includes("首页 / 列表卡片标签")
+    );
+    const group = field?.closest<HTMLElement>(".bsb-tm-form-group");
+    const select = field?.querySelector<HTMLSelectElement>("select");
+    expect(field).toBeTruthy();
+    expect(group).toBeTruthy();
+    expect(select).toBeTruthy();
+
+    select!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    select!.focus();
+
+    expect(field?.dataset.pointerFocus).toBe("true");
+    expect(group?.dataset.pointerFocus).toBe("true");
+    expect(select?.dataset.pointerFocus).toBe("true");
+    expect(field?.dataset.controlActive).toBe("true");
+    expect(group?.dataset.controlActive).toBe("true");
+    expect(select?.dataset.controlActive).toBe("true");
+
+    select!.blur();
+
+    expect(field?.dataset.pointerFocus).toBeUndefined();
+    expect(group?.dataset.pointerFocus).toBeUndefined();
+    expect(select?.dataset.pointerFocus).toBeUndefined();
+    expect(field?.dataset.controlActive).toBeUndefined();
+    expect(group?.dataset.controlActive).toBeUndefined();
+    expect(select?.dataset.controlActive).toBeUndefined();
+  });
+
+  it("keeps same-value pointer select active visuals until the select closes", () => {
     vi.useFakeTimers();
     try {
       const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
@@ -533,7 +573,7 @@ describe("settings panel", () => {
       expect(group).toBeTruthy();
       expect(select).toBeTruthy();
 
-      field!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      select!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
       select!.focus();
       select!.value = select!.value;
       select!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
@@ -545,17 +585,56 @@ describe("settings panel", () => {
       expect(group?.dataset.controlActive).toBe("true");
       expect(select?.dataset.controlActive).toBe("true");
 
-      vi.advanceTimersByTime(901);
+      vi.advanceTimersByTime(5000);
 
       expect(field?.dataset.pointerFocus).toBe("true");
       expect(group?.dataset.pointerFocus).toBe("true");
       expect(select?.dataset.pointerFocus).toBe("true");
+      expect(field?.dataset.controlActive).toBe("true");
+      expect(group?.dataset.controlActive).toBe("true");
+      expect(select?.dataset.controlActive).toBe("true");
+
+      select!.blur();
+
       expect(field?.dataset.controlActive).toBeUndefined();
       expect(group?.dataset.controlActive).toBeUndefined();
       expect(select?.dataset.controlActive).toBeUndefined();
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("clears pointer select active visuals when Escape closes the select", () => {
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig: vi.fn(async () => {}),
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const field = Array.from(document.querySelectorAll<HTMLLabelElement>(".bsb-tm-field.stacked")).find((candidate) =>
+      candidate.textContent?.includes("首页 / 列表卡片标签")
+    );
+    const group = field?.closest<HTMLElement>(".bsb-tm-form-group");
+    const select = field?.querySelector<HTMLSelectElement>("select");
+    expect(field).toBeTruthy();
+    expect(group).toBeTruthy();
+    expect(select).toBeTruthy();
+
+    select!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    select!.focus();
+    select!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+
+    expect(document.activeElement).not.toBe(select);
+    expect(field?.dataset.pointerFocus).toBeUndefined();
+    expect(group?.dataset.pointerFocus).toBeUndefined();
+    expect(select?.dataset.pointerFocus).toBeUndefined();
+    expect(field?.dataset.controlActive).toBeUndefined();
+    expect(group?.dataset.controlActive).toBeUndefined();
+    expect(select?.dataset.controlActive).toBeUndefined();
   });
 
   it("blurs pointer-origin checkbox changes because toggles have no editing state", async () => {
@@ -617,7 +696,7 @@ describe("settings panel", () => {
     expect(field).toBeTruthy();
     expect(select).toBeTruthy();
 
-    field!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    select!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
     select!.focus();
     select!.value = "off";
     select!.dispatchEvent(new Event("change", { bubbles: true }));
@@ -632,6 +711,8 @@ describe("settings panel", () => {
     expect(document.activeElement).not.toBe(select);
     expect(field?.dataset.pointerFocus).toBeUndefined();
     expect(field?.dataset.controlActive).toBeUndefined();
+    expect(select?.dataset.pointerFocus).toBeUndefined();
+    expect(select?.dataset.controlActive).toBeUndefined();
     expect(field?.querySelector<HTMLSelectElement>("select")).toBe(select);
   });
 
