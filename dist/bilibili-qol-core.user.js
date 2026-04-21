@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili QoL Core
 // @namespace    https://github.com/FilfTeen/bilibili-qol-core-userscript
-// @version      0.3.8
+// @version      0.3.9
 // @description  Local-first quality-of-life toolkit for Bilibili: SponsorBlock segments, labels, comment/dynamic signals, MBGA cleanup, and low-intrusion UI.
 // @author       Hush_
 // @license      GPL-3.0-only
@@ -213,7 +213,7 @@
   var PRODUCT_NAME = "Bilibili QoL Core";
   var SCRIPT_NAME = PRODUCT_NAME;
   var AUTHOR_NAME = "Hush_";
-  var SCRIPT_VERSION = "0.3.8".trim().length > 0 ? "0.3.8" : "0.3.8";
+  var SCRIPT_VERSION = "0.3.9".trim().length > 0 ? "0.3.9" : "0.3.9";
   var CONFIG_STORAGE_KEY = "bsb_tm_config_v1";
   var STATS_STORAGE_KEY = "bsb_tm_stats_v1";
   var CACHE_STORAGE_KEY = "bsb_tm_cache_v1";
@@ -3262,7 +3262,11 @@ ${inlineSurfaceFrostedGlass.overlay}
         select.addEventListener("pointerdown", () => {
           pointerDrivenSelection = true;
         });
-        this.bindPointerFocusSuppression(row, select);
+        this.bindPointerFocusSuppression(row, select, {
+          onPointerFocus: () => {
+            pointerDrivenSelection = true;
+          }
+        });
         select.addEventListener("change", () => __async(this, null, function* () {
           const finishInlineUpdate = this.beginInlineControlUpdate();
           try {
@@ -3635,6 +3639,7 @@ ${inlineSurfaceFrostedGlass.overlay}
         debugSwitch.checked = enabled;
         debugStatus.textContent = enabled ? "\u8BE6\u7EC6\u65E5\u5FD7\u5DF2\u5F00\u542F\uFF0C\u4F1A\u8F93\u51FA\u66F4\u591A\u63A7\u5236\u53F0\u8C03\u8BD5\u4FE1\u606F\u3002" : "\u9ED8\u8BA4\u5173\u95ED\u3002\u666E\u901A\u4F7F\u7528\u65E0\u9700\u5F00\u542F\uFF0C\u6392\u67E5\u95EE\u9898\u65F6\u518D\u6253\u5F00\u3002";
       };
+      this.bindPointerFocusSuppression(debugToggle, debugSwitch);
       debugSwitch.addEventListener("change", () => {
         setDiagnosticDebugEnabled(debugSwitch.checked);
         updateDebugStatus();
@@ -3781,23 +3786,42 @@ ${inlineSurfaceFrostedGlass.overlay}
       });
       return button;
     }
-    bindPointerFocusSuppression(container, control) {
-      const group = container.closest(".bsb-tm-form-group");
+    bindPointerFocusSuppression(container, control, options) {
+      let focusGuardTimer = null;
+      const getGroup = () => container.closest(".bsb-tm-form-group");
       const markPointerFocus = () => {
+        var _a;
+        (_a = options == null ? void 0 : options.onPointerFocus) == null ? void 0 : _a.call(options);
         container.dataset.pointerFocus = "true";
+        const group = getGroup();
         if (group) {
           group.dataset.pointerFocus = "true";
         }
+        if (focusGuardTimer !== null) {
+          window.clearTimeout(focusGuardTimer);
+        }
+        focusGuardTimer = window.setTimeout(() => {
+          focusGuardTimer = null;
+          if (!container.contains(document.activeElement)) {
+            clearPointerFocus();
+          }
+        }, 0);
       };
       const clearPointerFocus = () => {
+        if (focusGuardTimer !== null) {
+          window.clearTimeout(focusGuardTimer);
+          focusGuardTimer = null;
+        }
         delete container.dataset.pointerFocus;
+        const group = getGroup();
         if (group) {
           delete group.dataset.pointerFocus;
         }
       };
+      container.addEventListener("pointerdown", markPointerFocus);
+      container.addEventListener("mousedown", markPointerFocus);
       control.addEventListener("pointerdown", markPointerFocus);
       control.addEventListener("mousedown", markPointerFocus);
-      control.addEventListener("keydown", clearPointerFocus);
       control.addEventListener("blur", clearPointerFocus);
     }
     createCheckbox(labelText, helpText, checked, onChange, needsRefresh = false) {
@@ -3926,7 +3950,11 @@ ${inlineSurfaceFrostedGlass.overlay}
       select.addEventListener("pointerdown", () => {
         pointerDrivenSelection = true;
       });
-      this.bindPointerFocusSuppression(wrapper, select);
+      this.bindPointerFocusSuppression(wrapper, select, {
+        onPointerFocus: () => {
+          pointerDrivenSelection = true;
+        }
+      });
       select.addEventListener("change", () => __async(this, null, function* () {
         const finishInlineUpdate = this.beginInlineControlUpdate();
         try {
@@ -12456,6 +12484,25 @@ ${titleSurfaceFrostedGlass.overlay}
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(244, 248, 252, 0.5)),
     rgba(255, 255, 255, 0.36);
+  cursor: pointer;
+  transition:
+    background 190ms var(--bsb-ease-swift),
+    border-color 170ms var(--bsb-ease-swift),
+    box-shadow 170ms var(--bsb-ease-swift),
+    transform 190ms var(--bsb-ease-fluid);
+}
+
+.bsb-tm-diagnostics-debug-toggle:hover,
+.bsb-tm-diagnostics-debug-toggle:not([data-pointer-focus="true"]):focus-within {
+  border-color: rgba(var(--bsb-brand-blue-rgb), 0.22);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(244, 248, 252, 0.68)),
+    rgba(var(--bsb-brand-blue-rgb), 0.05);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 10px 22px rgba(15, 23, 42, 0.055),
+    inset 0 0 0 1px rgba(var(--bsb-brand-blue-rgb), 0.06);
+  transform: translateY(-1px);
 }
 
 .bsb-tm-diagnostics-debug-copy {

@@ -468,7 +468,11 @@ export class SettingsPanel {
       select.addEventListener("pointerdown", () => {
         pointerDrivenSelection = true;
       });
-      this.bindPointerFocusSuppression(row, select);
+      this.bindPointerFocusSuppression(row, select, {
+        onPointerFocus: () => {
+          pointerDrivenSelection = true;
+        }
+      });
       select.addEventListener("change", async () => {
         const finishInlineUpdate = this.beginInlineControlUpdate();
         try {
@@ -864,6 +868,7 @@ export class SettingsPanel {
         ? "详细日志已开启，会输出更多控制台调试信息。"
         : "默认关闭。普通使用无需开启，排查问题时再打开。";
     };
+    this.bindPointerFocusSuppression(debugToggle, debugSwitch);
     debugSwitch.addEventListener("change", () => {
       setDiagnosticDebugEnabled(debugSwitch.checked);
       updateDebugStatus();
@@ -1017,23 +1022,45 @@ export class SettingsPanel {
     return button;
   }
 
-  private bindPointerFocusSuppression(container: HTMLElement, control: HTMLElement): void {
-    const group = container.closest<HTMLElement>(".bsb-tm-form-group");
+  private bindPointerFocusSuppression(
+    container: HTMLElement,
+    control: HTMLElement,
+    options?: { onPointerFocus?: () => void }
+  ): void {
+    let focusGuardTimer: number | null = null;
+    const getGroup = (): HTMLElement | null => container.closest<HTMLElement>(".bsb-tm-form-group");
     const markPointerFocus = () => {
+      options?.onPointerFocus?.();
       container.dataset.pointerFocus = "true";
+      const group = getGroup();
       if (group) {
         group.dataset.pointerFocus = "true";
       }
+      if (focusGuardTimer !== null) {
+        window.clearTimeout(focusGuardTimer);
+      }
+      focusGuardTimer = window.setTimeout(() => {
+        focusGuardTimer = null;
+        if (!container.contains(document.activeElement)) {
+          clearPointerFocus();
+        }
+      }, 0);
     };
     const clearPointerFocus = () => {
+      if (focusGuardTimer !== null) {
+        window.clearTimeout(focusGuardTimer);
+        focusGuardTimer = null;
+      }
       delete container.dataset.pointerFocus;
+      const group = getGroup();
       if (group) {
         delete group.dataset.pointerFocus;
       }
     };
+    container.addEventListener("pointerdown", markPointerFocus);
+    container.addEventListener("mousedown", markPointerFocus);
     control.addEventListener("pointerdown", markPointerFocus);
     control.addEventListener("mousedown", markPointerFocus);
-    control.addEventListener("keydown", clearPointerFocus);
     control.addEventListener("blur", clearPointerFocus);
   }
 
@@ -1197,7 +1224,11 @@ export class SettingsPanel {
     select.addEventListener("pointerdown", () => {
       pointerDrivenSelection = true;
     });
-    this.bindPointerFocusSuppression(wrapper, select);
+    this.bindPointerFocusSuppression(wrapper, select, {
+      onPointerFocus: () => {
+        pointerDrivenSelection = true;
+      }
+    });
     select.addEventListener("change", async () => {
       const finishInlineUpdate = this.beginInlineControlUpdate();
       try {

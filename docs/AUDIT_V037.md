@@ -8,7 +8,7 @@
 - 用户可见命名已统一为 Bilibili QoL Core，状态：`fixed`。
 - 上游投票 `429` 误判成功已修复，状态：`fixed`。
 - 紧凑顶栏原生冗余请求 guard 已采用窄白名单实现，状态：`fixed-with-safari-risk`。
-- 文档体系已从过期 v0.3.6 说明更新为 v0.3.7 功能版蓝图索引；当前 living docs 已在 v0.3.8 迁移中同步为当前工程说明，状态：`fixed`。
+- 文档体系已从过期 v0.3.6 说明更新为 v0.3.7 功能版蓝图索引；当前 living docs 已在后续发布线中同步为当前工程说明，状态：`fixed`。
 - 运行时未发现 `eval`、`new Function`、字符串定时器或外部数据写入 HTML 的动态代码执行路径，状态：`false-positive`。
 - `@connect *` 仍是必要但宽泛的 Tampermonkey 权限，状态：`documented-risk`。
 - MBGA 使用 `unsafeWindow` 和少量页面侧 monkey patch，属于能力边界内的高敏区域，状态：`documented-risk`。
