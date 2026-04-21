@@ -3034,6 +3034,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       this.config = config;
       this.filterValidationMessage = null;
       if (this.inlineControlUpdateDepth > 0 && !this.backdrop.hidden) {
+        this.renderInactiveConfigSections();
         return;
       }
       this.rememberActiveScroll();
@@ -3239,7 +3240,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       );
       this.categoryForm.replaceChildren();
       for (const category of CATEGORY_ORDER) {
-        const row = document.createElement("label");
+        const row = document.createElement("div");
         row.className = "bsb-tm-category-row";
         const copy = document.createElement("div");
         copy.className = "bsb-tm-field-copy";
@@ -3251,6 +3252,7 @@ ${inlineSurfaceFrostedGlass.overlay}
         help.textContent = CATEGORY_DESCRIPTIONS[category];
         copy.append(label, help);
         const select = document.createElement("select");
+        select.setAttribute("aria-label", `${CATEGORY_LABELS[category]}\u5206\u7C7B\u7B56\u7565`);
         for (const mode of Object.keys(MODE_LABELS)) {
           const option = document.createElement("option");
           option.value = mode;
@@ -3259,11 +3261,9 @@ ${inlineSurfaceFrostedGlass.overlay}
           select.appendChild(option);
         }
         let pointerDrivenSelection = false;
-        select.addEventListener("pointerdown", () => {
-          pointerDrivenSelection = true;
-        });
         this.bindPointerFocusSuppression(row, select, {
-          onPointerFocus: () => {
+          activateControlOnPointer: true,
+          onControlPointerFocus: () => {
             pointerDrivenSelection = true;
           }
         });
@@ -3271,9 +3271,6 @@ ${inlineSurfaceFrostedGlass.overlay}
           const finishInlineUpdate = this.beginInlineControlUpdate();
           try {
             yield this.callbacks.onCategoryModeChange(category, select.value);
-            if (pointerDrivenSelection) {
-              select.blur();
-            }
           } catch (error) {
             select.value = this.config.categoryModes[category];
             this.markControlError(row);
@@ -3284,6 +3281,9 @@ ${inlineSurfaceFrostedGlass.overlay}
               detail: error
             });
           } finally {
+            if (pointerDrivenSelection) {
+              select.blur();
+            }
             pointerDrivenSelection = false;
             finishInlineUpdate();
           }
@@ -3749,6 +3749,27 @@ ${inlineSurfaceFrostedGlass.overlay}
         this.inlineControlUpdateDepth = Math.max(0, this.inlineControlUpdateDepth - 1);
       };
     }
+    renderInactiveConfigSections() {
+      const activeTab = this.activeTab;
+      if (activeTab !== "overview") {
+        this.renderOverview();
+      }
+      if (activeTab !== "behavior") {
+        this.renderBehavior();
+      }
+      if (activeTab !== "transparency") {
+        this.renderTransparency();
+      }
+      if (activeTab !== "filters") {
+        this.renderFilters();
+      }
+      if (activeTab !== "mbga") {
+        this.renderMbga();
+      }
+      if (activeTab !== "help") {
+        this.renderHelp();
+      }
+    }
     createTabButton(tab) {
       const button = document.createElement("button");
       button.type = "button";
@@ -3788,14 +3809,78 @@ ${inlineSurfaceFrostedGlass.overlay}
     }
     bindPointerFocusSuppression(container, control, options) {
       let focusGuardTimer = null;
+      let windowFocusClearArmed = false;
+      let nativeSelectClosePointerArmed = false;
+      let nativeSelectControlClickCloseAfter = 0;
       const getGroup = () => container.closest(".bsb-tm-form-group");
-      const markPointerFocus = () => {
-        var _a;
+      const isInsideControl = (event) => event.target instanceof Node && control.contains(event.target);
+      const clearNativeSelectClosePointer = () => {
+        if (!nativeSelectClosePointerArmed) {
+          return;
+        }
+        document.removeEventListener("pointerdown", handleNativeSelectClosePointer);
+        document.removeEventListener("mousedown", handleNativeSelectClosePointer);
+        document.removeEventListener("click", handleNativeSelectClosePointer);
+        nativeSelectClosePointerArmed = false;
+      };
+      const clearActiveVisual = () => {
+        if (windowFocusClearArmed) {
+          window.removeEventListener("focus", handleWindowFocus);
+          windowFocusClearArmed = false;
+        }
+        clearNativeSelectClosePointer();
+        delete container.dataset.controlActive;
+        delete control.dataset.controlActive;
+        const group = getGroup();
+        if (group) {
+          delete group.dataset.controlActive;
+        }
+      };
+      const armWindowFocusClear = () => {
+        if (windowFocusClearArmed) {
+          return;
+        }
+        windowFocusClearArmed = true;
+        window.addEventListener("focus", handleWindowFocus);
+      };
+      const armNativeSelectClosePointer = () => {
+        if (!(options == null ? void 0 : options.activateControlOnPointer) || nativeSelectClosePointerArmed) {
+          return;
+        }
+        nativeSelectClosePointerArmed = true;
+        nativeSelectControlClickCloseAfter = Date.now() + 80;
+        document.addEventListener("pointerdown", handleNativeSelectClosePointer);
+        document.addEventListener("mousedown", handleNativeSelectClosePointer);
+        document.addEventListener("click", handleNativeSelectClosePointer);
+      };
+      const markActiveVisual = () => {
+        container.dataset.controlActive = "true";
+        control.dataset.controlActive = "true";
+        const group = getGroup();
+        if (group) {
+          group.dataset.controlActive = "true";
+        }
+        armWindowFocusClear();
+        armNativeSelectClosePointer();
+      };
+      const markPointerFocus = (event) => {
+        var _a, _b;
+        if (event.currentTarget === container && !isInsideControl(event)) {
+          if (document.activeElement === control) {
+            control.blur();
+          }
+          clearActiveVisual();
+        }
         (_a = options == null ? void 0 : options.onPointerFocus) == null ? void 0 : _a.call(options);
         container.dataset.pointerFocus = "true";
+        control.dataset.pointerFocus = "true";
         const group = getGroup();
         if (group) {
           group.dataset.pointerFocus = "true";
+        }
+        if ((options == null ? void 0 : options.activateControlOnPointer) && event.currentTarget === control) {
+          (_b = options.onControlPointerFocus) == null ? void 0 : _b.call(options);
+          markActiveVisual();
         }
         if (focusGuardTimer !== null) {
           window.clearTimeout(focusGuardTimer);
@@ -3813,16 +3898,122 @@ ${inlineSurfaceFrostedGlass.overlay}
           focusGuardTimer = null;
         }
         delete container.dataset.pointerFocus;
+        delete control.dataset.pointerFocus;
+        clearActiveVisual();
         const group = getGroup();
         if (group) {
           delete group.dataset.pointerFocus;
         }
       };
+      const clearActiveControl = () => {
+        clearPointerFocus();
+        if (document.activeElement === control) {
+          control.blur();
+        }
+      };
+      function handleWindowFocus() {
+        window.removeEventListener("focus", handleWindowFocus);
+        windowFocusClearArmed = false;
+        window.setTimeout(() => {
+          if (control.dataset.controlActive === "true") {
+            clearActiveControl();
+          }
+        }, 0);
+      }
+      function handleNativeSelectClosePointer(event) {
+        if (isInsideControl(event)) {
+          return;
+        }
+        if (control.dataset.controlActive === "true") {
+          clearActiveControl();
+        }
+      }
+      function handleNativeSelectControlClickClose() {
+        if (!(options == null ? void 0 : options.activateControlOnPointer) || Date.now() < nativeSelectControlClickCloseAfter) {
+          return;
+        }
+        if (control.dataset.controlActive === "true") {
+          clearActiveControl();
+        }
+      }
       container.addEventListener("pointerdown", markPointerFocus);
       container.addEventListener("mousedown", markPointerFocus);
       control.addEventListener("pointerdown", markPointerFocus);
       control.addEventListener("mousedown", markPointerFocus);
+      control.addEventListener("click", handleNativeSelectControlClickClose);
+      control.addEventListener("keydown", (event) => {
+        if ((options == null ? void 0 : options.activateControlOnPointer) && event.key === "Escape") {
+          clearActiveControl();
+        }
+      });
       control.addEventListener("blur", clearPointerFocus);
+    }
+    bindChromeBlur(container, controls) {
+      const handleChromePointer = (event) => {
+        const target = event.target;
+        if (!(target instanceof Node)) {
+          return;
+        }
+        if (controls.some((control) => control.contains(target))) {
+          return;
+        }
+        for (const control of controls) {
+          if (document.activeElement === control) {
+            control.blur();
+          }
+        }
+      };
+      container.addEventListener("pointerdown", handleChromePointer);
+      container.addEventListener("mousedown", handleChromePointer);
+    }
+    bindControlActiveState(container, controls) {
+      const markActive = (event) => {
+        const target = event.currentTarget;
+        container.dataset.controlActive = "true";
+        for (const control of controls) {
+          delete control.dataset.controlActive;
+        }
+        if (target instanceof HTMLElement) {
+          target.dataset.controlActive = "true";
+        }
+      };
+      const clearActive = () => {
+        window.setTimeout(() => {
+          if (controls.some((control) => document.activeElement === control)) {
+            return;
+          }
+          delete container.dataset.controlActive;
+          for (const control of controls) {
+            delete control.dataset.controlActive;
+          }
+        }, 0);
+      };
+      for (const control of controls) {
+        control.addEventListener("pointerdown", markActive);
+        control.addEventListener("mousedown", markActive);
+        control.addEventListener("focus", markActive);
+        control.addEventListener("blur", clearActive);
+      }
+    }
+    suppressHoverUntilPointerMovement(container, controls) {
+      const clearSuppression = () => {
+        delete container.dataset.hoverSuppressed;
+        for (const control of controls) {
+          delete control.dataset.hoverSuppressed;
+        }
+        document.removeEventListener("pointermove", clearSuppression);
+        document.removeEventListener("mousemove", clearSuppression);
+        document.removeEventListener("pointerdown", clearSuppression);
+        document.removeEventListener("mousedown", clearSuppression);
+      };
+      container.dataset.hoverSuppressed = "true";
+      for (const control of controls) {
+        control.dataset.hoverSuppressed = "true";
+      }
+      document.addEventListener("pointermove", clearSuppression);
+      document.addEventListener("mousemove", clearSuppression);
+      document.addEventListener("pointerdown", clearSuppression);
+      document.addEventListener("mousedown", clearSuppression);
     }
     createCheckbox(labelText, helpText, checked, onChange, needsRefresh = false) {
       const label = document.createElement("label");
@@ -3847,7 +4038,12 @@ ${inlineSurfaceFrostedGlass.overlay}
       input.className = "bsb-tm-switch";
       input.setAttribute("role", "switch");
       input.checked = checked;
-      this.bindPointerFocusSuppression(label, input);
+      let pointerDrivenToggle = false;
+      this.bindPointerFocusSuppression(label, input, {
+        onPointerFocus: () => {
+          pointerDrivenToggle = true;
+        }
+      });
       let saving = false;
       let savingChecked = checked;
       input.addEventListener("change", () => __async(this, null, function* () {
@@ -3878,6 +4074,10 @@ ${inlineSurfaceFrostedGlass.overlay}
           });
         } finally {
           finishInlineUpdate();
+          if (pointerDrivenToggle) {
+            input.blur();
+          }
+          pointerDrivenToggle = false;
           saving = false;
           label.removeAttribute("data-control-saving");
           input.removeAttribute("aria-busy");
@@ -3888,21 +4088,48 @@ ${inlineSurfaceFrostedGlass.overlay}
       return label;
     }
     createInput(labelText, helpText, value, onCommit) {
-      const wrapper = document.createElement("label");
+      const wrapper = document.createElement("div");
       wrapper.className = "bsb-tm-field stacked";
       wrapper.append(this.createInputLabel(labelText, helpText));
       const input = document.createElement("input");
       input.type = "text";
       input.value = value;
       input.spellcheck = false;
+      input.setAttribute("aria-label", labelText);
+      this.bindChromeBlur(wrapper, [input]);
+      let committedValue = value.trim();
+      let commitInFlight = false;
+      const commitValue = () => __async(this, null, function* () {
+        const nextValue = input.value.trim();
+        if (commitInFlight || nextValue === committedValue) {
+          return;
+        }
+        commitInFlight = true;
+        try {
+          yield onCommit(nextValue);
+          committedValue = nextValue;
+        } finally {
+          commitInFlight = false;
+        }
+      });
       input.addEventListener("change", () => __async(this, null, function* () {
-        yield onCommit(input.value.trim());
+        yield commitValue();
       }));
+      input.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" || event.isComposing) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        this.suppressHoverUntilPointerMovement(wrapper, [input]);
+        input.blur();
+        void commitValue();
+      });
       wrapper.append(input);
       return wrapper;
     }
     createRegexPatternInput() {
-      const wrapper = document.createElement("label");
+      const wrapper = document.createElement("div");
       wrapper.className = "bsb-tm-field stacked";
       wrapper.append(
         this.createInputLabel("\u52A8\u6001\u5173\u952E\u8BCD\u6B63\u5219", "\u7528\u4E8E\u8BC6\u522B\u5E26\u8D27\u3001\u4FC3\u9500\u6216\u7591\u4F3C\u5E7F\u544A\u63AA\u8F9E\u3002\u4FDD\u7559\u9ED8\u8BA4\u503C\u901A\u5E38\u66F4\u7A33\u3002")
@@ -3911,17 +4138,25 @@ ${inlineSurfaceFrostedGlass.overlay}
       input.type = "text";
       input.value = this.config.dynamicRegexPattern;
       input.spellcheck = false;
+      input.setAttribute("aria-label", "\u52A8\u6001\u5173\u952E\u8BCD\u6B63\u5219");
+      this.bindChromeBlur(wrapper, [input]);
       if (this.filterValidationMessage) {
         input.setAttribute("aria-invalid", "true");
       }
-      input.addEventListener("change", () => __async(this, null, function* () {
+      let commitInFlight = false;
+      const commitPattern = () => __async(this, null, function* () {
         var _a;
+        if (commitInFlight) {
+          return false;
+        }
+        commitInFlight = true;
         const nextValue = input.value.trim();
         const validation = validateStoredPattern(nextValue);
         if (!validation.valid) {
           this.filterValidationMessage = (_a = validation.error) != null ? _a : "\u6B63\u5219\u683C\u5F0F\u65E0\u6548";
           this.renderFilters();
-          return;
+          commitInFlight = false;
+          return false;
         }
         this.filterValidationMessage = null;
         try {
@@ -3929,16 +4164,37 @@ ${inlineSurfaceFrostedGlass.overlay}
         } catch (_error) {
           this.filterValidationMessage = "\u6B63\u5219\u4FDD\u5B58\u5931\u8D25";
           this.renderFilters();
+          commitInFlight = false;
+          return false;
         }
+        commitInFlight = false;
+        return true;
+      });
+      input.addEventListener("change", () => __async(this, null, function* () {
+        yield commitPattern();
       }));
+      input.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" || event.isComposing) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        void commitPattern().then((committed) => {
+          if (committed) {
+            this.suppressHoverUntilPointerMovement(wrapper, [input]);
+            input.blur();
+          }
+        });
+      });
       wrapper.append(input);
       return wrapper;
     }
     createSelect(labelText, value, options, onCommit, helpText) {
-      const wrapper = document.createElement("label");
+      const wrapper = document.createElement("div");
       wrapper.className = "bsb-tm-field stacked";
       wrapper.append(this.createInputLabel(labelText, helpText));
       const select = document.createElement("select");
+      select.setAttribute("aria-label", labelText);
       for (const [optionValue, optionLabel] of Object.entries(options)) {
         const option = document.createElement("option");
         option.value = optionValue;
@@ -3947,11 +4203,9 @@ ${inlineSurfaceFrostedGlass.overlay}
         select.appendChild(option);
       }
       let pointerDrivenSelection = false;
-      select.addEventListener("pointerdown", () => {
-        pointerDrivenSelection = true;
-      });
       this.bindPointerFocusSuppression(wrapper, select, {
-        onPointerFocus: () => {
+        activateControlOnPointer: true,
+        onControlPointerFocus: () => {
           pointerDrivenSelection = true;
         }
       });
@@ -3959,9 +4213,6 @@ ${inlineSurfaceFrostedGlass.overlay}
         const finishInlineUpdate = this.beginInlineControlUpdate();
         try {
           yield onCommit(select.value);
-          if (pointerDrivenSelection) {
-            select.blur();
-          }
         } catch (error) {
           select.value = value;
           this.markControlError(wrapper);
@@ -3972,6 +4223,9 @@ ${inlineSurfaceFrostedGlass.overlay}
             detail: error
           });
         } finally {
+          if (pointerDrivenSelection) {
+            select.blur();
+          }
           pointerDrivenSelection = false;
           finishInlineUpdate();
         }
@@ -3980,7 +4234,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       return wrapper;
     }
     createNumberInput(labelText, helpText, value, onCommit) {
-      const wrapper = document.createElement("label");
+      const wrapper = document.createElement("div");
       wrapper.className = "bsb-tm-field stacked";
       wrapper.append(this.createInputLabel(labelText, helpText));
       const input = document.createElement("input");
@@ -3988,9 +4242,35 @@ ${inlineSurfaceFrostedGlass.overlay}
       input.value = String(value);
       input.min = "0";
       input.step = "1";
+      input.setAttribute("aria-label", labelText);
+      this.bindChromeBlur(wrapper, [input]);
+      let committedValue = input.value;
+      let commitInFlight = false;
+      const commitValue = () => __async(this, null, function* () {
+        if (commitInFlight || input.value === committedValue) {
+          return;
+        }
+        commitInFlight = true;
+        try {
+          yield onCommit(Number(input.value));
+          committedValue = input.value;
+        } finally {
+          commitInFlight = false;
+        }
+      });
       input.addEventListener("change", () => __async(this, null, function* () {
-        yield onCommit(Number(input.value));
+        yield commitValue();
       }));
+      input.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" || event.isComposing) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        this.suppressHoverUntilPointerMovement(wrapper, [input]);
+        input.blur();
+        void commitValue();
+      });
       wrapper.append(input);
       return wrapper;
     }
@@ -4072,6 +4352,8 @@ ${inlineSurfaceFrostedGlass.overlay}
       textInput.value = savedValue;
       textInput.spellcheck = false;
       textInput.setAttribute("aria-label", `${options.label}\u989C\u8272\u503C`);
+      this.bindChromeBlur(field, [swatch, textInput]);
+      this.bindControlActiveState(field, [swatch, textInput]);
       const actions = document.createElement("div");
       actions.className = "bsb-tm-color-actions";
       actions.hidden = true;
@@ -4145,6 +4427,8 @@ ${inlineSurfaceFrostedGlass.overlay}
         if (event.key === "Enter") {
           event.preventDefault();
           event.stopPropagation();
+          this.suppressHoverUntilPointerMovement(field, [swatch, textInput]);
+          swatch.blur();
           void commitDraft();
         }
         if (event.key === "Escape") {
@@ -4167,6 +4451,8 @@ ${inlineSurfaceFrostedGlass.overlay}
         if (event.key === "Enter") {
           event.preventDefault();
           event.stopPropagation();
+          this.suppressHoverUntilPointerMovement(field, [swatch, textInput]);
+          textInput.blur();
           void commitDraft();
         }
         if (event.key === "Escape") {
@@ -10915,8 +11201,7 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.38);
 }
 
-.bsb-tm-color-field:hover,
-.bsb-tm-color-field:focus-within {
+.bsb-tm-color-field:not([data-hover-suppressed="true"]):not(:focus-within):hover {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.22);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(244, 248, 252, 0.72)),
@@ -10928,15 +11213,34 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
   transform: translateY(-1px);
 }
 
-.bsb-tm-color-field.compact:hover,
-.bsb-tm-color-field.compact:focus-within {
+.bsb-tm-color-field:focus-within {
+  border-color: rgba(var(--bsb-brand-blue-rgb), 0.3);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(244, 248, 252, 0.72)),
+    rgba(248, 250, 252, 0.74);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.84),
+    0 12px 26px rgba(15, 23, 42, 0.065),
+    0 0 0 3px rgba(var(--bsb-brand-blue-rgb), 0.08);
+  transform: translateY(-1px);
+}
+
+.bsb-tm-color-field.compact:not([data-hover-suppressed="true"]):not(:focus-within):hover {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.2);
   box-shadow:
     inset 0 0 0 1px rgba(var(--bsb-brand-blue-rgb), 0.08),
     0 8px 18px rgba(15, 23, 42, 0.045);
 }
 
-.bsb-tm-color-field:hover .bsb-tm-color-controls input:not(:focus),
+.bsb-tm-color-field.compact:focus-within {
+  border-color: rgba(var(--bsb-brand-blue-rgb), 0.26);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 10px 22px rgba(15, 23, 42, 0.055),
+    0 0 0 3px rgba(var(--bsb-brand-blue-rgb), 0.07);
+}
+
+.bsb-tm-color-field:not([data-hover-suppressed="true"]):hover .bsb-tm-color-controls input:not(:focus),
 .bsb-tm-color-field:focus-within .bsb-tm-color-controls input:not(:focus) {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.22);
   background:
@@ -10947,7 +11251,7 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
     0 8px 18px rgba(15, 23, 42, 0.055);
 }
 
-.bsb-tm-color-field.compact:hover .bsb-tm-color-controls input:not(:focus),
+.bsb-tm-color-field.compact:not([data-hover-suppressed="true"]):hover .bsb-tm-color-controls input:not(:focus),
 .bsb-tm-color-field.compact:focus-within .bsb-tm-color-controls input:not(:focus) {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.78),
@@ -11334,7 +11638,6 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
 }
 
 .bsb-tm-panel input.bsb-tm-switch:hover,
-.bsb-tm-panel input.bsb-tm-switch:focus,
 .bsb-tm-panel input.bsb-tm-switch:active {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.3);
   filter: saturate(1.035) brightness(1.012);
@@ -12344,8 +12647,11 @@ ${titleSurfaceFrostedGlass.overlay}
 .bsb-tm-tab-button:hover,
 .bsb-tm-link-card:hover,
 .bsb-tm-button:hover,
-.bsb-tm-panel input:not(.bsb-tm-switch):hover,
-.bsb-tm-panel select:hover {
+.bsb-tm-panel input:not(.bsb-tm-switch):not([data-hover-suppressed="true"]):not([data-control-active="true"]):hover,
+.bsb-tm-panel select:not([data-hover-suppressed="true"]):not([data-control-active="true"]):hover,
+.bsb-tm-field:not([data-hover-suppressed="true"]):hover > input:not(.bsb-tm-switch):not(:focus):not([data-control-active="true"]):not([data-hover-suppressed="true"]),
+.bsb-tm-field:not([data-hover-suppressed="true"]):hover > select:not(:focus):not([data-control-active="true"]):not([data-hover-suppressed="true"]),
+.bsb-tm-category-row:not([data-hover-suppressed="true"]):hover > select:not(:focus):not([data-control-active="true"]):not([data-hover-suppressed="true"]) {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.28);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.8),
@@ -12353,8 +12659,8 @@ ${titleSurfaceFrostedGlass.overlay}
   transform: translateY(-1px);
 }
 
-.bsb-tm-field:hover,
-.bsb-tm-category-row:hover {
+.bsb-tm-field:not([data-hover-suppressed="true"]):not([data-control-active="true"]):not(:focus-within):hover,
+.bsb-tm-category-row:not([data-hover-suppressed="true"]):not([data-control-active="true"]):not(:focus-within):hover {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.22);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.82),
@@ -12400,8 +12706,10 @@ ${titleSurfaceFrostedGlass.overlay}
   }
 }
 
-.bsb-tm-panel input:not(.bsb-tm-switch):focus,
-.bsb-tm-panel select:focus {
+.bsb-tm-panel input:not(.bsb-tm-switch):not([data-pointer-focus="true"]):focus,
+.bsb-tm-panel input:not(.bsb-tm-switch)[data-control-active="true"],
+.bsb-tm-panel select:not([data-pointer-focus="true"]):focus,
+.bsb-tm-panel select[data-control-active="true"] {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.3);
   box-shadow:
     0 0 0 4px rgba(var(--bsb-brand-blue-rgb), 0.14),
@@ -12409,6 +12717,7 @@ ${titleSurfaceFrostedGlass.overlay}
 }
 
 .bsb-tm-form-group:hover,
+.bsb-tm-form-group[data-control-active="true"],
 .bsb-tm-form-group:not([data-pointer-focus="true"]):focus-within {
   border-color: rgba(255, 255, 255, 0.82);
   box-shadow:
@@ -12423,7 +12732,10 @@ ${titleSurfaceFrostedGlass.overlay}
 }
 
 .bsb-tm-field:not([data-pointer-focus="true"]):focus-within,
+.bsb-tm-field[data-control-active="true"],
 .bsb-tm-category-row:not([data-pointer-focus="true"]):focus-within,
+.bsb-tm-category-row[data-control-active="true"],
+.bsb-tm-color-field[data-control-active="true"],
 .bsb-tm-link-card:focus-visible {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.3);
   box-shadow:

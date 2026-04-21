@@ -423,7 +423,7 @@ describe("settings panel", () => {
 
     expect(select).toBeTruthy();
     select!.focus();
-    select!.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    select!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
     select!.value = "off";
     select!.dispatchEvent(new Event("change", { bubbles: true }));
     await Promise.resolve();
@@ -460,12 +460,15 @@ describe("settings panel", () => {
     select!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
     select!.focus();
     expect(field?.dataset.pointerFocus).toBe("true");
+    expect(select?.dataset.pointerFocus).toBe("true");
 
     select!.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
     expect(field?.dataset.pointerFocus).toBe("true");
+    expect(select?.dataset.pointerFocus).toBe("true");
 
     select!.blur();
     expect(field?.dataset.pointerFocus).toBeUndefined();
+    expect(select?.dataset.pointerFocus).toBeUndefined();
   });
 
   it("suppresses pointer-origin focus when the pointer lands on the select card chrome", () => {
@@ -489,15 +492,431 @@ describe("settings panel", () => {
     expect(select).toBeTruthy();
 
     field!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+
+    expect(field?.tagName).toBe("DIV");
+    expect(document.activeElement).not.toBe(select);
+    expect(field?.dataset.controlActive).toBeUndefined();
+    expect(select?.dataset.controlActive).toBeUndefined();
+    expect(group?.dataset.controlActive).toBeUndefined();
+  });
+
+  it("uses click-selected visuals only when the pointer lands on the real select control", () => {
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig: vi.fn(async () => {}),
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const field = Array.from(document.querySelectorAll<HTMLLabelElement>(".bsb-tm-field.stacked")).find((candidate) =>
+      candidate.textContent?.includes("首页 / 列表卡片标签")
+    );
+    const group = field?.closest<HTMLElement>(".bsb-tm-form-group");
+    const select = field?.querySelector<HTMLSelectElement>("select");
+    expect(field).toBeTruthy();
+    expect(group).toBeTruthy();
+    expect(select).toBeTruthy();
+
+    select!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
     select!.focus();
 
     expect(field?.dataset.pointerFocus).toBe("true");
     expect(group?.dataset.pointerFocus).toBe("true");
+    expect(select?.dataset.pointerFocus).toBe("true");
+    expect(field?.dataset.controlActive).toBe("true");
+    expect(group?.dataset.controlActive).toBe("true");
+    expect(select?.dataset.controlActive).toBe("true");
 
     select!.blur();
 
     expect(field?.dataset.pointerFocus).toBeUndefined();
     expect(group?.dataset.pointerFocus).toBeUndefined();
+    expect(select?.dataset.pointerFocus).toBeUndefined();
+    expect(field?.dataset.controlActive).toBeUndefined();
+    expect(group?.dataset.controlActive).toBeUndefined();
+    expect(select?.dataset.controlActive).toBeUndefined();
+  });
+
+  it("does not focus or keep editing text inputs when the pointer lands on field chrome", () => {
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig: vi.fn(async () => {}),
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const field = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-field.stacked")).find((candidate) =>
+      candidate.textContent?.includes("SponsorBlock 服务器地址")
+    );
+    const input = field?.querySelector<HTMLInputElement>("input[type='text']");
+    expect(field).toBeTruthy();
+    expect(input).toBeTruthy();
+    expect(field?.tagName).toBe("DIV");
+    expect(input?.getAttribute("aria-label")).toBe("SponsorBlock 服务器地址");
+
+    field!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+
+    expect(document.activeElement).not.toBe(input);
+
+    input!.focus();
+    expect(document.activeElement).toBe(input);
+
+    field!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+
+    expect(document.activeElement).not.toBe(input);
+  });
+
+  it("commits and closes text inputs on Enter without replaying hover immediately", async () => {
+    const onPatchConfig = vi.fn(async () => {});
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig,
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const field = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-field.stacked")).find((candidate) =>
+      candidate.textContent?.includes("SponsorBlock 服务器地址")
+    );
+    const input = field?.querySelector<HTMLInputElement>("input[type='text']");
+    expect(field).toBeTruthy();
+    expect(input).toBeTruthy();
+
+    input!.focus();
+    input!.value = "https://example.invalid";
+    input!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(onPatchConfig).toHaveBeenCalledWith({ serverAddress: "https://example.invalid" });
+    expect(document.activeElement).not.toBe(input);
+    expect(field?.dataset.hoverSuppressed).toBe("true");
+    expect(input?.dataset.hoverSuppressed).toBe("true");
+
+    document.dispatchEvent(new PointerEvent("pointermove", { bubbles: true }));
+
+    expect(field?.dataset.hoverSuppressed).toBeUndefined();
+    expect(input?.dataset.hoverSuppressed).toBeUndefined();
+  });
+
+  it("commits and closes number inputs on Enter", async () => {
+    const onPatchConfig = vi.fn(async () => {});
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig,
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const field = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-field.stacked")).find((candidate) =>
+      candidate.textContent?.includes("提示停留时间")
+    );
+    const input = field?.querySelector<HTMLInputElement>("input[type='number']");
+    expect(field).toBeTruthy();
+    expect(input).toBeTruthy();
+
+    input!.focus();
+    input!.value = "8";
+    input!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(onPatchConfig).toHaveBeenCalledWith({ noticeDurationSec: 8 });
+    expect(document.activeElement).not.toBe(input);
+    expect(field?.dataset.hoverSuppressed).toBe("true");
+    expect(input?.dataset.hoverSuppressed).toBe("true");
+  });
+
+  it("clears color card editing state when the pointer lands on color card chrome", () => {
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig: vi.fn(async () => {}),
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const field = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-color-field[data-color-editor='true']")).find(
+      (candidate) => candidate.textContent?.includes(CATEGORY_LABELS.sponsor)
+    );
+    const input = field?.querySelector<HTMLInputElement>("input[type='text']");
+    expect(field).toBeTruthy();
+    expect(input).toBeTruthy();
+
+    input!.focus();
+    expect(document.activeElement).toBe(input);
+
+    field!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+
+    expect(document.activeElement).not.toBe(input);
+  });
+
+  it("commits and closes color text inputs on Enter without replaying hover immediately", async () => {
+    const onPatchConfig = vi.fn(async () => {});
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig,
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const field = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-color-field[data-color-editor='true']")).find(
+      (candidate) => candidate.textContent?.includes(CATEGORY_LABELS.sponsor)
+    );
+    const input = field?.querySelector<HTMLInputElement>("input[type='text']");
+    expect(field).toBeTruthy();
+    expect(input).toBeTruthy();
+
+    input!.focus();
+    input!.value = "#112233";
+    input!.dispatchEvent(new Event("input", { bubbles: true }));
+    input!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(onPatchConfig).toHaveBeenCalledWith(expect.objectContaining({
+      categoryColorOverrides: expect.objectContaining({
+        sponsor: "#112233"
+      })
+    }));
+    expect(document.activeElement).not.toBe(input);
+    expect(field?.dataset.hoverSuppressed).toBe("true");
+    expect(input?.dataset.hoverSuppressed).toBe("true");
+  });
+
+  it("keeps same-value pointer select active visuals until the select closes", () => {
+    vi.useFakeTimers();
+    try {
+      const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+        onPatchConfig: vi.fn(async () => {}),
+        onCategoryModeChange: vi.fn(async () => {}),
+        onClearCache: vi.fn(async () => {}),
+        onReset: vi.fn(async () => {})
+      });
+
+      panel.mount();
+      panel.open("behavior");
+
+      const field = Array.from(document.querySelectorAll<HTMLLabelElement>(".bsb-tm-field.stacked")).find((candidate) =>
+        candidate.textContent?.includes("首页 / 列表卡片标签")
+      );
+      const group = field?.closest<HTMLElement>(".bsb-tm-form-group");
+      const select = field?.querySelector<HTMLSelectElement>("select");
+      expect(field).toBeTruthy();
+      expect(group).toBeTruthy();
+      expect(select).toBeTruthy();
+
+      select!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      select!.focus();
+      select!.value = select!.value;
+      select!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+
+      expect(field?.dataset.pointerFocus).toBe("true");
+      expect(group?.dataset.pointerFocus).toBe("true");
+      expect(select?.dataset.pointerFocus).toBe("true");
+      expect(field?.dataset.controlActive).toBe("true");
+      expect(group?.dataset.controlActive).toBe("true");
+      expect(select?.dataset.controlActive).toBe("true");
+
+      vi.advanceTimersByTime(5000);
+
+      expect(field?.dataset.pointerFocus).toBe("true");
+      expect(group?.dataset.pointerFocus).toBe("true");
+      expect(select?.dataset.pointerFocus).toBe("true");
+      expect(field?.dataset.controlActive).toBe("true");
+      expect(group?.dataset.controlActive).toBe("true");
+      expect(select?.dataset.controlActive).toBe("true");
+
+      document.dispatchEvent(new PointerEvent("pointermove", { bubbles: true }));
+
+      expect(field?.dataset.pointerFocus).toBe("true");
+      expect(group?.dataset.pointerFocus).toBe("true");
+      expect(select?.dataset.pointerFocus).toBe("true");
+      expect(field?.dataset.controlActive).toBe("true");
+      expect(group?.dataset.controlActive).toBe("true");
+      expect(select?.dataset.controlActive).toBe("true");
+
+      document.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+
+      expect(document.activeElement).not.toBe(select);
+      expect(field?.dataset.controlActive).toBeUndefined();
+      expect(group?.dataset.controlActive).toBeUndefined();
+      expect(select?.dataset.controlActive).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears pointer select active visuals when blank panel space closes the select", () => {
+    vi.useFakeTimers();
+    try {
+      const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+        onPatchConfig: vi.fn(async () => {}),
+        onCategoryModeChange: vi.fn(async () => {}),
+        onClearCache: vi.fn(async () => {}),
+        onReset: vi.fn(async () => {})
+      });
+
+      panel.mount();
+      panel.open("behavior");
+
+      const field = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-field.stacked")).find((candidate) =>
+        candidate.textContent?.includes("首页 / 列表卡片标签")
+      );
+      const group = field?.closest<HTMLElement>(".bsb-tm-form-group");
+      const select = field?.querySelector<HTMLSelectElement>("select");
+      const content = document.querySelector<HTMLElement>(".bsb-tm-panel-content");
+      expect(field).toBeTruthy();
+      expect(group).toBeTruthy();
+      expect(select).toBeTruthy();
+      expect(content).toBeTruthy();
+
+      select!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      select!.focus();
+
+      expect(field?.dataset.controlActive).toBe("true");
+      expect(group?.dataset.controlActive).toBe("true");
+      expect(select?.dataset.controlActive).toBe("true");
+
+      content!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+
+      expect(document.activeElement).not.toBe(select);
+      expect(field?.dataset.pointerFocus).toBeUndefined();
+      expect(group?.dataset.pointerFocus).toBeUndefined();
+      expect(select?.dataset.pointerFocus).toBeUndefined();
+      expect(field?.dataset.controlActive).toBeUndefined();
+      expect(group?.dataset.controlActive).toBeUndefined();
+      expect(select?.dataset.controlActive).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears pointer select active visuals when same-value native selection closes with a click", () => {
+    vi.useFakeTimers();
+    try {
+      const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+        onPatchConfig: vi.fn(async () => {}),
+        onCategoryModeChange: vi.fn(async () => {}),
+        onClearCache: vi.fn(async () => {}),
+        onReset: vi.fn(async () => {})
+      });
+
+      panel.mount();
+      panel.open("behavior");
+
+      const field = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-field.stacked")).find((candidate) =>
+        candidate.textContent?.includes("首页 / 列表卡片标签")
+      );
+      const group = field?.closest<HTMLElement>(".bsb-tm-form-group");
+      const select = field?.querySelector<HTMLSelectElement>("select");
+      expect(field).toBeTruthy();
+      expect(group).toBeTruthy();
+      expect(select).toBeTruthy();
+
+      select!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      select!.focus();
+      select!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+      expect(field?.dataset.controlActive).toBe("true");
+      expect(group?.dataset.controlActive).toBe("true");
+      expect(select?.dataset.controlActive).toBe("true");
+
+      vi.advanceTimersByTime(80);
+      select!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+      expect(document.activeElement).not.toBe(select);
+      expect(field?.dataset.pointerFocus).toBeUndefined();
+      expect(group?.dataset.pointerFocus).toBeUndefined();
+      expect(select?.dataset.pointerFocus).toBeUndefined();
+      expect(field?.dataset.controlActive).toBeUndefined();
+      expect(group?.dataset.controlActive).toBeUndefined();
+      expect(select?.dataset.controlActive).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears pointer select active visuals when Escape closes the select", () => {
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig: vi.fn(async () => {}),
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const field = Array.from(document.querySelectorAll<HTMLLabelElement>(".bsb-tm-field.stacked")).find((candidate) =>
+      candidate.textContent?.includes("首页 / 列表卡片标签")
+    );
+    const group = field?.closest<HTMLElement>(".bsb-tm-form-group");
+    const select = field?.querySelector<HTMLSelectElement>("select");
+    expect(field).toBeTruthy();
+    expect(group).toBeTruthy();
+    expect(select).toBeTruthy();
+
+    select!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    select!.focus();
+    select!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+
+    expect(document.activeElement).not.toBe(select);
+    expect(field?.dataset.pointerFocus).toBeUndefined();
+    expect(group?.dataset.pointerFocus).toBeUndefined();
+    expect(select?.dataset.pointerFocus).toBeUndefined();
+    expect(field?.dataset.controlActive).toBeUndefined();
+    expect(group?.dataset.controlActive).toBeUndefined();
+    expect(select?.dataset.controlActive).toBeUndefined();
+  });
+
+  it("blurs pointer-origin checkbox changes because toggles have no editing state", async () => {
+    const onPatchConfig = vi.fn(async () => {});
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig,
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const field = Array.from(document.querySelectorAll<HTMLLabelElement>(".bsb-tm-field-toggle")).find((candidate) =>
+      candidate.textContent?.includes("启用缓存")
+    );
+    const checkbox = field?.querySelector<HTMLInputElement>("input[type='checkbox']");
+    expect(field).toBeTruthy();
+    expect(checkbox).toBeTruthy();
+
+    field!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    checkbox!.focus();
+    checkbox!.checked = !checkbox!.checked;
+    checkbox!.dispatchEvent(new Event("change", { bubbles: true }));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(onPatchConfig).toHaveBeenCalledWith({ enableCache: false });
+    expect(document.activeElement).not.toBe(checkbox);
+    expect(field?.dataset.pointerFocus).toBeUndefined();
+    expect(checkbox?.dataset.pointerFocus).toBeUndefined();
   });
 
   it("blurs pointer-origin select saves when the pointer starts from the card", async () => {
@@ -519,6 +938,7 @@ describe("settings panel", () => {
     panel.mount();
     panel.open("behavior");
 
+    const activeBehaviorSection = document.querySelector<HTMLElement>("[data-section='behavior']");
     const field = Array.from(document.querySelectorAll<HTMLLabelElement>(".bsb-tm-field.stacked")).find((candidate) =>
       candidate.textContent?.includes("首页 / 列表卡片标签")
     );
@@ -526,7 +946,7 @@ describe("settings panel", () => {
     expect(field).toBeTruthy();
     expect(select).toBeTruthy();
 
-    field!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    select!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
     select!.focus();
     select!.value = "off";
     select!.dispatchEvent(new Event("change", { bubbles: true }));
@@ -534,8 +954,16 @@ describe("settings panel", () => {
     await Promise.resolve();
 
     expect(onPatchConfig).toHaveBeenCalledWith({ thumbnailLabelMode: "off" });
+    const currentField = Array.from(activeBehaviorSection!.querySelectorAll<HTMLLabelElement>(".bsb-tm-field.stacked")).find(
+      (candidate) => candidate.textContent?.includes("首页 / 列表卡片标签")
+    );
+    expect(currentField).toBe(field);
     expect(document.activeElement).not.toBe(select);
     expect(field?.dataset.pointerFocus).toBeUndefined();
+    expect(field?.dataset.controlActive).toBeUndefined();
+    expect(select?.dataset.pointerFocus).toBeUndefined();
+    expect(select?.dataset.controlActive).toBeUndefined();
+    expect(field?.querySelector<HTMLSelectElement>("select")).toBe(select);
   });
 
   it("renders overview feature cards in title-chip-copy order", () => {
@@ -608,6 +1036,107 @@ describe("settings panel", () => {
         sponsor: "#123456"
       })
     }));
+  });
+
+  it("ties color card active visuals to the currently edited color control", () => {
+    vi.useFakeTimers();
+    try {
+      const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+        onPatchConfig: vi.fn(async () => {}),
+        onCategoryModeChange: vi.fn(async () => {}),
+        onClearCache: vi.fn(async () => {}),
+        onReset: vi.fn(async () => {})
+      });
+
+      panel.mount();
+      panel.open("behavior");
+
+      const field = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-color-field[data-color-editor='true']")).find(
+        (candidate) => candidate.textContent?.includes(CATEGORY_LABELS.sponsor)
+      );
+      const swatch = field?.querySelector<HTMLInputElement>("input[type='color']");
+      const textInput = field?.querySelector<HTMLInputElement>("input[type='text']");
+      expect(field).toBeTruthy();
+      expect(swatch).toBeTruthy();
+      expect(textInput).toBeTruthy();
+
+      swatch!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      swatch!.focus();
+
+      expect(field?.dataset.controlActive).toBe("true");
+      expect(swatch?.dataset.controlActive).toBe("true");
+      expect(textInput?.dataset.controlActive).toBeUndefined();
+
+      textInput!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      textInput!.focus();
+
+      expect(field?.dataset.controlActive).toBe("true");
+      expect(swatch?.dataset.controlActive).toBeUndefined();
+      expect(textInput?.dataset.controlActive).toBe("true");
+
+      textInput!.blur();
+      vi.runAllTimers();
+
+      expect(field?.dataset.controlActive).toBeUndefined();
+      expect(swatch?.dataset.controlActive).toBeUndefined();
+      expect(textInput?.dataset.controlActive).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("refreshes existing category color previews after transparency settings change", async () => {
+    let config = cloneDefaultConfig();
+    let panel: SettingsPanel;
+    const onPatchConfig = vi.fn(async (patch: Partial<ReturnType<typeof cloneDefaultConfig>>) => {
+      config = {
+        ...config,
+        ...patch
+      };
+      panel.updateConfig(config);
+    });
+    panel = new SettingsPanel(config, { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig,
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const findSponsorPreview = (): HTMLElement | null => {
+      const field = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-color-field[data-color-editor='true']")).find(
+        (candidate) => candidate.textContent?.includes(CATEGORY_LABELS.sponsor)
+      );
+      return field?.querySelector<HTMLElement>(".bsb-tm-title-pill-wrap") ?? null;
+    };
+
+    expect(findSponsorPreview()?.dataset.transparent).toBe("false");
+
+    panel.open("transparency");
+    const titleTransparencyField = Array.from(document.querySelectorAll<HTMLLabelElement>(".bsb-tm-field-toggle")).find(
+      (candidate) => candidate.textContent?.includes("标题商业标签使用透明模式")
+    );
+    const titleTransparencySwitch = titleTransparencyField?.querySelector<HTMLInputElement>("input[type='checkbox']");
+    expect(titleTransparencyField).toBeTruthy();
+    expect(titleTransparencySwitch).toBeTruthy();
+
+    titleTransparencyField!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    titleTransparencySwitch!.checked = true;
+    titleTransparencySwitch!.dispatchEvent(new Event("change", { bubbles: true }));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    panel.open("behavior");
+
+    expect(onPatchConfig).toHaveBeenCalledWith(expect.objectContaining({
+      labelTransparency: expect.objectContaining({
+        titleBadge: true
+      })
+    }));
+    expect(findSponsorPreview()?.dataset.transparent).toBe("true");
   });
 
   it("cancels a draft color without persisting it", () => {
