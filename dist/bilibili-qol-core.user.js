@@ -3870,7 +3870,12 @@ ${inlineSurfaceFrostedGlass.overlay}
       input.className = "bsb-tm-switch";
       input.setAttribute("role", "switch");
       input.checked = checked;
-      this.bindPointerFocusSuppression(label, input);
+      let pointerDrivenToggle = false;
+      this.bindPointerFocusSuppression(label, input, {
+        onPointerFocus: () => {
+          pointerDrivenToggle = true;
+        }
+      });
       let saving = false;
       let savingChecked = checked;
       input.addEventListener("change", () => __async(this, null, function* () {
@@ -3901,6 +3906,10 @@ ${inlineSurfaceFrostedGlass.overlay}
           });
         } finally {
           finishInlineUpdate();
+          if (pointerDrivenToggle) {
+            input.blur();
+          }
+          pointerDrivenToggle = false;
           saving = false;
           label.removeAttribute("data-control-saving");
           input.removeAttribute("aria-busy");
@@ -11357,7 +11366,6 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
 }
 
 .bsb-tm-panel input.bsb-tm-switch:hover,
-.bsb-tm-panel input.bsb-tm-switch:focus,
 .bsb-tm-panel input.bsb-tm-switch:active {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.3);
   filter: saturate(1.035) brightness(1.012);
@@ -12367,8 +12375,8 @@ ${titleSurfaceFrostedGlass.overlay}
 .bsb-tm-tab-button:hover,
 .bsb-tm-link-card:hover,
 .bsb-tm-button:hover,
-.bsb-tm-panel input:not(.bsb-tm-switch):not([data-pointer-focus="true"]):hover,
-.bsb-tm-panel select:not([data-pointer-focus="true"]):hover {
+.bsb-tm-panel input:not(.bsb-tm-switch):hover,
+.bsb-tm-panel select:hover {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.28);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.8),
@@ -12376,8 +12384,8 @@ ${titleSurfaceFrostedGlass.overlay}
   transform: translateY(-1px);
 }
 
-.bsb-tm-field:not([data-pointer-focus="true"]):hover,
-.bsb-tm-category-row:not([data-pointer-focus="true"]):hover {
+.bsb-tm-field:hover,
+.bsb-tm-category-row:hover {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.22);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.82),
@@ -12431,7 +12439,7 @@ ${titleSurfaceFrostedGlass.overlay}
     inset 0 1px 0 rgba(255, 255, 255, 0.68);
 }
 
-.bsb-tm-form-group:not([data-pointer-focus="true"]):hover,
+.bsb-tm-form-group:hover,
 .bsb-tm-form-group:not([data-pointer-focus="true"]):focus-within {
   border-color: rgba(255, 255, 255, 0.82);
   box-shadow:

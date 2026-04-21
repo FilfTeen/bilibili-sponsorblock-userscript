@@ -1122,7 +1122,12 @@ export class SettingsPanel {
     input.className = "bsb-tm-switch";
     input.setAttribute("role", "switch");
     input.checked = checked;
-    this.bindPointerFocusSuppression(label, input);
+    let pointerDrivenToggle = false;
+    this.bindPointerFocusSuppression(label, input, {
+      onPointerFocus: () => {
+        pointerDrivenToggle = true;
+      }
+    });
     let saving = false;
     let savingChecked = checked;
     input.addEventListener("change", async () => {
@@ -1153,6 +1158,10 @@ export class SettingsPanel {
         });
       } finally {
         finishInlineUpdate();
+        if (pointerDrivenToggle) {
+          input.blur();
+        }
+        pointerDrivenToggle = false;
         saving = false;
         label.removeAttribute("data-control-saving");
         input.removeAttribute("aria-busy");

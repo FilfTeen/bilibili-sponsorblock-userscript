@@ -535,6 +535,38 @@ describe("settings panel", () => {
     expect(select?.dataset.pointerFocus).toBe("true");
   });
 
+  it("blurs pointer-origin checkbox changes because toggles have no editing state", async () => {
+    const onPatchConfig = vi.fn(async () => {});
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig,
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const field = Array.from(document.querySelectorAll<HTMLLabelElement>(".bsb-tm-field-toggle")).find((candidate) =>
+      candidate.textContent?.includes("启用缓存")
+    );
+    const checkbox = field?.querySelector<HTMLInputElement>("input[type='checkbox']");
+    expect(field).toBeTruthy();
+    expect(checkbox).toBeTruthy();
+
+    field!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    checkbox!.focus();
+    checkbox!.checked = !checkbox!.checked;
+    checkbox!.dispatchEvent(new Event("change", { bubbles: true }));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(onPatchConfig).toHaveBeenCalledWith({ enableCache: false });
+    expect(document.activeElement).not.toBe(checkbox);
+    expect(field?.dataset.pointerFocus).toBeUndefined();
+    expect(checkbox?.dataset.pointerFocus).toBeUndefined();
+  });
+
   it("blurs pointer-origin select saves when the pointer starts from the card", async () => {
     const baseConfig = cloneDefaultConfig();
     let panel: SettingsPanel;
