@@ -444,7 +444,7 @@ export class SettingsPanel {
 
     this.categoryForm.replaceChildren();
     for (const category of CATEGORY_ORDER) {
-      const row = document.createElement("label");
+      const row = document.createElement("div");
       row.className = "bsb-tm-category-row";
 
       const copy = document.createElement("div");
@@ -458,6 +458,7 @@ export class SettingsPanel {
       copy.append(label, help);
 
       const select = document.createElement("select");
+      select.setAttribute("aria-label", `${CATEGORY_LABELS[category]}分类策略`);
       for (const mode of Object.keys(MODE_LABELS) as CategoryMode[]) {
         const option = document.createElement("option");
         option.value = mode;
@@ -1050,12 +1051,24 @@ export class SettingsPanel {
   ): void {
     let focusGuardTimer: number | null = null;
     let windowFocusClearArmed = false;
+    let nativeSelectClosePointerArmed = false;
+    let nativeSelectClosePointerStart = 0;
     const getGroup = (): HTMLElement | null => container.closest<HTMLElement>(".bsb-tm-form-group");
+    const isInsideControl = (event: Event): boolean => event.target instanceof Node && control.contains(event.target);
+    const clearNativeSelectClosePointer = () => {
+      if (!nativeSelectClosePointerArmed) {
+        return;
+      }
+      document.removeEventListener("pointermove", handleNativeSelectClosePointer);
+      document.removeEventListener("mousemove", handleNativeSelectClosePointer);
+      nativeSelectClosePointerArmed = false;
+    };
     const clearActiveVisual = () => {
       if (windowFocusClearArmed) {
         window.removeEventListener("focus", handleWindowFocus);
         windowFocusClearArmed = false;
       }
+      clearNativeSelectClosePointer();
       delete container.dataset.controlActive;
       delete control.dataset.controlActive;
       const group = getGroup();
@@ -1070,6 +1083,15 @@ export class SettingsPanel {
       windowFocusClearArmed = true;
       window.addEventListener("focus", handleWindowFocus);
     };
+    const armNativeSelectClosePointer = () => {
+      if (!options?.activateControlOnPointer || nativeSelectClosePointerArmed) {
+        return;
+      }
+      nativeSelectClosePointerArmed = true;
+      nativeSelectClosePointerStart = Date.now();
+      document.addEventListener("pointermove", handleNativeSelectClosePointer);
+      document.addEventListener("mousemove", handleNativeSelectClosePointer);
+    };
     const markActiveVisual = () => {
       container.dataset.controlActive = "true";
       control.dataset.controlActive = "true";
@@ -1078,8 +1100,15 @@ export class SettingsPanel {
         group.dataset.controlActive = "true";
       }
       armWindowFocusClear();
+      armNativeSelectClosePointer();
     };
     const markPointerFocus = (event: Event) => {
+      if (event.currentTarget === container && !isInsideControl(event)) {
+        if (document.activeElement === control) {
+          control.blur();
+        }
+        clearActiveVisual();
+      }
       options?.onPointerFocus?.();
       container.dataset.pointerFocus = "true";
       control.dataset.pointerFocus = "true";
@@ -1129,6 +1158,14 @@ export class SettingsPanel {
         }
       }, 0);
     }
+    function handleNativeSelectClosePointer() {
+      if (Date.now() - nativeSelectClosePointerStart < 300) {
+        return;
+      }
+      if (control.dataset.controlActive === "true") {
+        clearPointerFocus();
+      }
+    }
     container.addEventListener("pointerdown", markPointerFocus);
     container.addEventListener("mousedown", markPointerFocus);
     control.addEventListener("pointerdown", markPointerFocus);
@@ -1139,6 +1176,25 @@ export class SettingsPanel {
       }
     });
     control.addEventListener("blur", clearPointerFocus);
+  }
+
+  private bindChromeBlur(container: HTMLElement, controls: HTMLElement[]): void {
+    const handleChromePointer = (event: Event) => {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+      if (controls.some((control) => control.contains(target))) {
+        return;
+      }
+      for (const control of controls) {
+        if (document.activeElement === control) {
+          control.blur();
+        }
+      }
+    };
+    container.addEventListener("pointerdown", handleChromePointer);
+    container.addEventListener("mousedown", handleChromePointer);
   }
 
   private createCheckbox(
@@ -1232,7 +1288,7 @@ export class SettingsPanel {
     value: string,
     onCommit: (value: string) => Promise<void>
   ): HTMLElement {
-    const wrapper = document.createElement("label");
+    const wrapper = document.createElement("div");
     wrapper.className = "bsb-tm-field stacked";
 
     wrapper.append(this.createInputLabel(labelText, helpText));
@@ -1241,6 +1297,8 @@ export class SettingsPanel {
     input.type = "text";
     input.value = value;
     input.spellcheck = false;
+    input.setAttribute("aria-label", labelText);
+    this.bindChromeBlur(wrapper, [input]);
     input.addEventListener("change", async () => {
       await onCommit(input.value.trim());
     });
@@ -1250,7 +1308,7 @@ export class SettingsPanel {
   }
 
   private createRegexPatternInput(): HTMLElement {
-    const wrapper = document.createElement("label");
+    const wrapper = document.createElement("div");
     wrapper.className = "bsb-tm-field stacked";
 
     wrapper.append(
@@ -1261,6 +1319,8 @@ export class SettingsPanel {
     input.type = "text";
     input.value = this.config.dynamicRegexPattern;
     input.spellcheck = false;
+    input.setAttribute("aria-label", "动态关键词正则");
+    this.bindChromeBlur(wrapper, [input]);
     if (this.filterValidationMessage) {
       input.setAttribute("aria-invalid", "true");
     }
@@ -1293,12 +1353,13 @@ export class SettingsPanel {
     onCommit: (value: T) => Promise<void>,
     helpText?: string
   ): HTMLElement {
-    const wrapper = document.createElement("label");
+    const wrapper = document.createElement("div");
     wrapper.className = "bsb-tm-field stacked";
 
     wrapper.append(this.createInputLabel(labelText, helpText));
 
     const select = document.createElement("select");
+    select.setAttribute("aria-label", labelText);
     for (const [optionValue, optionLabel] of Object.entries(options) as [T, string][]) {
       const option = document.createElement("option");
       option.value = optionValue;
@@ -1345,7 +1406,7 @@ export class SettingsPanel {
     value: number,
     onCommit: (value: number) => Promise<void>
   ): HTMLElement {
-    const wrapper = document.createElement("label");
+    const wrapper = document.createElement("div");
     wrapper.className = "bsb-tm-field stacked";
 
     wrapper.append(this.createInputLabel(labelText, helpText));
@@ -1355,6 +1416,8 @@ export class SettingsPanel {
     input.value = String(value);
     input.min = "0";
     input.step = "1";
+    input.setAttribute("aria-label", labelText);
+    this.bindChromeBlur(wrapper, [input]);
     input.addEventListener("change", async () => {
       await onCommit(Number(input.value));
     });
@@ -1466,6 +1529,7 @@ export class SettingsPanel {
     textInput.value = savedValue;
     textInput.spellcheck = false;
     textInput.setAttribute("aria-label", `${options.label}颜色值`);
+    this.bindChromeBlur(field, [swatch, textInput]);
 
     const actions = document.createElement("div");
     actions.className = "bsb-tm-color-actions";

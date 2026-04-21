@@ -423,7 +423,7 @@ describe("settings panel", () => {
 
     expect(select).toBeTruthy();
     select!.focus();
-    select!.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    select!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
     select!.value = "off";
     select!.dispatchEvent(new Event("change", { bubbles: true }));
     await Promise.resolve();
@@ -492,20 +492,9 @@ describe("settings panel", () => {
     expect(select).toBeTruthy();
 
     field!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
-    select!.focus();
 
-    expect(field?.dataset.pointerFocus).toBe("true");
-    expect(select?.dataset.pointerFocus).toBe("true");
-    expect(group?.dataset.pointerFocus).toBe("true");
-    expect(field?.dataset.controlActive).toBeUndefined();
-    expect(select?.dataset.controlActive).toBeUndefined();
-    expect(group?.dataset.controlActive).toBeUndefined();
-
-    select!.blur();
-
-    expect(field?.dataset.pointerFocus).toBeUndefined();
-    expect(select?.dataset.pointerFocus).toBeUndefined();
-    expect(group?.dataset.pointerFocus).toBeUndefined();
+    expect(field?.tagName).toBe("DIV");
+    expect(document.activeElement).not.toBe(select);
     expect(field?.dataset.controlActive).toBeUndefined();
     expect(select?.dataset.controlActive).toBeUndefined();
     expect(group?.dataset.controlActive).toBeUndefined();
@@ -551,6 +540,64 @@ describe("settings panel", () => {
     expect(select?.dataset.controlActive).toBeUndefined();
   });
 
+  it("does not focus or keep editing text inputs when the pointer lands on field chrome", () => {
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig: vi.fn(async () => {}),
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const field = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-field.stacked")).find((candidate) =>
+      candidate.textContent?.includes("SponsorBlock 服务器地址")
+    );
+    const input = field?.querySelector<HTMLInputElement>("input[type='text']");
+    expect(field).toBeTruthy();
+    expect(input).toBeTruthy();
+    expect(field?.tagName).toBe("DIV");
+    expect(input?.getAttribute("aria-label")).toBe("SponsorBlock 服务器地址");
+
+    field!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+
+    expect(document.activeElement).not.toBe(input);
+
+    input!.focus();
+    expect(document.activeElement).toBe(input);
+
+    field!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+
+    expect(document.activeElement).not.toBe(input);
+  });
+
+  it("clears color card editing state when the pointer lands on color card chrome", () => {
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig: vi.fn(async () => {}),
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const field = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-color-field[data-color-editor='true']")).find(
+      (candidate) => candidate.textContent?.includes(CATEGORY_LABELS.sponsor)
+    );
+    const input = field?.querySelector<HTMLInputElement>("input[type='text']");
+    expect(field).toBeTruthy();
+    expect(input).toBeTruthy();
+
+    input!.focus();
+    expect(document.activeElement).toBe(input);
+
+    field!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+
+    expect(document.activeElement).not.toBe(input);
+  });
+
   it("keeps same-value pointer select active visuals until the select closes", () => {
     vi.useFakeTimers();
     try {
@@ -594,7 +641,7 @@ describe("settings panel", () => {
       expect(group?.dataset.controlActive).toBe("true");
       expect(select?.dataset.controlActive).toBe("true");
 
-      select!.blur();
+      document.dispatchEvent(new PointerEvent("pointermove", { bubbles: true }));
 
       expect(field?.dataset.controlActive).toBeUndefined();
       expect(group?.dataset.controlActive).toBeUndefined();

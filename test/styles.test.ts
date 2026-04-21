@@ -146,10 +146,16 @@ describe("shared glass contexts", () => {
       /\.bsb-tm-color-field \{[\s\S]*transition:[\s\S]*box-shadow 170ms var\(--bsb-ease-swift\),[\s\S]*border-color 170ms var\(--bsb-ease-swift\),[\s\S]*background 190ms var\(--bsb-ease-swift\),[\s\S]*transform 190ms var\(--bsb-ease-fluid\);/
     );
     expect(styles).toMatch(
-      /\.bsb-tm-color-field:hover,[\s\S]*\.bsb-tm-color-field:focus-within \{[\s\S]*border-color: rgba\(var\(--bsb-brand-blue-rgb\), 0\.22\);[\s\S]*0 10px 22px rgba\(15, 23, 42, 0\.055\),[\s\S]*transform: translateY\(-1px\);/
+      /\.bsb-tm-color-field:hover \{[\s\S]*border-color: rgba\(var\(--bsb-brand-blue-rgb\), 0\.22\);[\s\S]*0 10px 22px rgba\(15, 23, 42, 0\.055\),[\s\S]*transform: translateY\(-1px\);/
     );
     expect(styles).toMatch(
-      /\.bsb-tm-color-field\.compact:hover,[\s\S]*\.bsb-tm-color-field\.compact:focus-within \{[\s\S]*0 8px 18px rgba\(15, 23, 42, 0\.045\);/
+      /\.bsb-tm-color-field:focus-within \{[\s\S]*border-color: rgba\(var\(--bsb-brand-blue-rgb\), 0\.3\);[\s\S]*0 12px 26px rgba\(15, 23, 42, 0\.065\),[\s\S]*0 0 0 3px rgba\(var\(--bsb-brand-blue-rgb\), 0\.08\);/
+    );
+    expect(styles).toMatch(
+      /\.bsb-tm-color-field\.compact:hover \{[\s\S]*0 8px 18px rgba\(15, 23, 42, 0\.045\);/
+    );
+    expect(styles).toMatch(
+      /\.bsb-tm-color-field\.compact:focus-within \{[\s\S]*0 10px 22px rgba\(15, 23, 42, 0\.055\),[\s\S]*0 0 0 3px rgba\(var\(--bsb-brand-blue-rgb\), 0\.07\);/
     );
     expect(styles).toMatch(
       /\.bsb-tm-color-field:hover \.bsb-tm-color-controls input:not\(:focus\),[\s\S]*\.bsb-tm-color-field:focus-within \.bsb-tm-color-controls input:not\(:focus\) \{[\s\S]*border-color: rgba\(var\(--bsb-brand-blue-rgb\), 0\.22\);[\s\S]*0 8px 18px rgba\(15, 23, 42, 0\.055\);/
@@ -168,7 +174,7 @@ describe("shared glass contexts", () => {
     expect(styles).toContain('.bsb-tm-panel select:not([data-pointer-focus="true"]):focus');
     expect(styles).toContain('.bsb-tm-panel select[data-control-active="true"]');
     expect(styles).toMatch(
-      /\.bsb-tm-panel input:not\(\.bsb-tm-switch\):hover,[\s\S]*\.bsb-tm-panel select:hover \{/
+      /\.bsb-tm-panel input:not\(\.bsb-tm-switch\):hover,[\s\S]*\.bsb-tm-panel select:hover,[\s\S]*\.bsb-tm-field:hover > input:not\(\.bsb-tm-switch\):not\(:focus\):not\(\[data-control-active="true"\]\),[\s\S]*\.bsb-tm-field:hover > select:not\(:focus\):not\(\[data-control-active="true"\]\),[\s\S]*\.bsb-tm-category-row:hover > select:not\(:focus\):not\(\[data-control-active="true"\]\) \{/
     );
     expect(styles).toMatch(
       /\.bsb-tm-field:hover,[\s\S]*\.bsb-tm-category-row:hover \{/

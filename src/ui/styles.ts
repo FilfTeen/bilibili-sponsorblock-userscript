@@ -387,8 +387,7 @@ export const styles = `
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.38);
 }
 
-.bsb-tm-color-field:hover,
-.bsb-tm-color-field:focus-within {
+.bsb-tm-color-field:hover {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.22);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(244, 248, 252, 0.72)),
@@ -400,12 +399,31 @@ export const styles = `
   transform: translateY(-1px);
 }
 
-.bsb-tm-color-field.compact:hover,
-.bsb-tm-color-field.compact:focus-within {
+.bsb-tm-color-field:focus-within {
+  border-color: rgba(var(--bsb-brand-blue-rgb), 0.3);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(244, 248, 252, 0.72)),
+    rgba(248, 250, 252, 0.74);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.84),
+    0 12px 26px rgba(15, 23, 42, 0.065),
+    0 0 0 3px rgba(var(--bsb-brand-blue-rgb), 0.08);
+  transform: translateY(-1px);
+}
+
+.bsb-tm-color-field.compact:hover {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.2);
   box-shadow:
     inset 0 0 0 1px rgba(var(--bsb-brand-blue-rgb), 0.08),
     0 8px 18px rgba(15, 23, 42, 0.045);
+}
+
+.bsb-tm-color-field.compact:focus-within {
+  border-color: rgba(var(--bsb-brand-blue-rgb), 0.26);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 10px 22px rgba(15, 23, 42, 0.055),
+    0 0 0 3px rgba(var(--bsb-brand-blue-rgb), 0.07);
 }
 
 .bsb-tm-color-field:hover .bsb-tm-color-controls input:not(:focus),
@@ -1816,7 +1834,10 @@ ${titleSurfaceFrostedGlass.overlay}
 .bsb-tm-link-card:hover,
 .bsb-tm-button:hover,
 .bsb-tm-panel input:not(.bsb-tm-switch):hover,
-.bsb-tm-panel select:hover {
+.bsb-tm-panel select:hover,
+.bsb-tm-field:hover > input:not(.bsb-tm-switch):not(:focus):not([data-control-active="true"]),
+.bsb-tm-field:hover > select:not(:focus):not([data-control-active="true"]),
+.bsb-tm-category-row:hover > select:not(:focus):not([data-control-active="true"]) {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.28);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.8),
