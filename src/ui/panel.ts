@@ -1052,8 +1052,7 @@ export class SettingsPanel {
     let focusGuardTimer: number | null = null;
     let windowFocusClearArmed = false;
     let nativeSelectClosePointerArmed = false;
-    let nativeSelectCloseOpeningUntil = 0;
-    let nativeSelectClosePointerStart = 0;
+    let nativeSelectControlClickCloseAfter = 0;
     const getGroup = (): HTMLElement | null => container.closest<HTMLElement>(".bsb-tm-form-group");
     const isInsideControl = (event: Event): boolean => event.target instanceof Node && control.contains(event.target);
     const clearNativeSelectClosePointer = () => {
@@ -1090,8 +1089,7 @@ export class SettingsPanel {
         return;
       }
       nativeSelectClosePointerArmed = true;
-      nativeSelectClosePointerStart = Date.now();
-      nativeSelectCloseOpeningUntil = nativeSelectClosePointerStart + 250;
+      nativeSelectControlClickCloseAfter = Date.now() + 80;
       document.addEventListener("pointerdown", handleNativeSelectClosePointer);
       document.addEventListener("mousedown", handleNativeSelectClosePointer);
       document.addEventListener("click", handleNativeSelectClosePointer);
@@ -1166,15 +1164,12 @@ export class SettingsPanel {
       if (isInsideControl(event)) {
         return;
       }
-      if (Date.now() < nativeSelectCloseOpeningUntil) {
-        return;
-      }
       if (control.dataset.controlActive === "true") {
         clearActiveControl();
       }
     }
     function handleNativeSelectControlClickClose() {
-      if (!options?.activateControlOnPointer || Date.now() < nativeSelectCloseOpeningUntil) {
+      if (!options?.activateControlOnPointer || Date.now() < nativeSelectControlClickCloseAfter) {
         return;
       }
       if (control.dataset.controlActive === "true") {

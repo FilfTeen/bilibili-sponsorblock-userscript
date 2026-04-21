@@ -797,13 +797,6 @@ describe("settings panel", () => {
 
       content!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
 
-      expect(field?.dataset.controlActive).toBe("true");
-      expect(group?.dataset.controlActive).toBe("true");
-      expect(select?.dataset.controlActive).toBe("true");
-
-      vi.advanceTimersByTime(300);
-      content!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
-
       expect(document.activeElement).not.toBe(select);
       expect(field?.dataset.pointerFocus).toBeUndefined();
       expect(group?.dataset.pointerFocus).toBeUndefined();
@@ -846,7 +839,7 @@ describe("settings panel", () => {
       expect(group?.dataset.controlActive).toBe("true");
       expect(select?.dataset.controlActive).toBe("true");
 
-      vi.advanceTimersByTime(300);
+      vi.advanceTimersByTime(80);
       select!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
       expect(document.activeElement).not.toBe(select);
