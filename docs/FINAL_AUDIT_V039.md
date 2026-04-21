@@ -3,6 +3,9 @@
 ## Verdict
 BLOCK
 
+## Historical Status Note
+This report audited the v0.3.9 / `d4f62ec` release candidate. The two P1 blockers recorded below were fixed by the v0.3.10 release blocker fix. Current release decisions should use the v0.3.10 validation results, not this historical BLOCK verdict by itself.
+
 ## Branch And Release State
 - main: local `main` points at `d4f62ec` and contains `codex/v0.3.7-integration`.
 - integration: `codex/v0.3.7-integration` points at `22176c8` and contains `codex/panel-focus-state-followup`.
