@@ -9,9 +9,13 @@ const outDir = path.join(rootDir, "dist");
 const USERSCRIPT_FILE_NAME = "bilibili-qol-core.user.js";
 const outFile = path.join(outDir, USERSCRIPT_FILE_NAME);
 
+function normalizeBuildVersion(input) {
+  return input?.replace(/^refs\/tags\//u, "").replace(/^v(?=\d+\.\d+\.\d+(?:\b|-))/u, "");
+}
+
 const version =
-  process.env.GITHUB_REF_NAME?.replace(/^refs\/tags\//u, "") ||
-  process.env.npm_package_version ||
+  normalizeBuildVersion(process.env.GITHUB_REF_NAME) ||
+  normalizeBuildVersion(process.env.npm_package_version) ||
   "0.1.0";
 
 function getRepositoryUrl() {

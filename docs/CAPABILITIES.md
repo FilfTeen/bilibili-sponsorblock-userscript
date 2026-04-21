@@ -1,6 +1,6 @@
 # 能力说明
 
-本文描述 Bilibili QoL Core v0.3.9 已实现的能力边界。`v0.3.9` 延续 `v0.3.8` 的仓库迁移基线，并补修 QoL Core 控制台的 pointer focus 与诊断交互问题。更细的实现索引见 [BLUEPRINT.md](./BLUEPRINT.md)。
+本文描述 Bilibili QoL Core v0.3.10 已实现的能力边界。`v0.3.10` 延续控制台交互补丁基线，并修复诊断报告 URL 脱敏和 tag 构建版本规范化问题。更细的实现索引见 [BLUEPRINT.md](./BLUEPRINT.md)。
 
 ## 1. SponsorBlock 片段能力
 
