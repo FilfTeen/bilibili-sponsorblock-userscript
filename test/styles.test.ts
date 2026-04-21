@@ -146,13 +146,13 @@ describe("shared glass contexts", () => {
       /\.bsb-tm-color-field \{[\s\S]*transition:[\s\S]*box-shadow 170ms var\(--bsb-ease-swift\),[\s\S]*border-color 170ms var\(--bsb-ease-swift\),[\s\S]*background 190ms var\(--bsb-ease-swift\),[\s\S]*transform 190ms var\(--bsb-ease-fluid\);/
     );
     expect(styles).toMatch(
-      /\.bsb-tm-color-field:not\(\[data-hover-suppressed="true"\]\):hover \{[\s\S]*border-color: rgba\(var\(--bsb-brand-blue-rgb\), 0\.22\);[\s\S]*0 10px 22px rgba\(15, 23, 42, 0\.055\),[\s\S]*transform: translateY\(-1px\);/
+      /\.bsb-tm-color-field:not\(\[data-hover-suppressed="true"\]\):not\(:focus-within\):hover \{[\s\S]*border-color: rgba\(var\(--bsb-brand-blue-rgb\), 0\.22\);[\s\S]*0 10px 22px rgba\(15, 23, 42, 0\.055\),[\s\S]*transform: translateY\(-1px\);/
     );
     expect(styles).toMatch(
       /\.bsb-tm-color-field:focus-within \{[\s\S]*border-color: rgba\(var\(--bsb-brand-blue-rgb\), 0\.3\);[\s\S]*0 12px 26px rgba\(15, 23, 42, 0\.065\),[\s\S]*0 0 0 3px rgba\(var\(--bsb-brand-blue-rgb\), 0\.08\);/
     );
     expect(styles).toMatch(
-      /\.bsb-tm-color-field\.compact:not\(\[data-hover-suppressed="true"\]\):hover \{[\s\S]*0 8px 18px rgba\(15, 23, 42, 0\.045\);/
+      /\.bsb-tm-color-field\.compact:not\(\[data-hover-suppressed="true"\]\):not\(:focus-within\):hover \{[\s\S]*0 8px 18px rgba\(15, 23, 42, 0\.045\);/
     );
     expect(styles).toMatch(
       /\.bsb-tm-color-field\.compact:focus-within \{[\s\S]*0 10px 22px rgba\(15, 23, 42, 0\.055\),[\s\S]*0 0 0 3px rgba\(var\(--bsb-brand-blue-rgb\), 0\.07\);/
@@ -174,16 +174,17 @@ describe("shared glass contexts", () => {
     expect(styles).toContain('.bsb-tm-panel select:not([data-pointer-focus="true"]):focus');
     expect(styles).toContain('.bsb-tm-panel select[data-control-active="true"]');
     expect(styles).toMatch(
-      /\.bsb-tm-panel input:not\(\.bsb-tm-switch\):not\(\[data-hover-suppressed="true"\]\):hover,[\s\S]*\.bsb-tm-panel select:not\(\[data-hover-suppressed="true"\]\):hover,[\s\S]*\.bsb-tm-field:not\(\[data-hover-suppressed="true"\]\):hover > input:not\(\.bsb-tm-switch\):not\(:focus\):not\(\[data-control-active="true"\]\):not\(\[data-hover-suppressed="true"\]\),[\s\S]*\.bsb-tm-field:not\(\[data-hover-suppressed="true"\]\):hover > select:not\(:focus\):not\(\[data-control-active="true"\]\):not\(\[data-hover-suppressed="true"\]\),[\s\S]*\.bsb-tm-category-row:not\(\[data-hover-suppressed="true"\]\):hover > select:not\(:focus\):not\(\[data-control-active="true"\]\):not\(\[data-hover-suppressed="true"\]\) \{/
+      /\.bsb-tm-panel input:not\(\.bsb-tm-switch\):not\(\[data-hover-suppressed="true"\]\):not\(\[data-control-active="true"\]\):hover,[\s\S]*\.bsb-tm-panel select:not\(\[data-hover-suppressed="true"\]\):not\(\[data-control-active="true"\]\):hover,[\s\S]*\.bsb-tm-field:not\(\[data-hover-suppressed="true"\]\):hover > input:not\(\.bsb-tm-switch\):not\(:focus\):not\(\[data-control-active="true"\]\):not\(\[data-hover-suppressed="true"\]\),[\s\S]*\.bsb-tm-field:not\(\[data-hover-suppressed="true"\]\):hover > select:not\(:focus\):not\(\[data-control-active="true"\]\):not\(\[data-hover-suppressed="true"\]\),[\s\S]*\.bsb-tm-category-row:not\(\[data-hover-suppressed="true"\]\):hover > select:not\(:focus\):not\(\[data-control-active="true"\]\):not\(\[data-hover-suppressed="true"\]\) \{/
     );
     expect(styles).toMatch(
-      /\.bsb-tm-field:not\(\[data-hover-suppressed="true"\]\):hover,[\s\S]*\.bsb-tm-category-row:not\(\[data-hover-suppressed="true"\]\):hover \{/
+      /\.bsb-tm-field:not\(\[data-hover-suppressed="true"\]\):not\(\[data-control-active="true"\]\):not\(:focus-within\):hover,[\s\S]*\.bsb-tm-category-row:not\(\[data-hover-suppressed="true"\]\):not\(\[data-control-active="true"\]\):not\(:focus-within\):hover \{/
     );
     expect(styles).toMatch(
       /\.bsb-tm-form-group:hover,[\s\S]*\.bsb-tm-form-group:not\(\[data-pointer-focus="true"\]\):focus-within \{/
     );
     expect(styles).toContain('.bsb-tm-field[data-control-active="true"]');
     expect(styles).toContain('.bsb-tm-category-row[data-control-active="true"]');
+    expect(styles).toContain('.bsb-tm-color-field[data-control-active="true"]');
     expect(styles).toContain('.bsb-tm-form-group[data-control-active="true"]');
     expect(styles).not.toContain(".bsb-tm-field:focus-within,\n.bsb-tm-category-row:focus-within");
     expect(styles).not.toContain(".bsb-tm-panel select:focus {");

@@ -746,6 +746,16 @@ describe("settings panel", () => {
 
       document.dispatchEvent(new PointerEvent("pointermove", { bubbles: true }));
 
+      expect(field?.dataset.pointerFocus).toBe("true");
+      expect(group?.dataset.pointerFocus).toBe("true");
+      expect(select?.dataset.pointerFocus).toBe("true");
+      expect(field?.dataset.controlActive).toBe("true");
+      expect(group?.dataset.controlActive).toBe("true");
+      expect(select?.dataset.controlActive).toBe("true");
+
+      document.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+
+      expect(document.activeElement).not.toBe(select);
       expect(field?.dataset.controlActive).toBeUndefined();
       expect(group?.dataset.controlActive).toBeUndefined();
       expect(select?.dataset.controlActive).toBeUndefined();
@@ -755,42 +765,100 @@ describe("settings panel", () => {
   });
 
   it("clears pointer select active visuals when blank panel space closes the select", () => {
-    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
-      onPatchConfig: vi.fn(async () => {}),
-      onCategoryModeChange: vi.fn(async () => {}),
-      onClearCache: vi.fn(async () => {}),
-      onReset: vi.fn(async () => {})
-    });
+    vi.useFakeTimers();
+    try {
+      const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+        onPatchConfig: vi.fn(async () => {}),
+        onCategoryModeChange: vi.fn(async () => {}),
+        onClearCache: vi.fn(async () => {}),
+        onReset: vi.fn(async () => {})
+      });
 
-    panel.mount();
-    panel.open("behavior");
+      panel.mount();
+      panel.open("behavior");
 
-    const field = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-field.stacked")).find((candidate) =>
-      candidate.textContent?.includes("首页 / 列表卡片标签")
-    );
-    const group = field?.closest<HTMLElement>(".bsb-tm-form-group");
-    const select = field?.querySelector<HTMLSelectElement>("select");
-    const content = document.querySelector<HTMLElement>(".bsb-tm-panel-content");
-    expect(field).toBeTruthy();
-    expect(group).toBeTruthy();
-    expect(select).toBeTruthy();
-    expect(content).toBeTruthy();
+      const field = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-field.stacked")).find((candidate) =>
+        candidate.textContent?.includes("首页 / 列表卡片标签")
+      );
+      const group = field?.closest<HTMLElement>(".bsb-tm-form-group");
+      const select = field?.querySelector<HTMLSelectElement>("select");
+      const content = document.querySelector<HTMLElement>(".bsb-tm-panel-content");
+      expect(field).toBeTruthy();
+      expect(group).toBeTruthy();
+      expect(select).toBeTruthy();
+      expect(content).toBeTruthy();
 
-    select!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
-    select!.focus();
+      select!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      select!.focus();
 
-    expect(field?.dataset.controlActive).toBe("true");
-    expect(group?.dataset.controlActive).toBe("true");
-    expect(select?.dataset.controlActive).toBe("true");
+      expect(field?.dataset.controlActive).toBe("true");
+      expect(group?.dataset.controlActive).toBe("true");
+      expect(select?.dataset.controlActive).toBe("true");
 
-    content!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      content!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
 
-    expect(field?.dataset.pointerFocus).toBeUndefined();
-    expect(group?.dataset.pointerFocus).toBeUndefined();
-    expect(select?.dataset.pointerFocus).toBeUndefined();
-    expect(field?.dataset.controlActive).toBeUndefined();
-    expect(group?.dataset.controlActive).toBeUndefined();
-    expect(select?.dataset.controlActive).toBeUndefined();
+      expect(field?.dataset.controlActive).toBe("true");
+      expect(group?.dataset.controlActive).toBe("true");
+      expect(select?.dataset.controlActive).toBe("true");
+
+      vi.advanceTimersByTime(300);
+      content!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+
+      expect(document.activeElement).not.toBe(select);
+      expect(field?.dataset.pointerFocus).toBeUndefined();
+      expect(group?.dataset.pointerFocus).toBeUndefined();
+      expect(select?.dataset.pointerFocus).toBeUndefined();
+      expect(field?.dataset.controlActive).toBeUndefined();
+      expect(group?.dataset.controlActive).toBeUndefined();
+      expect(select?.dataset.controlActive).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears pointer select active visuals when same-value native selection closes with a click", () => {
+    vi.useFakeTimers();
+    try {
+      const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+        onPatchConfig: vi.fn(async () => {}),
+        onCategoryModeChange: vi.fn(async () => {}),
+        onClearCache: vi.fn(async () => {}),
+        onReset: vi.fn(async () => {})
+      });
+
+      panel.mount();
+      panel.open("behavior");
+
+      const field = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-field.stacked")).find((candidate) =>
+        candidate.textContent?.includes("首页 / 列表卡片标签")
+      );
+      const group = field?.closest<HTMLElement>(".bsb-tm-form-group");
+      const select = field?.querySelector<HTMLSelectElement>("select");
+      expect(field).toBeTruthy();
+      expect(group).toBeTruthy();
+      expect(select).toBeTruthy();
+
+      select!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      select!.focus();
+      select!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+      expect(field?.dataset.controlActive).toBe("true");
+      expect(group?.dataset.controlActive).toBe("true");
+      expect(select?.dataset.controlActive).toBe("true");
+
+      vi.advanceTimersByTime(300);
+      select!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+      expect(document.activeElement).not.toBe(select);
+      expect(field?.dataset.pointerFocus).toBeUndefined();
+      expect(group?.dataset.pointerFocus).toBeUndefined();
+      expect(select?.dataset.pointerFocus).toBeUndefined();
+      expect(field?.dataset.controlActive).toBeUndefined();
+      expect(group?.dataset.controlActive).toBeUndefined();
+      expect(select?.dataset.controlActive).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("clears pointer select active visuals when Escape closes the select", () => {
@@ -975,6 +1043,53 @@ describe("settings panel", () => {
         sponsor: "#123456"
       })
     }));
+  });
+
+  it("ties color card active visuals to the currently edited color control", () => {
+    vi.useFakeTimers();
+    try {
+      const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+        onPatchConfig: vi.fn(async () => {}),
+        onCategoryModeChange: vi.fn(async () => {}),
+        onClearCache: vi.fn(async () => {}),
+        onReset: vi.fn(async () => {})
+      });
+
+      panel.mount();
+      panel.open("behavior");
+
+      const field = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-color-field[data-color-editor='true']")).find(
+        (candidate) => candidate.textContent?.includes(CATEGORY_LABELS.sponsor)
+      );
+      const swatch = field?.querySelector<HTMLInputElement>("input[type='color']");
+      const textInput = field?.querySelector<HTMLInputElement>("input[type='text']");
+      expect(field).toBeTruthy();
+      expect(swatch).toBeTruthy();
+      expect(textInput).toBeTruthy();
+
+      swatch!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      swatch!.focus();
+
+      expect(field?.dataset.controlActive).toBe("true");
+      expect(swatch?.dataset.controlActive).toBe("true");
+      expect(textInput?.dataset.controlActive).toBeUndefined();
+
+      textInput!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      textInput!.focus();
+
+      expect(field?.dataset.controlActive).toBe("true");
+      expect(swatch?.dataset.controlActive).toBeUndefined();
+      expect(textInput?.dataset.controlActive).toBe("true");
+
+      textInput!.blur();
+      vi.runAllTimers();
+
+      expect(field?.dataset.controlActive).toBeUndefined();
+      expect(swatch?.dataset.controlActive).toBeUndefined();
+      expect(textInput?.dataset.controlActive).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("refreshes existing category color previews after transparency settings change", async () => {

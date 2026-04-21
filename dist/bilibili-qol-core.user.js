@@ -3811,6 +3811,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       let focusGuardTimer = null;
       let windowFocusClearArmed = false;
       let nativeSelectClosePointerArmed = false;
+      let nativeSelectCloseOpeningUntil = 0;
       let nativeSelectClosePointerStart = 0;
       const getGroup = () => container.closest(".bsb-tm-form-group");
       const isInsideControl = (event) => event.target instanceof Node && control.contains(event.target);
@@ -3821,8 +3822,6 @@ ${inlineSurfaceFrostedGlass.overlay}
         document.removeEventListener("pointerdown", handleNativeSelectClosePointer);
         document.removeEventListener("mousedown", handleNativeSelectClosePointer);
         document.removeEventListener("click", handleNativeSelectClosePointer);
-        document.removeEventListener("pointermove", handleNativeSelectClosePointer);
-        document.removeEventListener("mousemove", handleNativeSelectClosePointer);
         nativeSelectClosePointerArmed = false;
       };
       const clearActiveVisual = () => {
@@ -3851,11 +3850,10 @@ ${inlineSurfaceFrostedGlass.overlay}
         }
         nativeSelectClosePointerArmed = true;
         nativeSelectClosePointerStart = Date.now();
+        nativeSelectCloseOpeningUntil = nativeSelectClosePointerStart + 250;
         document.addEventListener("pointerdown", handleNativeSelectClosePointer);
         document.addEventListener("mousedown", handleNativeSelectClosePointer);
         document.addEventListener("click", handleNativeSelectClosePointer);
-        document.addEventListener("pointermove", handleNativeSelectClosePointer);
-        document.addEventListener("mousemove", handleNativeSelectClosePointer);
       };
       const markActiveVisual = () => {
         container.dataset.controlActive = "true";
@@ -3920,7 +3918,7 @@ ${inlineSurfaceFrostedGlass.overlay}
         windowFocusClearArmed = false;
         window.setTimeout(() => {
           if (control.dataset.controlActive === "true") {
-            clearPointerFocus();
+            clearActiveControl();
           }
         }, 0);
       }
@@ -3928,17 +3926,26 @@ ${inlineSurfaceFrostedGlass.overlay}
         if (isInsideControl(event)) {
           return;
         }
-        if ((event.type === "pointermove" || event.type === "mousemove") && Date.now() - nativeSelectClosePointerStart < 300) {
+        if (Date.now() < nativeSelectCloseOpeningUntil) {
           return;
         }
         if (control.dataset.controlActive === "true") {
-          clearPointerFocus();
+          clearActiveControl();
+        }
+      }
+      function handleNativeSelectControlClickClose() {
+        if (!(options == null ? void 0 : options.activateControlOnPointer) || Date.now() < nativeSelectCloseOpeningUntil) {
+          return;
+        }
+        if (control.dataset.controlActive === "true") {
+          clearActiveControl();
         }
       }
       container.addEventListener("pointerdown", markPointerFocus);
       container.addEventListener("mousedown", markPointerFocus);
       control.addEventListener("pointerdown", markPointerFocus);
       control.addEventListener("mousedown", markPointerFocus);
+      control.addEventListener("click", handleNativeSelectControlClickClose);
       control.addEventListener("keydown", (event) => {
         if ((options == null ? void 0 : options.activateControlOnPointer) && event.key === "Escape") {
           clearActiveControl();
@@ -3963,6 +3970,35 @@ ${inlineSurfaceFrostedGlass.overlay}
       };
       container.addEventListener("pointerdown", handleChromePointer);
       container.addEventListener("mousedown", handleChromePointer);
+    }
+    bindControlActiveState(container, controls) {
+      const markActive = (event) => {
+        const target = event.currentTarget;
+        container.dataset.controlActive = "true";
+        for (const control of controls) {
+          delete control.dataset.controlActive;
+        }
+        if (target instanceof HTMLElement) {
+          target.dataset.controlActive = "true";
+        }
+      };
+      const clearActive = () => {
+        window.setTimeout(() => {
+          if (controls.some((control) => document.activeElement === control)) {
+            return;
+          }
+          delete container.dataset.controlActive;
+          for (const control of controls) {
+            delete control.dataset.controlActive;
+          }
+        }, 0);
+      };
+      for (const control of controls) {
+        control.addEventListener("pointerdown", markActive);
+        control.addEventListener("mousedown", markActive);
+        control.addEventListener("focus", markActive);
+        control.addEventListener("blur", clearActive);
+      }
     }
     suppressHoverUntilPointerMovement(container, controls) {
       const clearSuppression = () => {
@@ -4322,6 +4358,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       textInput.spellcheck = false;
       textInput.setAttribute("aria-label", `${options.label}\u989C\u8272\u503C`);
       this.bindChromeBlur(field, [swatch, textInput]);
+      this.bindControlActiveState(field, [swatch, textInput]);
       const actions = document.createElement("div");
       actions.className = "bsb-tm-color-actions";
       actions.hidden = true;
@@ -11169,7 +11206,7 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.38);
 }
 
-.bsb-tm-color-field:not([data-hover-suppressed="true"]):hover {
+.bsb-tm-color-field:not([data-hover-suppressed="true"]):not(:focus-within):hover {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.22);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(244, 248, 252, 0.72)),
@@ -11193,7 +11230,7 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
   transform: translateY(-1px);
 }
 
-.bsb-tm-color-field.compact:not([data-hover-suppressed="true"]):hover {
+.bsb-tm-color-field.compact:not([data-hover-suppressed="true"]):not(:focus-within):hover {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.2);
   box-shadow:
     inset 0 0 0 1px rgba(var(--bsb-brand-blue-rgb), 0.08),
@@ -12615,8 +12652,8 @@ ${titleSurfaceFrostedGlass.overlay}
 .bsb-tm-tab-button:hover,
 .bsb-tm-link-card:hover,
 .bsb-tm-button:hover,
-.bsb-tm-panel input:not(.bsb-tm-switch):not([data-hover-suppressed="true"]):hover,
-.bsb-tm-panel select:not([data-hover-suppressed="true"]):hover,
+.bsb-tm-panel input:not(.bsb-tm-switch):not([data-hover-suppressed="true"]):not([data-control-active="true"]):hover,
+.bsb-tm-panel select:not([data-hover-suppressed="true"]):not([data-control-active="true"]):hover,
 .bsb-tm-field:not([data-hover-suppressed="true"]):hover > input:not(.bsb-tm-switch):not(:focus):not([data-control-active="true"]):not([data-hover-suppressed="true"]),
 .bsb-tm-field:not([data-hover-suppressed="true"]):hover > select:not(:focus):not([data-control-active="true"]):not([data-hover-suppressed="true"]),
 .bsb-tm-category-row:not([data-hover-suppressed="true"]):hover > select:not(:focus):not([data-control-active="true"]):not([data-hover-suppressed="true"]) {
@@ -12627,8 +12664,8 @@ ${titleSurfaceFrostedGlass.overlay}
   transform: translateY(-1px);
 }
 
-.bsb-tm-field:not([data-hover-suppressed="true"]):hover,
-.bsb-tm-category-row:not([data-hover-suppressed="true"]):hover {
+.bsb-tm-field:not([data-hover-suppressed="true"]):not([data-control-active="true"]):not(:focus-within):hover,
+.bsb-tm-category-row:not([data-hover-suppressed="true"]):not([data-control-active="true"]):not(:focus-within):hover {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.22);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.82),
@@ -12703,6 +12740,7 @@ ${titleSurfaceFrostedGlass.overlay}
 .bsb-tm-field[data-control-active="true"],
 .bsb-tm-category-row:not([data-pointer-focus="true"]):focus-within,
 .bsb-tm-category-row[data-control-active="true"],
+.bsb-tm-color-field[data-control-active="true"],
 .bsb-tm-link-card:focus-visible {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.3);
   box-shadow:

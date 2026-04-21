@@ -1052,6 +1052,7 @@ export class SettingsPanel {
     let focusGuardTimer: number | null = null;
     let windowFocusClearArmed = false;
     let nativeSelectClosePointerArmed = false;
+    let nativeSelectCloseOpeningUntil = 0;
     let nativeSelectClosePointerStart = 0;
     const getGroup = (): HTMLElement | null => container.closest<HTMLElement>(".bsb-tm-form-group");
     const isInsideControl = (event: Event): boolean => event.target instanceof Node && control.contains(event.target);
@@ -1062,8 +1063,6 @@ export class SettingsPanel {
       document.removeEventListener("pointerdown", handleNativeSelectClosePointer);
       document.removeEventListener("mousedown", handleNativeSelectClosePointer);
       document.removeEventListener("click", handleNativeSelectClosePointer);
-      document.removeEventListener("pointermove", handleNativeSelectClosePointer);
-      document.removeEventListener("mousemove", handleNativeSelectClosePointer);
       nativeSelectClosePointerArmed = false;
     };
     const clearActiveVisual = () => {
@@ -1092,11 +1091,10 @@ export class SettingsPanel {
       }
       nativeSelectClosePointerArmed = true;
       nativeSelectClosePointerStart = Date.now();
+      nativeSelectCloseOpeningUntil = nativeSelectClosePointerStart + 250;
       document.addEventListener("pointerdown", handleNativeSelectClosePointer);
       document.addEventListener("mousedown", handleNativeSelectClosePointer);
       document.addEventListener("click", handleNativeSelectClosePointer);
-      document.addEventListener("pointermove", handleNativeSelectClosePointer);
-      document.addEventListener("mousemove", handleNativeSelectClosePointer);
     };
     const markActiveVisual = () => {
       container.dataset.controlActive = "true";
@@ -1160,7 +1158,7 @@ export class SettingsPanel {
       windowFocusClearArmed = false;
       window.setTimeout(() => {
         if (control.dataset.controlActive === "true") {
-          clearPointerFocus();
+          clearActiveControl();
         }
       }, 0);
     }
@@ -1168,17 +1166,26 @@ export class SettingsPanel {
       if (isInsideControl(event)) {
         return;
       }
-      if ((event.type === "pointermove" || event.type === "mousemove") && Date.now() - nativeSelectClosePointerStart < 300) {
+      if (Date.now() < nativeSelectCloseOpeningUntil) {
         return;
       }
       if (control.dataset.controlActive === "true") {
-        clearPointerFocus();
+        clearActiveControl();
+      }
+    }
+    function handleNativeSelectControlClickClose() {
+      if (!options?.activateControlOnPointer || Date.now() < nativeSelectCloseOpeningUntil) {
+        return;
+      }
+      if (control.dataset.controlActive === "true") {
+        clearActiveControl();
       }
     }
     container.addEventListener("pointerdown", markPointerFocus);
     container.addEventListener("mousedown", markPointerFocus);
     control.addEventListener("pointerdown", markPointerFocus);
     control.addEventListener("mousedown", markPointerFocus);
+    control.addEventListener("click", handleNativeSelectControlClickClose);
     control.addEventListener("keydown", (event) => {
       if (options?.activateControlOnPointer && event.key === "Escape") {
         clearActiveControl();
@@ -1204,6 +1211,36 @@ export class SettingsPanel {
     };
     container.addEventListener("pointerdown", handleChromePointer);
     container.addEventListener("mousedown", handleChromePointer);
+  }
+
+  private bindControlActiveState(container: HTMLElement, controls: HTMLElement[]): void {
+    const markActive = (event: Event) => {
+      const target = event.currentTarget;
+      container.dataset.controlActive = "true";
+      for (const control of controls) {
+        delete control.dataset.controlActive;
+      }
+      if (target instanceof HTMLElement) {
+        target.dataset.controlActive = "true";
+      }
+    };
+    const clearActive = () => {
+      window.setTimeout(() => {
+        if (controls.some((control) => document.activeElement === control)) {
+          return;
+        }
+        delete container.dataset.controlActive;
+        for (const control of controls) {
+          delete control.dataset.controlActive;
+        }
+      }, 0);
+    };
+    for (const control of controls) {
+      control.addEventListener("pointerdown", markActive);
+      control.addEventListener("mousedown", markActive);
+      control.addEventListener("focus", markActive);
+      control.addEventListener("blur", clearActive);
+    }
   }
 
   private suppressHoverUntilPointerMovement(container: HTMLElement, controls: HTMLElement[]): void {
@@ -1635,6 +1672,7 @@ export class SettingsPanel {
     textInput.spellcheck = false;
     textInput.setAttribute("aria-label", `${options.label}颜色值`);
     this.bindChromeBlur(field, [swatch, textInput]);
+    this.bindControlActiveState(field, [swatch, textInput]);
 
     const actions = document.createElement("div");
     actions.className = "bsb-tm-color-actions";
