@@ -439,9 +439,78 @@ describe("settings panel", () => {
     expect(document.activeElement).not.toBe(select);
   });
 
-  it("suppresses pointer-origin focus styling on select cards without hiding keyboard focus", () => {
+  it("keeps pointer-origin select focus suppressed until focus leaves the card", () => {
     const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
       onPatchConfig: vi.fn(async () => {}),
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("filters");
+
+    const field = Array.from(document.querySelectorAll<HTMLLabelElement>(".bsb-tm-field.stacked")).find((candidate) =>
+      candidate.textContent?.includes("动态过滤模式")
+    );
+    const select = field?.querySelector<HTMLSelectElement>("select");
+    expect(field).toBeTruthy();
+    expect(select).toBeTruthy();
+
+    select!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    select!.focus();
+    expect(field?.dataset.pointerFocus).toBe("true");
+
+    select!.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+    expect(field?.dataset.pointerFocus).toBe("true");
+
+    select!.blur();
+    expect(field?.dataset.pointerFocus).toBeUndefined();
+  });
+
+  it("suppresses pointer-origin focus when the pointer lands on the select card chrome", () => {
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig: vi.fn(async () => {}),
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const field = Array.from(document.querySelectorAll<HTMLLabelElement>(".bsb-tm-field.stacked")).find((candidate) =>
+      candidate.textContent?.includes("首页 / 列表卡片标签")
+    );
+    const group = field?.closest<HTMLElement>(".bsb-tm-form-group");
+    const select = field?.querySelector<HTMLSelectElement>("select");
+    expect(field).toBeTruthy();
+    expect(group).toBeTruthy();
+    expect(select).toBeTruthy();
+
+    field!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    select!.focus();
+
+    expect(field?.dataset.pointerFocus).toBe("true");
+    expect(group?.dataset.pointerFocus).toBe("true");
+
+    select!.blur();
+
+    expect(field?.dataset.pointerFocus).toBeUndefined();
+    expect(group?.dataset.pointerFocus).toBeUndefined();
+  });
+
+  it("blurs pointer-origin select saves when the pointer starts from the card", async () => {
+    const baseConfig = cloneDefaultConfig();
+    let panel: SettingsPanel;
+    const onPatchConfig = vi.fn(async (patch: Partial<ReturnType<typeof cloneDefaultConfig>>) => {
+      panel.updateConfig({
+        ...baseConfig,
+        ...patch
+      });
+    });
+    panel = new SettingsPanel(baseConfig, { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig,
       onCategoryModeChange: vi.fn(async () => {}),
       onClearCache: vi.fn(async () => {}),
       onReset: vi.fn(async () => {})
@@ -457,11 +526,15 @@ describe("settings panel", () => {
     expect(field).toBeTruthy();
     expect(select).toBeTruthy();
 
-    select!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    field!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
     select!.focus();
-    expect(field?.dataset.pointerFocus).toBe("true");
+    select!.value = "off";
+    select!.dispatchEvent(new Event("change", { bubbles: true }));
+    await Promise.resolve();
+    await Promise.resolve();
 
-    select!.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+    expect(onPatchConfig).toHaveBeenCalledWith({ thumbnailLabelMode: "off" });
+    expect(document.activeElement).not.toBe(select);
     expect(field?.dataset.pointerFocus).toBeUndefined();
   });
 
@@ -724,6 +797,14 @@ describe("settings panel", () => {
     expect(card?.textContent).toContain("暂无诊断事件");
     expect(debugSwitch).toBeTruthy();
     expect(debugSwitch?.checked).toBe(false);
+
+    const debugToggle = debugSwitch?.closest<HTMLElement>(".bsb-tm-diagnostics-debug-toggle");
+    expect(debugToggle).toBeTruthy();
+    debugToggle!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    debugSwitch!.focus();
+    expect(debugToggle?.dataset.pointerFocus).toBe("true");
+    debugSwitch!.blur();
+    expect(debugToggle?.dataset.pointerFocus).toBeUndefined();
 
     debugSwitch?.click();
 

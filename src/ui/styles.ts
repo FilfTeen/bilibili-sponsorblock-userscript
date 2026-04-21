@@ -1956,6 +1956,25 @@ ${titleSurfaceFrostedGlass.overlay}
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(244, 248, 252, 0.5)),
     rgba(255, 255, 255, 0.36);
+  cursor: pointer;
+  transition:
+    background 190ms var(--bsb-ease-swift),
+    border-color 170ms var(--bsb-ease-swift),
+    box-shadow 170ms var(--bsb-ease-swift),
+    transform 190ms var(--bsb-ease-fluid);
+}
+
+.bsb-tm-diagnostics-debug-toggle:hover,
+.bsb-tm-diagnostics-debug-toggle:not([data-pointer-focus="true"]):focus-within {
+  border-color: rgba(var(--bsb-brand-blue-rgb), 0.22);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(244, 248, 252, 0.68)),
+    rgba(var(--bsb-brand-blue-rgb), 0.05);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 10px 22px rgba(15, 23, 42, 0.055),
+    inset 0 0 0 1px rgba(var(--bsb-brand-blue-rgb), 0.06);
+  transform: translateY(-1px);
 }
 
 .bsb-tm-diagnostics-debug-copy {

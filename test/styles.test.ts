@@ -173,6 +173,9 @@ describe("shared glass contexts", () => {
     expect(styles).toContain(".bsb-tm-diagnostics-item[data-severity=\"warn\"]");
     expect(styles).toContain(".bsb-tm-diagnostics-item[data-severity=\"error\"]");
     expect(styles).toContain(".bsb-tm-field[data-control-error=\"true\"]");
+    expect(styles).toMatch(
+      /\.bsb-tm-diagnostics-debug-toggle:hover,[\s\S]*\.bsb-tm-diagnostics-debug-toggle:not\(\[data-pointer-focus="true"\]\):focus-within \{[\s\S]*border-color: rgba\(var\(--bsb-brand-blue-rgb\), 0\.22\);/
+    );
   });
 
   it("uses a custom stable switch surface instead of Safari native checkbox painting", () => {
