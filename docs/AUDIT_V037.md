@@ -1,6 +1,8 @@
 # Bilibili QoL Core v0.3.7 审计记录
 
-本记录是 `v0.3.7` 功能版发布前审计的历史归档。审计范围包括菜单入口、功能蓝图、代码结构、安全边界、UI 一致性和测试链路。`v0.3.8` 是后续仓库重命名和 Tampermonkey 更新链路迁移版本，不改变本记录中的功能审计结论。
+本记录是 `v0.3.7` 功能版发布前审计的历史归档。审计范围包括菜单入口、功能蓝图、代码结构、安全边界、UI 一致性和测试链路。`v0.3.8` 是后续仓库重命名和 Tampermonkey 更新链路迁移版本，不改变本记录中的历史功能审计结论。
+
+注意：本文件中的 `fixed` 代表当时的代码或测试问题已收口，不等于当前版本已完成 Safari 主窗口真实验收。MBGA、原生请求 guard、PCDN/WebRTC 相关结论应以后续 `v0.3.11` reality audit 的证据等级为准。
 
 ## 结论摘要
 
@@ -55,7 +57,7 @@
 - Status: `fixed-with-safari-risk`
 - Evidence: 紧凑顶栏隐藏原生顶部栏后，原生顶部栏 badge 统计请求仍可能继续发起。
 - Impact: 多余请求会增加页面加载期噪音和潜在 UI 抖动。
-- Fix: document-start 安装轻量 guard，默认观察；只有紧凑顶栏已挂载且页面支持时，才对确认冗余的 fetch 顶栏请求执行窄范围 guard，命中 `/x/msgfeed/unread`、`/x/web-interface/nav/stat` 等白名单路径时返回合成 204。
+- Fix: document-start 安装轻量 guard，默认观察；只有紧凑顶栏已挂载且页面支持时，才对当前窄名单内的 fetch 顶栏请求执行 guard，命中 `/x/msgfeed/unread`、`/x/web-interface/nav/stat` 等白名单路径时返回合成 204。
 - Residual risk: XHR 路径当前只做观测记录，命中时记录 `would-block-xhr`，不实际阻断。Safari 主窗口还需确认 B 站当前实验流下这些 fetch 请求确实只服务原生顶部栏 badge，且不影响头像、搜索、登录态或播放。
 - Verification: `test/native-request-guard.test.ts`。
 
@@ -158,4 +160,4 @@
 ## 后续建议
 
 - 评估是否将 `@connect *` 收窄为默认服务域名和用户显式备用域名策略。
-- 发布前按 `docs/SAFARI_ACCEPTANCE_V037.md` 补齐 Safari 主窗口截图或录屏证据。
+- 后续发布按当前版本的 Safari 验收缺口文档补齐主窗口截图、录屏或网络 A/B 证据；`docs/SAFARI_ACCEPTANCE_V037.md` 只作为历史清单参考。

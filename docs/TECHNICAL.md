@@ -7,7 +7,7 @@ Bilibili QoL Core v0.3.10 是运行在 Tampermonkey 中的 Bilibili 增强 users
 - 在 Safari 上稳定复现 SponsorBlock 核心体验。
 - 用低侵入方式增强视频页、评论区、动态页和缩略图卡片。
 - 用可解释的本地推理补充商业性质判断。
-- 在不破坏页面依赖的前提下减少冗余原生请求。
+- 在证据明确且命中窄规则时，减少少量已知原生请求噪音。
 - 避免把自动化测试通过误当成真实 Safari 可用。
 
 ## 目录结构
@@ -62,7 +62,7 @@ Bilibili QoL Core v0.3.10 是运行在 Tampermonkey 中的 Bilibili 增强 users
 
 ### 原生请求 guard
 
-`src/platform/native-request-guard.ts` 通过页面脚本在 fetch/XHR 层做轻量观察。只有在以下条件都满足时，才会阻断已确认冗余的顶部栏 badge 请求：
+`src/platform/native-request-guard.ts` 通过页面脚本在 fetch/XHR 层做轻量观察。只有在以下条件都满足时，才会对当前窄名单内的顶部栏 badge 请求返回合成响应：
 
 - QoL Core 已启用。
 - 当前页面支持紧凑视频顶栏。
@@ -70,6 +70,8 @@ Bilibili QoL Core v0.3.10 是运行在 Tampermonkey 中的 Bilibili 增强 users
 - 请求命中窄白名单，例如 `/x/msgfeed/unread`、`/x/web-interface/nav/stat`。
 
 guard 不阻断 `/x/web-interface/nav`、搜索、播放、评论、动态、登录、风控等请求。
+
+这些 guard 规则不是通用隐私防护；它们只覆盖当前代码明确列出的路径。`v0.3.11` 仍需用 Safari 主窗口 A/B 网络采样持续证明这些路径在当前 B 站实验流中没有被复用为关键功能。
 
 ### 评论/动态链路
 
@@ -82,6 +84,8 @@ guard 不阻断 `/x/web-interface/nav`、搜索、播放、评论、动态、登
 ### MBGA 链路
 
 MBGA 使用规则表 `MBGA_RULES`，按配置和页面类型启用网络、UI 或行为规则。它会访问 `unsafeWindow` 来拦截页面侧能力，因此所有规则都必须保持明确边界和可测试性。
+
+MBGA 当前应被理解为 best-effort 的已知规则集合，不应被描述为完整遥测阻断、完整 PCDN 禁用或完整隐私保护。
 
 ## 数据与存储
 
