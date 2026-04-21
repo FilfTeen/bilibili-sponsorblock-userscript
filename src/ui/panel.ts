@@ -108,6 +108,8 @@ export class SettingsPanel {
   private readonly activeFeedbacks = new Map<string, string>(); // id -> originalText
   private readonly pendingConfirmations = new Set<string>(); // id
   private inlineControlUpdateDepth = 0;
+  private pendingInlineConfigRender = false;
+  private inlineConfigRenderScheduled = false;
   private unsubscribeDiagnostics: (() => void) | null = null;
   private readonly handleKeydown = (event: KeyboardEvent) => {
     if (event.key === "Escape" && !this.backdrop.hidden) {
@@ -231,6 +233,7 @@ export class SettingsPanel {
     this.config = config;
     this.filterValidationMessage = null;
     if (this.inlineControlUpdateDepth > 0 && !this.backdrop.hidden) {
+      this.pendingInlineConfigRender = true;
       return;
     }
     this.rememberActiveScroll();
@@ -979,7 +982,26 @@ export class SettingsPanel {
     this.inlineControlUpdateDepth += 1;
     return () => {
       this.inlineControlUpdateDepth = Math.max(0, this.inlineControlUpdateDepth - 1);
+      if (this.inlineControlUpdateDepth === 0 && this.pendingInlineConfigRender) {
+        this.schedulePendingInlineConfigRender();
+      }
     };
+  }
+
+  private schedulePendingInlineConfigRender(): void {
+    if (this.inlineConfigRenderScheduled) {
+      return;
+    }
+    this.inlineConfigRenderScheduled = true;
+    void Promise.resolve().then(() => {
+      this.inlineConfigRenderScheduled = false;
+      if (this.inlineControlUpdateDepth > 0 || !this.pendingInlineConfigRender) {
+        return;
+      }
+      this.pendingInlineConfigRender = false;
+      this.rememberActiveScroll();
+      this.render(true);
+    });
   }
 
   private createTabButton(tab: PanelTab): HTMLButtonElement {

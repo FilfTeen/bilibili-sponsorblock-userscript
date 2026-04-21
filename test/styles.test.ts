@@ -137,7 +137,7 @@ describe("shared glass contexts", () => {
       /\.bsb-tm-summary-line,[\s\S]*\.bsb-tm-link-card \{[\s\S]*0 10px 22px rgba\(15, 23, 42, 0\.045\),[\s\S]*box-shadow 170ms var\(--bsb-ease-swift\),/
     );
     expect(styles).toMatch(
-      /\.bsb-tm-form-group:hover,[\s\S]*\.bsb-tm-form-group:not\(\[data-pointer-focus="true"\]\):focus-within \{[\s\S]*0 18px 38px rgba\(15, 23, 42, 0\.095\),/
+      /\.bsb-tm-form-group:not\(\[data-pointer-focus="true"\]\):hover,[\s\S]*\.bsb-tm-form-group:not\(\[data-pointer-focus="true"\]\):focus-within \{[\s\S]*0 18px 38px rgba\(15, 23, 42, 0\.095\),/
     );
   });
 
@@ -166,8 +166,18 @@ describe("shared glass contexts", () => {
     expect(styles).toMatch(
       /\.bsb-tm-panel input:not\(\.bsb-tm-switch\):not\(\[data-pointer-focus="true"\]\):focus,[\s\S]*\.bsb-tm-panel select:not\(\[data-pointer-focus="true"\]\):focus \{/
     );
+    expect(styles).toMatch(
+      /\.bsb-tm-panel input:not\(\.bsb-tm-switch\):not\(\[data-pointer-focus="true"\]\):hover,[\s\S]*\.bsb-tm-panel select:not\(\[data-pointer-focus="true"\]\):hover \{/
+    );
+    expect(styles).toMatch(
+      /\.bsb-tm-field:not\(\[data-pointer-focus="true"\]\):hover,[\s\S]*\.bsb-tm-category-row:not\(\[data-pointer-focus="true"\]\):hover \{/
+    );
+    expect(styles).toMatch(
+      /\.bsb-tm-form-group:not\(\[data-pointer-focus="true"\]\):hover,[\s\S]*\.bsb-tm-form-group:not\(\[data-pointer-focus="true"\]\):focus-within \{/
+    );
     expect(styles).not.toContain(".bsb-tm-field:focus-within,\n.bsb-tm-category-row:focus-within");
     expect(styles).not.toContain(".bsb-tm-panel select:focus {");
+    expect(styles).not.toContain(".bsb-tm-field:hover,\n.bsb-tm-category-row:hover");
   });
 
   it("styles developer diagnostics without promoting them to global alerts", () => {

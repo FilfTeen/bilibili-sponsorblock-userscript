@@ -1816,8 +1816,8 @@ ${titleSurfaceFrostedGlass.overlay}
 .bsb-tm-tab-button:hover,
 .bsb-tm-link-card:hover,
 .bsb-tm-button:hover,
-.bsb-tm-panel input:not(.bsb-tm-switch):hover,
-.bsb-tm-panel select:hover {
+.bsb-tm-panel input:not(.bsb-tm-switch):not([data-pointer-focus="true"]):hover,
+.bsb-tm-panel select:not([data-pointer-focus="true"]):hover {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.28);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.8),
@@ -1825,8 +1825,8 @@ ${titleSurfaceFrostedGlass.overlay}
   transform: translateY(-1px);
 }
 
-.bsb-tm-field:hover,
-.bsb-tm-category-row:hover {
+.bsb-tm-field:not([data-pointer-focus="true"]):hover,
+.bsb-tm-category-row:not([data-pointer-focus="true"]):hover {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.22);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.82),
@@ -1880,7 +1880,7 @@ ${titleSurfaceFrostedGlass.overlay}
     inset 0 1px 0 rgba(255, 255, 255, 0.68);
 }
 
-.bsb-tm-form-group:hover,
+.bsb-tm-form-group:not([data-pointer-focus="true"]):hover,
 .bsb-tm-form-group:not([data-pointer-focus="true"]):focus-within {
   border-color: rgba(255, 255, 255, 0.82);
   box-shadow:

@@ -645,6 +645,60 @@ describe("settings panel", () => {
     }));
   });
 
+  it("refreshes existing category color previews after transparency settings change", async () => {
+    let config = cloneDefaultConfig();
+    let panel: SettingsPanel;
+    const onPatchConfig = vi.fn(async (patch: Partial<ReturnType<typeof cloneDefaultConfig>>) => {
+      config = {
+        ...config,
+        ...patch
+      };
+      panel.updateConfig(config);
+    });
+    panel = new SettingsPanel(config, { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig,
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const findSponsorPreview = (): HTMLElement | null => {
+      const field = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-color-field[data-color-editor='true']")).find(
+        (candidate) => candidate.textContent?.includes(CATEGORY_LABELS.sponsor)
+      );
+      return field?.querySelector<HTMLElement>(".bsb-tm-title-pill-wrap") ?? null;
+    };
+
+    expect(findSponsorPreview()?.dataset.transparent).toBe("false");
+
+    panel.open("transparency");
+    const titleTransparencyField = Array.from(document.querySelectorAll<HTMLLabelElement>(".bsb-tm-field-toggle")).find(
+      (candidate) => candidate.textContent?.includes("标题商业标签使用透明模式")
+    );
+    const titleTransparencySwitch = titleTransparencyField?.querySelector<HTMLInputElement>("input[type='checkbox']");
+    expect(titleTransparencyField).toBeTruthy();
+    expect(titleTransparencySwitch).toBeTruthy();
+
+    titleTransparencyField!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    titleTransparencySwitch!.checked = true;
+    titleTransparencySwitch!.dispatchEvent(new Event("change", { bubbles: true }));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    panel.open("behavior");
+
+    expect(onPatchConfig).toHaveBeenCalledWith(expect.objectContaining({
+      labelTransparency: expect.objectContaining({
+        titleBadge: true
+      })
+    }));
+    expect(findSponsorPreview()?.dataset.transparent).toBe("true");
+  });
+
   it("cancels a draft color without persisting it", () => {
     const onPatchConfig = vi.fn(async () => {});
     const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
