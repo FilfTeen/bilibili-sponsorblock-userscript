@@ -3793,6 +3793,7 @@ ${inlineSurfaceFrostedGlass.overlay}
         var _a;
         (_a = options == null ? void 0 : options.onPointerFocus) == null ? void 0 : _a.call(options);
         container.dataset.pointerFocus = "true";
+        control.dataset.pointerFocus = "true";
         const group = getGroup();
         if (group) {
           group.dataset.pointerFocus = "true";
@@ -3813,6 +3814,7 @@ ${inlineSurfaceFrostedGlass.overlay}
           focusGuardTimer = null;
         }
         delete container.dataset.pointerFocus;
+        delete control.dataset.pointerFocus;
         const group = getGroup();
         if (group) {
           delete group.dataset.pointerFocus;
@@ -12400,8 +12402,8 @@ ${titleSurfaceFrostedGlass.overlay}
   }
 }
 
-.bsb-tm-panel input:not(.bsb-tm-switch):focus,
-.bsb-tm-panel select:focus {
+.bsb-tm-panel input:not(.bsb-tm-switch):not([data-pointer-focus="true"]):focus,
+.bsb-tm-panel select:not([data-pointer-focus="true"]):focus {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.3);
   box-shadow:
     0 0 0 4px rgba(var(--bsb-brand-blue-rgb), 0.14),

@@ -163,7 +163,11 @@ describe("shared glass contexts", () => {
     expect(styles).toMatch(
       /\.bsb-tm-field:not\(\[data-pointer-focus="true"\]\):focus-within,[\s\S]*\.bsb-tm-category-row:not\(\[data-pointer-focus="true"\]\):focus-within,[\s\S]*\.bsb-tm-link-card:focus-visible \{/
     );
+    expect(styles).toMatch(
+      /\.bsb-tm-panel input:not\(\.bsb-tm-switch\):not\(\[data-pointer-focus="true"\]\):focus,[\s\S]*\.bsb-tm-panel select:not\(\[data-pointer-focus="true"\]\):focus \{/
+    );
     expect(styles).not.toContain(".bsb-tm-field:focus-within,\n.bsb-tm-category-row:focus-within");
+    expect(styles).not.toContain(".bsb-tm-panel select:focus {");
   });
 
   it("styles developer diagnostics without promoting them to global alerts", () => {

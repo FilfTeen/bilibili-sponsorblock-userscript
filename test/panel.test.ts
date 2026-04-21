@@ -460,12 +460,15 @@ describe("settings panel", () => {
     select!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
     select!.focus();
     expect(field?.dataset.pointerFocus).toBe("true");
+    expect(select?.dataset.pointerFocus).toBe("true");
 
     select!.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
     expect(field?.dataset.pointerFocus).toBe("true");
+    expect(select?.dataset.pointerFocus).toBe("true");
 
     select!.blur();
     expect(field?.dataset.pointerFocus).toBeUndefined();
+    expect(select?.dataset.pointerFocus).toBeUndefined();
   });
 
   it("suppresses pointer-origin focus when the pointer lands on the select card chrome", () => {
@@ -492,12 +495,44 @@ describe("settings panel", () => {
     select!.focus();
 
     expect(field?.dataset.pointerFocus).toBe("true");
+    expect(select?.dataset.pointerFocus).toBe("true");
     expect(group?.dataset.pointerFocus).toBe("true");
 
     select!.blur();
 
     expect(field?.dataset.pointerFocus).toBeUndefined();
+    expect(select?.dataset.pointerFocus).toBeUndefined();
     expect(group?.dataset.pointerFocus).toBeUndefined();
+  });
+
+  it("keeps same-value pointer select activation visually suppressed without a change event", () => {
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig: vi.fn(async () => {}),
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const field = Array.from(document.querySelectorAll<HTMLLabelElement>(".bsb-tm-field.stacked")).find((candidate) =>
+      candidate.textContent?.includes("首页 / 列表卡片标签")
+    );
+    const group = field?.closest<HTMLElement>(".bsb-tm-form-group");
+    const select = field?.querySelector<HTMLSelectElement>("select");
+    expect(field).toBeTruthy();
+    expect(group).toBeTruthy();
+    expect(select).toBeTruthy();
+
+    field!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    select!.focus();
+    select!.value = select!.value;
+    select!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+
+    expect(field?.dataset.pointerFocus).toBe("true");
+    expect(group?.dataset.pointerFocus).toBe("true");
+    expect(select?.dataset.pointerFocus).toBe("true");
   });
 
   it("blurs pointer-origin select saves when the pointer starts from the card", async () => {

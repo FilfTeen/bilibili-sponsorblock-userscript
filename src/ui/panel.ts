@@ -1032,6 +1032,7 @@ export class SettingsPanel {
     const markPointerFocus = () => {
       options?.onPointerFocus?.();
       container.dataset.pointerFocus = "true";
+      control.dataset.pointerFocus = "true";
       const group = getGroup();
       if (group) {
         group.dataset.pointerFocus = "true";
@@ -1052,6 +1053,7 @@ export class SettingsPanel {
         focusGuardTimer = null;
       }
       delete container.dataset.pointerFocus;
+      delete control.dataset.pointerFocus;
       const group = getGroup();
       if (group) {
         delete group.dataset.pointerFocus;

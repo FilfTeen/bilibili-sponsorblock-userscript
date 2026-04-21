@@ -1872,8 +1872,8 @@ ${titleSurfaceFrostedGlass.overlay}
   }
 }
 
-.bsb-tm-panel input:not(.bsb-tm-switch):focus,
-.bsb-tm-panel select:focus {
+.bsb-tm-panel input:not(.bsb-tm-switch):not([data-pointer-focus="true"]):focus,
+.bsb-tm-panel select:not([data-pointer-focus="true"]):focus {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.3);
   box-shadow:
     0 0 0 4px rgba(var(--bsb-brand-blue-rgb), 0.14),
