@@ -6,6 +6,7 @@ import {
   isDiagnosticDebugEnabled,
   reportDiagnostic,
   sanitizeDiagnosticDetail,
+  sanitizeDiagnosticPageUrl,
   setDiagnosticDebugEnabled,
   subscribeDiagnostics
 } from "../src/utils/diagnostics";
@@ -79,6 +80,49 @@ describe("developer diagnostics", () => {
     expect(report).toContain("[error/upstream] Vote failed");
     expect(report).toContain("429");
     expect(report).not.toContain("secret-user-id");
+  });
+
+  it("removes sensitive query and hash data from report page URLs", () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/video/BV1xx411c7mD?token=secret-token&userId=secret-user&vd_source=secret-vd&spm_id_from=333.788#authorization=secret-auth"
+    );
+
+    const report = formatDiagnosticReport();
+
+    expect(report).toContain("Page: https://www.bilibili.com/video/BV1xx411c7mD");
+    expect(report).not.toContain("secret-token");
+    expect(report).not.toContain("secret-user");
+    expect(report).not.toContain("secret-vd");
+    expect(report).not.toContain("333.788");
+    expect(report).not.toContain("secret-auth");
+    expect(report).not.toContain("?");
+    expect(report).not.toContain("#");
+  });
+
+  it("sanitizes invalid page URL strings without leaking query or hash fragments", () => {
+    const sanitized = sanitizeDiagnosticPageUrl(
+      "not a valid url?token=secret-token&userId=secret-user#vd_source=secret-vd&spm_id_from=333.788"
+    );
+
+    expect(sanitized).toBe("not a valid url");
+    expect(sanitized).not.toContain("secret-token");
+    expect(sanitized).not.toContain("secret-user");
+    expect(sanitized).not.toContain("secret-vd");
+    expect(sanitized).not.toContain("333.788");
+    expect(sanitized).not.toContain("?");
+    expect(sanitized).not.toContain("#");
+  });
+
+  it("falls back safely for non-http URL-like strings", () => {
+    const sanitized = sanitizeDiagnosticPageUrl("javascript:alert(1)?token=secret-token#userId=secret-user");
+
+    expect(sanitized).toBe("javascript:alert(1)");
+    expect(sanitized).not.toContain("secret-token");
+    expect(sanitized).not.toContain("secret-user");
+    expect(sanitized).not.toContain("?");
+    expect(sanitized).not.toContain("#");
   });
 
   it("toggles diagnostic debug mode without requiring console commands", () => {

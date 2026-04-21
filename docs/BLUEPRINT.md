@@ -1,8 +1,8 @@
-# Bilibili QoL Core v0.3.9 工程蓝图
+# Bilibili QoL Core v0.3.10 工程蓝图
 
 本文件是后续开发、审计和派生线程接力的总索引。它描述当前真实能力、实现入口、数据边界、测试入口和验收重点。
 
-`v0.3.9` 是 `v0.3.8` 迁移版之后的补丁发布，修复 QoL Core 控制台里的 pointer focus 残留与诊断开关交互反馈；当前发布产物为 `dist/bilibili-qol-core.user.js`。
+`v0.3.10` 是控制台交互补丁之后的发布阻塞修复，清理诊断报告页面 URL 中的 query/hash 敏感信息，并确保 tag 构建生成不带 `v` 前缀的 userscript 版本号；当前发布产物为 `dist/bilibili-qol-core.user.js`。
 
 ## 1. 运行环境与启动
 

@@ -38,6 +38,19 @@ function cleanString(input: string): string {
     .slice(0, 1200);
 }
 
+export function sanitizeDiagnosticPageUrl(input: string): string {
+  try {
+    const url = new URL(input);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      throw new Error("unsupported diagnostic URL protocol");
+    }
+    return cleanString(`${url.origin}${url.pathname}`);
+  } catch (_error) {
+    const withoutQueryOrHash = input.split(/[?#]/u, 1)[0] ?? "";
+    return cleanString(withoutQueryOrHash);
+  }
+}
+
 function sanitizeValue(key: string, value: unknown): unknown {
   if (SENSITIVE_KEY_PATTERN.test(key)) {
     return "[redacted]";
@@ -171,7 +184,7 @@ export function formatDiagnosticReport(): string {
     `Version: ${SCRIPT_VERSION}`,
     `Generated: ${new Date().toISOString()}`,
     `Debug: ${isDiagnosticDebugEnabled() ? "enabled" : "disabled"}`,
-    `Page: ${cleanString(window.location.href)}`,
+    `Page: ${sanitizeDiagnosticPageUrl(window.location.href)}`,
     `UserAgent: ${cleanString(navigator.userAgent)}`,
     `Events: ${diagnosticEvents.length}`
   ];
