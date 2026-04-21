@@ -231,6 +231,7 @@ export class SettingsPanel {
     this.config = config;
     this.filterValidationMessage = null;
     if (this.inlineControlUpdateDepth > 0 && !this.backdrop.hidden) {
+      this.renderInactiveConfigSections();
       return;
     }
     this.rememberActiveScroll();
@@ -443,7 +444,7 @@ export class SettingsPanel {
 
     this.categoryForm.replaceChildren();
     for (const category of CATEGORY_ORDER) {
-      const row = document.createElement("label");
+      const row = document.createElement("div");
       row.className = "bsb-tm-category-row";
 
       const copy = document.createElement("div");
@@ -457,6 +458,7 @@ export class SettingsPanel {
       copy.append(label, help);
 
       const select = document.createElement("select");
+      select.setAttribute("aria-label", `${CATEGORY_LABELS[category]}分类策略`);
       for (const mode of Object.keys(MODE_LABELS) as CategoryMode[]) {
         const option = document.createElement("option");
         option.value = mode;
@@ -465,11 +467,9 @@ export class SettingsPanel {
         select.appendChild(option);
       }
       let pointerDrivenSelection = false;
-      select.addEventListener("pointerdown", () => {
-        pointerDrivenSelection = true;
-      });
       this.bindPointerFocusSuppression(row, select, {
-        onPointerFocus: () => {
+        activateControlOnPointer: true,
+        onControlPointerFocus: () => {
           pointerDrivenSelection = true;
         }
       });
@@ -477,9 +477,6 @@ export class SettingsPanel {
         const finishInlineUpdate = this.beginInlineControlUpdate();
         try {
           await this.callbacks.onCategoryModeChange(category, select.value as CategoryMode);
-          if (pointerDrivenSelection) {
-            select.blur();
-          }
         } catch (error) {
           select.value = this.config.categoryModes[category];
           this.markControlError(row);
@@ -490,6 +487,9 @@ export class SettingsPanel {
             detail: error
           });
         } finally {
+          if (pointerDrivenSelection) {
+            select.blur();
+          }
           pointerDrivenSelection = false;
           finishInlineUpdate();
         }
@@ -982,6 +982,28 @@ export class SettingsPanel {
     };
   }
 
+  private renderInactiveConfigSections(): void {
+    const activeTab = this.activeTab;
+    if (activeTab !== "overview") {
+      this.renderOverview();
+    }
+    if (activeTab !== "behavior") {
+      this.renderBehavior();
+    }
+    if (activeTab !== "transparency") {
+      this.renderTransparency();
+    }
+    if (activeTab !== "filters") {
+      this.renderFilters();
+    }
+    if (activeTab !== "mbga") {
+      this.renderMbga();
+    }
+    if (activeTab !== "help") {
+      this.renderHelp();
+    }
+  }
+
   private createTabButton(tab: PanelTab): HTMLButtonElement {
     const button = document.createElement("button");
     button.type = "button";
@@ -1025,16 +1047,80 @@ export class SettingsPanel {
   private bindPointerFocusSuppression(
     container: HTMLElement,
     control: HTMLElement,
-    options?: { onPointerFocus?: () => void }
+    options?: { activateControlOnPointer?: boolean; onControlPointerFocus?: () => void; onPointerFocus?: () => void }
   ): void {
     let focusGuardTimer: number | null = null;
+    let windowFocusClearArmed = false;
+    let nativeSelectClosePointerArmed = false;
+    let nativeSelectControlClickCloseAfter = 0;
     const getGroup = (): HTMLElement | null => container.closest<HTMLElement>(".bsb-tm-form-group");
-    const markPointerFocus = () => {
+    const isInsideControl = (event: Event): boolean => event.target instanceof Node && control.contains(event.target);
+    const clearNativeSelectClosePointer = () => {
+      if (!nativeSelectClosePointerArmed) {
+        return;
+      }
+      document.removeEventListener("pointerdown", handleNativeSelectClosePointer);
+      document.removeEventListener("mousedown", handleNativeSelectClosePointer);
+      document.removeEventListener("click", handleNativeSelectClosePointer);
+      nativeSelectClosePointerArmed = false;
+    };
+    const clearActiveVisual = () => {
+      if (windowFocusClearArmed) {
+        window.removeEventListener("focus", handleWindowFocus);
+        windowFocusClearArmed = false;
+      }
+      clearNativeSelectClosePointer();
+      delete container.dataset.controlActive;
+      delete control.dataset.controlActive;
+      const group = getGroup();
+      if (group) {
+        delete group.dataset.controlActive;
+      }
+    };
+    const armWindowFocusClear = () => {
+      if (windowFocusClearArmed) {
+        return;
+      }
+      windowFocusClearArmed = true;
+      window.addEventListener("focus", handleWindowFocus);
+    };
+    const armNativeSelectClosePointer = () => {
+      if (!options?.activateControlOnPointer || nativeSelectClosePointerArmed) {
+        return;
+      }
+      nativeSelectClosePointerArmed = true;
+      nativeSelectControlClickCloseAfter = Date.now() + 80;
+      document.addEventListener("pointerdown", handleNativeSelectClosePointer);
+      document.addEventListener("mousedown", handleNativeSelectClosePointer);
+      document.addEventListener("click", handleNativeSelectClosePointer);
+    };
+    const markActiveVisual = () => {
+      container.dataset.controlActive = "true";
+      control.dataset.controlActive = "true";
+      const group = getGroup();
+      if (group) {
+        group.dataset.controlActive = "true";
+      }
+      armWindowFocusClear();
+      armNativeSelectClosePointer();
+    };
+    const markPointerFocus = (event: Event) => {
+      if (event.currentTarget === container && !isInsideControl(event)) {
+        if (document.activeElement === control) {
+          control.blur();
+        }
+        clearActiveVisual();
+      }
       options?.onPointerFocus?.();
       container.dataset.pointerFocus = "true";
+      control.dataset.pointerFocus = "true";
       const group = getGroup();
       if (group) {
         group.dataset.pointerFocus = "true";
+      }
+      if (options?.activateControlOnPointer && event.currentTarget === control) {
+        options.onControlPointerFocus?.();
+        markActiveVisual();
       }
       if (focusGuardTimer !== null) {
         window.clearTimeout(focusGuardTimer);
@@ -1052,16 +1138,125 @@ export class SettingsPanel {
         focusGuardTimer = null;
       }
       delete container.dataset.pointerFocus;
+      delete control.dataset.pointerFocus;
+      clearActiveVisual();
       const group = getGroup();
       if (group) {
         delete group.dataset.pointerFocus;
       }
     };
+    const clearActiveControl = () => {
+      clearPointerFocus();
+      if (document.activeElement === control) {
+        control.blur();
+      }
+    };
+    function handleWindowFocus() {
+      window.removeEventListener("focus", handleWindowFocus);
+      windowFocusClearArmed = false;
+      window.setTimeout(() => {
+        if (control.dataset.controlActive === "true") {
+          clearActiveControl();
+        }
+      }, 0);
+    }
+    function handleNativeSelectClosePointer(event: Event) {
+      if (isInsideControl(event)) {
+        return;
+      }
+      if (control.dataset.controlActive === "true") {
+        clearActiveControl();
+      }
+    }
+    function handleNativeSelectControlClickClose() {
+      if (!options?.activateControlOnPointer || Date.now() < nativeSelectControlClickCloseAfter) {
+        return;
+      }
+      if (control.dataset.controlActive === "true") {
+        clearActiveControl();
+      }
+    }
     container.addEventListener("pointerdown", markPointerFocus);
     container.addEventListener("mousedown", markPointerFocus);
     control.addEventListener("pointerdown", markPointerFocus);
     control.addEventListener("mousedown", markPointerFocus);
+    control.addEventListener("click", handleNativeSelectControlClickClose);
+    control.addEventListener("keydown", (event) => {
+      if (options?.activateControlOnPointer && event.key === "Escape") {
+        clearActiveControl();
+      }
+    });
     control.addEventListener("blur", clearPointerFocus);
+  }
+
+  private bindChromeBlur(container: HTMLElement, controls: HTMLElement[]): void {
+    const handleChromePointer = (event: Event) => {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+      if (controls.some((control) => control.contains(target))) {
+        return;
+      }
+      for (const control of controls) {
+        if (document.activeElement === control) {
+          control.blur();
+        }
+      }
+    };
+    container.addEventListener("pointerdown", handleChromePointer);
+    container.addEventListener("mousedown", handleChromePointer);
+  }
+
+  private bindControlActiveState(container: HTMLElement, controls: HTMLElement[]): void {
+    const markActive = (event: Event) => {
+      const target = event.currentTarget;
+      container.dataset.controlActive = "true";
+      for (const control of controls) {
+        delete control.dataset.controlActive;
+      }
+      if (target instanceof HTMLElement) {
+        target.dataset.controlActive = "true";
+      }
+    };
+    const clearActive = () => {
+      window.setTimeout(() => {
+        if (controls.some((control) => document.activeElement === control)) {
+          return;
+        }
+        delete container.dataset.controlActive;
+        for (const control of controls) {
+          delete control.dataset.controlActive;
+        }
+      }, 0);
+    };
+    for (const control of controls) {
+      control.addEventListener("pointerdown", markActive);
+      control.addEventListener("mousedown", markActive);
+      control.addEventListener("focus", markActive);
+      control.addEventListener("blur", clearActive);
+    }
+  }
+
+  private suppressHoverUntilPointerMovement(container: HTMLElement, controls: HTMLElement[]): void {
+    const clearSuppression = () => {
+      delete container.dataset.hoverSuppressed;
+      for (const control of controls) {
+        delete control.dataset.hoverSuppressed;
+      }
+      document.removeEventListener("pointermove", clearSuppression);
+      document.removeEventListener("mousemove", clearSuppression);
+      document.removeEventListener("pointerdown", clearSuppression);
+      document.removeEventListener("mousedown", clearSuppression);
+    };
+    container.dataset.hoverSuppressed = "true";
+    for (const control of controls) {
+      control.dataset.hoverSuppressed = "true";
+    }
+    document.addEventListener("pointermove", clearSuppression);
+    document.addEventListener("mousemove", clearSuppression);
+    document.addEventListener("pointerdown", clearSuppression);
+    document.addEventListener("mousedown", clearSuppression);
   }
 
   private createCheckbox(
@@ -1098,7 +1293,12 @@ export class SettingsPanel {
     input.className = "bsb-tm-switch";
     input.setAttribute("role", "switch");
     input.checked = checked;
-    this.bindPointerFocusSuppression(label, input);
+    let pointerDrivenToggle = false;
+    this.bindPointerFocusSuppression(label, input, {
+      onPointerFocus: () => {
+        pointerDrivenToggle = true;
+      }
+    });
     let saving = false;
     let savingChecked = checked;
     input.addEventListener("change", async () => {
@@ -1129,6 +1329,10 @@ export class SettingsPanel {
         });
       } finally {
         finishInlineUpdate();
+        if (pointerDrivenToggle) {
+          input.blur();
+        }
+        pointerDrivenToggle = false;
         saving = false;
         label.removeAttribute("data-control-saving");
         input.removeAttribute("aria-busy");
@@ -1146,7 +1350,7 @@ export class SettingsPanel {
     value: string,
     onCommit: (value: string) => Promise<void>
   ): HTMLElement {
-    const wrapper = document.createElement("label");
+    const wrapper = document.createElement("div");
     wrapper.className = "bsb-tm-field stacked";
 
     wrapper.append(this.createInputLabel(labelText, helpText));
@@ -1155,8 +1359,35 @@ export class SettingsPanel {
     input.type = "text";
     input.value = value;
     input.spellcheck = false;
+    input.setAttribute("aria-label", labelText);
+    this.bindChromeBlur(wrapper, [input]);
+    let committedValue = value.trim();
+    let commitInFlight = false;
+    const commitValue = async (): Promise<void> => {
+      const nextValue = input.value.trim();
+      if (commitInFlight || nextValue === committedValue) {
+        return;
+      }
+      commitInFlight = true;
+      try {
+        await onCommit(nextValue);
+        committedValue = nextValue;
+      } finally {
+        commitInFlight = false;
+      }
+    };
     input.addEventListener("change", async () => {
-      await onCommit(input.value.trim());
+      await commitValue();
+    });
+    input.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || event.isComposing) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      this.suppressHoverUntilPointerMovement(wrapper, [input]);
+      input.blur();
+      void commitValue();
     });
 
     wrapper.append(input);
@@ -1164,7 +1395,7 @@ export class SettingsPanel {
   }
 
   private createRegexPatternInput(): HTMLElement {
-    const wrapper = document.createElement("label");
+    const wrapper = document.createElement("div");
     wrapper.className = "bsb-tm-field stacked";
 
     wrapper.append(
@@ -1175,16 +1406,24 @@ export class SettingsPanel {
     input.type = "text";
     input.value = this.config.dynamicRegexPattern;
     input.spellcheck = false;
+    input.setAttribute("aria-label", "动态关键词正则");
+    this.bindChromeBlur(wrapper, [input]);
     if (this.filterValidationMessage) {
       input.setAttribute("aria-invalid", "true");
     }
-    input.addEventListener("change", async () => {
+    let commitInFlight = false;
+    const commitPattern = async (): Promise<boolean> => {
+      if (commitInFlight) {
+        return false;
+      }
+      commitInFlight = true;
       const nextValue = input.value.trim();
       const validation = validateStoredPattern(nextValue);
       if (!validation.valid) {
         this.filterValidationMessage = validation.error ?? "正则格式无效";
         this.renderFilters();
-        return;
+        commitInFlight = false;
+        return false;
       }
 
       this.filterValidationMessage = null;
@@ -1193,7 +1432,27 @@ export class SettingsPanel {
       } catch (_error) {
         this.filterValidationMessage = "正则保存失败";
         this.renderFilters();
+        commitInFlight = false;
+        return false;
       }
+      commitInFlight = false;
+      return true;
+    };
+    input.addEventListener("change", async () => {
+      await commitPattern();
+    });
+    input.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || event.isComposing) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      void commitPattern().then((committed) => {
+        if (committed) {
+          this.suppressHoverUntilPointerMovement(wrapper, [input]);
+          input.blur();
+        }
+      });
     });
 
     wrapper.append(input);
@@ -1207,12 +1466,13 @@ export class SettingsPanel {
     onCommit: (value: T) => Promise<void>,
     helpText?: string
   ): HTMLElement {
-    const wrapper = document.createElement("label");
+    const wrapper = document.createElement("div");
     wrapper.className = "bsb-tm-field stacked";
 
     wrapper.append(this.createInputLabel(labelText, helpText));
 
     const select = document.createElement("select");
+    select.setAttribute("aria-label", labelText);
     for (const [optionValue, optionLabel] of Object.entries(options) as [T, string][]) {
       const option = document.createElement("option");
       option.value = optionValue;
@@ -1221,11 +1481,9 @@ export class SettingsPanel {
       select.appendChild(option);
     }
     let pointerDrivenSelection = false;
-    select.addEventListener("pointerdown", () => {
-      pointerDrivenSelection = true;
-    });
     this.bindPointerFocusSuppression(wrapper, select, {
-      onPointerFocus: () => {
+      activateControlOnPointer: true,
+      onControlPointerFocus: () => {
         pointerDrivenSelection = true;
       }
     });
@@ -1233,9 +1491,6 @@ export class SettingsPanel {
       const finishInlineUpdate = this.beginInlineControlUpdate();
       try {
         await onCommit(select.value as T);
-        if (pointerDrivenSelection) {
-          select.blur();
-        }
       } catch (error) {
         select.value = value;
         this.markControlError(wrapper);
@@ -1246,6 +1501,9 @@ export class SettingsPanel {
           detail: error
         });
       } finally {
+        if (pointerDrivenSelection) {
+          select.blur();
+        }
         pointerDrivenSelection = false;
         finishInlineUpdate();
       }
@@ -1261,7 +1519,7 @@ export class SettingsPanel {
     value: number,
     onCommit: (value: number) => Promise<void>
   ): HTMLElement {
-    const wrapper = document.createElement("label");
+    const wrapper = document.createElement("div");
     wrapper.className = "bsb-tm-field stacked";
 
     wrapper.append(this.createInputLabel(labelText, helpText));
@@ -1271,8 +1529,34 @@ export class SettingsPanel {
     input.value = String(value);
     input.min = "0";
     input.step = "1";
+    input.setAttribute("aria-label", labelText);
+    this.bindChromeBlur(wrapper, [input]);
+    let committedValue = input.value;
+    let commitInFlight = false;
+    const commitValue = async (): Promise<void> => {
+      if (commitInFlight || input.value === committedValue) {
+        return;
+      }
+      commitInFlight = true;
+      try {
+        await onCommit(Number(input.value));
+        committedValue = input.value;
+      } finally {
+        commitInFlight = false;
+      }
+    };
     input.addEventListener("change", async () => {
-      await onCommit(Number(input.value));
+      await commitValue();
+    });
+    input.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || event.isComposing) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      this.suppressHoverUntilPointerMovement(wrapper, [input]);
+      input.blur();
+      void commitValue();
     });
 
     wrapper.append(input);
@@ -1382,6 +1666,8 @@ export class SettingsPanel {
     textInput.value = savedValue;
     textInput.spellcheck = false;
     textInput.setAttribute("aria-label", `${options.label}颜色值`);
+    this.bindChromeBlur(field, [swatch, textInput]);
+    this.bindControlActiveState(field, [swatch, textInput]);
 
     const actions = document.createElement("div");
     actions.className = "bsb-tm-color-actions";
@@ -1463,6 +1749,8 @@ export class SettingsPanel {
       if (event.key === "Enter") {
         event.preventDefault();
         event.stopPropagation();
+        this.suppressHoverUntilPointerMovement(field, [swatch, textInput]);
+        swatch.blur();
         void commitDraft();
       }
       if (event.key === "Escape") {
@@ -1486,6 +1774,8 @@ export class SettingsPanel {
       if (event.key === "Enter") {
         event.preventDefault();
         event.stopPropagation();
+        this.suppressHoverUntilPointerMovement(field, [swatch, textInput]);
+        textInput.blur();
         void commitDraft();
       }
       if (event.key === "Escape") {
