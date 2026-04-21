@@ -497,42 +497,65 @@ describe("settings panel", () => {
     expect(field?.dataset.pointerFocus).toBe("true");
     expect(select?.dataset.pointerFocus).toBe("true");
     expect(group?.dataset.pointerFocus).toBe("true");
+    expect(field?.dataset.controlActive).toBe("true");
+    expect(select?.dataset.controlActive).toBe("true");
+    expect(group?.dataset.controlActive).toBe("true");
 
     select!.blur();
 
     expect(field?.dataset.pointerFocus).toBeUndefined();
     expect(select?.dataset.pointerFocus).toBeUndefined();
     expect(group?.dataset.pointerFocus).toBeUndefined();
+    expect(field?.dataset.controlActive).toBeUndefined();
+    expect(select?.dataset.controlActive).toBeUndefined();
+    expect(group?.dataset.controlActive).toBeUndefined();
   });
 
-  it("keeps same-value pointer select activation visually suppressed without a change event", () => {
-    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
-      onPatchConfig: vi.fn(async () => {}),
-      onCategoryModeChange: vi.fn(async () => {}),
-      onClearCache: vi.fn(async () => {}),
-      onReset: vi.fn(async () => {})
-    });
+  it("expires same-value pointer select active visuals without a change event", () => {
+    vi.useFakeTimers();
+    try {
+      const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+        onPatchConfig: vi.fn(async () => {}),
+        onCategoryModeChange: vi.fn(async () => {}),
+        onClearCache: vi.fn(async () => {}),
+        onReset: vi.fn(async () => {})
+      });
 
-    panel.mount();
-    panel.open("behavior");
+      panel.mount();
+      panel.open("behavior");
 
-    const field = Array.from(document.querySelectorAll<HTMLLabelElement>(".bsb-tm-field.stacked")).find((candidate) =>
-      candidate.textContent?.includes("首页 / 列表卡片标签")
-    );
-    const group = field?.closest<HTMLElement>(".bsb-tm-form-group");
-    const select = field?.querySelector<HTMLSelectElement>("select");
-    expect(field).toBeTruthy();
-    expect(group).toBeTruthy();
-    expect(select).toBeTruthy();
+      const field = Array.from(document.querySelectorAll<HTMLLabelElement>(".bsb-tm-field.stacked")).find((candidate) =>
+        candidate.textContent?.includes("首页 / 列表卡片标签")
+      );
+      const group = field?.closest<HTMLElement>(".bsb-tm-form-group");
+      const select = field?.querySelector<HTMLSelectElement>("select");
+      expect(field).toBeTruthy();
+      expect(group).toBeTruthy();
+      expect(select).toBeTruthy();
 
-    field!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
-    select!.focus();
-    select!.value = select!.value;
-    select!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+      field!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      select!.focus();
+      select!.value = select!.value;
+      select!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
 
-    expect(field?.dataset.pointerFocus).toBe("true");
-    expect(group?.dataset.pointerFocus).toBe("true");
-    expect(select?.dataset.pointerFocus).toBe("true");
+      expect(field?.dataset.pointerFocus).toBe("true");
+      expect(group?.dataset.pointerFocus).toBe("true");
+      expect(select?.dataset.pointerFocus).toBe("true");
+      expect(field?.dataset.controlActive).toBe("true");
+      expect(group?.dataset.controlActive).toBe("true");
+      expect(select?.dataset.controlActive).toBe("true");
+
+      vi.advanceTimersByTime(901);
+
+      expect(field?.dataset.pointerFocus).toBe("true");
+      expect(group?.dataset.pointerFocus).toBe("true");
+      expect(select?.dataset.pointerFocus).toBe("true");
+      expect(field?.dataset.controlActive).toBeUndefined();
+      expect(group?.dataset.controlActive).toBeUndefined();
+      expect(select?.dataset.controlActive).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("blurs pointer-origin checkbox changes because toggles have no editing state", async () => {
@@ -586,6 +609,7 @@ describe("settings panel", () => {
     panel.mount();
     panel.open("behavior");
 
+    const activeBehaviorSection = document.querySelector<HTMLElement>("[data-section='behavior']");
     const field = Array.from(document.querySelectorAll<HTMLLabelElement>(".bsb-tm-field.stacked")).find((candidate) =>
       candidate.textContent?.includes("首页 / 列表卡片标签")
     );
@@ -601,8 +625,14 @@ describe("settings panel", () => {
     await Promise.resolve();
 
     expect(onPatchConfig).toHaveBeenCalledWith({ thumbnailLabelMode: "off" });
+    const currentField = Array.from(activeBehaviorSection!.querySelectorAll<HTMLLabelElement>(".bsb-tm-field.stacked")).find(
+      (candidate) => candidate.textContent?.includes("首页 / 列表卡片标签")
+    );
+    expect(currentField).toBe(field);
     expect(document.activeElement).not.toBe(select);
     expect(field?.dataset.pointerFocus).toBeUndefined();
+    expect(field?.dataset.controlActive).toBeUndefined();
+    expect(field?.querySelector<HTMLSelectElement>("select")).toBe(select);
   });
 
   it("renders overview feature cards in title-chip-copy order", () => {

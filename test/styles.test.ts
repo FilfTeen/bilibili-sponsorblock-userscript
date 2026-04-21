@@ -163,9 +163,10 @@ describe("shared glass contexts", () => {
     expect(styles).toMatch(
       /\.bsb-tm-field:not\(\[data-pointer-focus="true"\]\):focus-within,[\s\S]*\.bsb-tm-category-row:not\(\[data-pointer-focus="true"\]\):focus-within,[\s\S]*\.bsb-tm-link-card:focus-visible \{/
     );
-    expect(styles).toMatch(
-      /\.bsb-tm-panel input:not\(\.bsb-tm-switch\):not\(\[data-pointer-focus="true"\]\):focus,[\s\S]*\.bsb-tm-panel select:not\(\[data-pointer-focus="true"\]\):focus \{/
-    );
+    expect(styles).toContain('.bsb-tm-panel input:not(.bsb-tm-switch):not([data-pointer-focus="true"]):focus');
+    expect(styles).toContain('.bsb-tm-panel input:not(.bsb-tm-switch)[data-control-active="true"]');
+    expect(styles).toContain('.bsb-tm-panel select:not([data-pointer-focus="true"]):focus');
+    expect(styles).toContain('.bsb-tm-panel select[data-control-active="true"]');
     expect(styles).toMatch(
       /\.bsb-tm-panel input:not\(\.bsb-tm-switch\):hover,[\s\S]*\.bsb-tm-panel select:hover \{/
     );
@@ -175,6 +176,9 @@ describe("shared glass contexts", () => {
     expect(styles).toMatch(
       /\.bsb-tm-form-group:hover,[\s\S]*\.bsb-tm-form-group:not\(\[data-pointer-focus="true"\]\):focus-within \{/
     );
+    expect(styles).toContain('.bsb-tm-field[data-control-active="true"]');
+    expect(styles).toContain('.bsb-tm-category-row[data-control-active="true"]');
+    expect(styles).toContain('.bsb-tm-form-group[data-control-active="true"]');
     expect(styles).not.toContain(".bsb-tm-field:focus-within,\n.bsb-tm-category-row:focus-within");
     expect(styles).not.toContain(".bsb-tm-panel select:focus {");
     expect(styles).not.toContain(".bsb-tm-panel input.bsb-tm-switch:focus,");

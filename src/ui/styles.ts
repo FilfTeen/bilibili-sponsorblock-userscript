@@ -1872,7 +1872,9 @@ ${titleSurfaceFrostedGlass.overlay}
 }
 
 .bsb-tm-panel input:not(.bsb-tm-switch):not([data-pointer-focus="true"]):focus,
-.bsb-tm-panel select:not([data-pointer-focus="true"]):focus {
+.bsb-tm-panel input:not(.bsb-tm-switch)[data-control-active="true"],
+.bsb-tm-panel select:not([data-pointer-focus="true"]):focus,
+.bsb-tm-panel select[data-control-active="true"] {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.3);
   box-shadow:
     0 0 0 4px rgba(var(--bsb-brand-blue-rgb), 0.14),
@@ -1880,6 +1882,7 @@ ${titleSurfaceFrostedGlass.overlay}
 }
 
 .bsb-tm-form-group:hover,
+.bsb-tm-form-group[data-control-active="true"],
 .bsb-tm-form-group:not([data-pointer-focus="true"]):focus-within {
   border-color: rgba(255, 255, 255, 0.82);
   box-shadow:
@@ -1894,7 +1897,9 @@ ${titleSurfaceFrostedGlass.overlay}
 }
 
 .bsb-tm-field:not([data-pointer-focus="true"]):focus-within,
+.bsb-tm-field[data-control-active="true"],
 .bsb-tm-category-row:not([data-pointer-focus="true"]):focus-within,
+.bsb-tm-category-row[data-control-active="true"],
 .bsb-tm-link-card:focus-visible {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.3);
   box-shadow:

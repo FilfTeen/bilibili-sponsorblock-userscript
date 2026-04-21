@@ -2928,8 +2928,6 @@ ${inlineSurfaceFrostedGlass.overlay}
       __publicField(this, "pendingConfirmations", /* @__PURE__ */ new Set());
       // id
       __publicField(this, "inlineControlUpdateDepth", 0);
-      __publicField(this, "pendingInlineConfigRender", false);
-      __publicField(this, "inlineConfigRenderScheduled", false);
       __publicField(this, "unsubscribeDiagnostics", null);
       __publicField(this, "handleKeydown", (event) => {
         if (event.key === "Escape" && !this.backdrop.hidden) {
@@ -3036,7 +3034,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       this.config = config;
       this.filterValidationMessage = null;
       if (this.inlineControlUpdateDepth > 0 && !this.backdrop.hidden) {
-        this.pendingInlineConfigRender = true;
+        this.renderInactiveConfigSections();
         return;
       }
       this.rememberActiveScroll();
@@ -3266,6 +3264,7 @@ ${inlineSurfaceFrostedGlass.overlay}
           pointerDrivenSelection = true;
         });
         this.bindPointerFocusSuppression(row, select, {
+          activeVisualMs: 900,
           onPointerFocus: () => {
             pointerDrivenSelection = true;
           }
@@ -3274,9 +3273,6 @@ ${inlineSurfaceFrostedGlass.overlay}
           const finishInlineUpdate = this.beginInlineControlUpdate();
           try {
             yield this.callbacks.onCategoryModeChange(category, select.value);
-            if (pointerDrivenSelection) {
-              select.blur();
-            }
           } catch (error) {
             select.value = this.config.categoryModes[category];
             this.markControlError(row);
@@ -3287,6 +3283,9 @@ ${inlineSurfaceFrostedGlass.overlay}
               detail: error
             });
           } finally {
+            if (pointerDrivenSelection) {
+              select.blur();
+            }
             pointerDrivenSelection = false;
             finishInlineUpdate();
           }
@@ -3750,25 +3749,28 @@ ${inlineSurfaceFrostedGlass.overlay}
       this.inlineControlUpdateDepth += 1;
       return () => {
         this.inlineControlUpdateDepth = Math.max(0, this.inlineControlUpdateDepth - 1);
-        if (this.inlineControlUpdateDepth === 0 && this.pendingInlineConfigRender) {
-          this.schedulePendingInlineConfigRender();
-        }
       };
     }
-    schedulePendingInlineConfigRender() {
-      if (this.inlineConfigRenderScheduled) {
-        return;
+    renderInactiveConfigSections() {
+      const activeTab = this.activeTab;
+      if (activeTab !== "overview") {
+        this.renderOverview();
       }
-      this.inlineConfigRenderScheduled = true;
-      void Promise.resolve().then(() => {
-        this.inlineConfigRenderScheduled = false;
-        if (this.inlineControlUpdateDepth > 0 || !this.pendingInlineConfigRender) {
-          return;
-        }
-        this.pendingInlineConfigRender = false;
-        this.rememberActiveScroll();
-        this.render(true);
-      });
+      if (activeTab !== "behavior") {
+        this.renderBehavior();
+      }
+      if (activeTab !== "transparency") {
+        this.renderTransparency();
+      }
+      if (activeTab !== "filters") {
+        this.renderFilters();
+      }
+      if (activeTab !== "mbga") {
+        this.renderMbga();
+      }
+      if (activeTab !== "help") {
+        this.renderHelp();
+      }
     }
     createTabButton(tab) {
       const button = document.createElement("button");
@@ -3808,8 +3810,21 @@ ${inlineSurfaceFrostedGlass.overlay}
       return button;
     }
     bindPointerFocusSuppression(container, control, options) {
+      let activeVisualTimer = null;
       let focusGuardTimer = null;
       const getGroup = () => container.closest(".bsb-tm-form-group");
+      const clearActiveVisual = () => {
+        if (activeVisualTimer !== null) {
+          window.clearTimeout(activeVisualTimer);
+          activeVisualTimer = null;
+        }
+        delete container.dataset.controlActive;
+        delete control.dataset.controlActive;
+        const group = getGroup();
+        if (group) {
+          delete group.dataset.controlActive;
+        }
+      };
       const markPointerFocus = () => {
         var _a;
         (_a = options == null ? void 0 : options.onPointerFocus) == null ? void 0 : _a.call(options);
@@ -3818,6 +3833,17 @@ ${inlineSurfaceFrostedGlass.overlay}
         const group = getGroup();
         if (group) {
           group.dataset.pointerFocus = "true";
+        }
+        if ((options == null ? void 0 : options.activeVisualMs) !== void 0) {
+          container.dataset.controlActive = "true";
+          control.dataset.controlActive = "true";
+          if (group) {
+            group.dataset.controlActive = "true";
+          }
+          if (activeVisualTimer !== null) {
+            window.clearTimeout(activeVisualTimer);
+          }
+          activeVisualTimer = window.setTimeout(clearActiveVisual, options.activeVisualMs);
         }
         if (focusGuardTimer !== null) {
           window.clearTimeout(focusGuardTimer);
@@ -3836,6 +3862,7 @@ ${inlineSurfaceFrostedGlass.overlay}
         }
         delete container.dataset.pointerFocus;
         delete control.dataset.pointerFocus;
+        clearActiveVisual();
         const group = getGroup();
         if (group) {
           delete group.dataset.pointerFocus;
@@ -3983,6 +4010,7 @@ ${inlineSurfaceFrostedGlass.overlay}
         pointerDrivenSelection = true;
       });
       this.bindPointerFocusSuppression(wrapper, select, {
+        activeVisualMs: 900,
         onPointerFocus: () => {
           pointerDrivenSelection = true;
         }
@@ -3991,9 +4019,6 @@ ${inlineSurfaceFrostedGlass.overlay}
         const finishInlineUpdate = this.beginInlineControlUpdate();
         try {
           yield onCommit(select.value);
-          if (pointerDrivenSelection) {
-            select.blur();
-          }
         } catch (error) {
           select.value = value;
           this.markControlError(wrapper);
@@ -4004,6 +4029,9 @@ ${inlineSurfaceFrostedGlass.overlay}
             detail: error
           });
         } finally {
+          if (pointerDrivenSelection) {
+            select.blur();
+          }
           pointerDrivenSelection = false;
           finishInlineUpdate();
         }
@@ -12432,7 +12460,9 @@ ${titleSurfaceFrostedGlass.overlay}
 }
 
 .bsb-tm-panel input:not(.bsb-tm-switch):not([data-pointer-focus="true"]):focus,
-.bsb-tm-panel select:not([data-pointer-focus="true"]):focus {
+.bsb-tm-panel input:not(.bsb-tm-switch)[data-control-active="true"],
+.bsb-tm-panel select:not([data-pointer-focus="true"]):focus,
+.bsb-tm-panel select[data-control-active="true"] {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.3);
   box-shadow:
     0 0 0 4px rgba(var(--bsb-brand-blue-rgb), 0.14),
@@ -12440,6 +12470,7 @@ ${titleSurfaceFrostedGlass.overlay}
 }
 
 .bsb-tm-form-group:hover,
+.bsb-tm-form-group[data-control-active="true"],
 .bsb-tm-form-group:not([data-pointer-focus="true"]):focus-within {
   border-color: rgba(255, 255, 255, 0.82);
   box-shadow:
@@ -12454,7 +12485,9 @@ ${titleSurfaceFrostedGlass.overlay}
 }
 
 .bsb-tm-field:not([data-pointer-focus="true"]):focus-within,
+.bsb-tm-field[data-control-active="true"],
 .bsb-tm-category-row:not([data-pointer-focus="true"]):focus-within,
+.bsb-tm-category-row[data-control-active="true"],
 .bsb-tm-link-card:focus-visible {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.3);
   box-shadow:
