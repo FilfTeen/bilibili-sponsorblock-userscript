@@ -1206,6 +1206,27 @@ export class SettingsPanel {
     container.addEventListener("mousedown", handleChromePointer);
   }
 
+  private suppressHoverUntilPointerMovement(container: HTMLElement, controls: HTMLElement[]): void {
+    const clearSuppression = () => {
+      delete container.dataset.hoverSuppressed;
+      for (const control of controls) {
+        delete control.dataset.hoverSuppressed;
+      }
+      document.removeEventListener("pointermove", clearSuppression);
+      document.removeEventListener("mousemove", clearSuppression);
+      document.removeEventListener("pointerdown", clearSuppression);
+      document.removeEventListener("mousedown", clearSuppression);
+    };
+    container.dataset.hoverSuppressed = "true";
+    for (const control of controls) {
+      control.dataset.hoverSuppressed = "true";
+    }
+    document.addEventListener("pointermove", clearSuppression);
+    document.addEventListener("mousemove", clearSuppression);
+    document.addEventListener("pointerdown", clearSuppression);
+    document.addEventListener("mousedown", clearSuppression);
+  }
+
   private createCheckbox(
     labelText: string,
     helpText: string,
@@ -1308,8 +1329,33 @@ export class SettingsPanel {
     input.spellcheck = false;
     input.setAttribute("aria-label", labelText);
     this.bindChromeBlur(wrapper, [input]);
+    let committedValue = value.trim();
+    let commitInFlight = false;
+    const commitValue = async (): Promise<void> => {
+      const nextValue = input.value.trim();
+      if (commitInFlight || nextValue === committedValue) {
+        return;
+      }
+      commitInFlight = true;
+      try {
+        await onCommit(nextValue);
+        committedValue = nextValue;
+      } finally {
+        commitInFlight = false;
+      }
+    };
     input.addEventListener("change", async () => {
-      await onCommit(input.value.trim());
+      await commitValue();
+    });
+    input.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || event.isComposing) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      this.suppressHoverUntilPointerMovement(wrapper, [input]);
+      input.blur();
+      void commitValue();
     });
 
     wrapper.append(input);
@@ -1333,13 +1379,19 @@ export class SettingsPanel {
     if (this.filterValidationMessage) {
       input.setAttribute("aria-invalid", "true");
     }
-    input.addEventListener("change", async () => {
+    let commitInFlight = false;
+    const commitPattern = async (): Promise<boolean> => {
+      if (commitInFlight) {
+        return false;
+      }
+      commitInFlight = true;
       const nextValue = input.value.trim();
       const validation = validateStoredPattern(nextValue);
       if (!validation.valid) {
         this.filterValidationMessage = validation.error ?? "正则格式无效";
         this.renderFilters();
-        return;
+        commitInFlight = false;
+        return false;
       }
 
       this.filterValidationMessage = null;
@@ -1348,7 +1400,27 @@ export class SettingsPanel {
       } catch (_error) {
         this.filterValidationMessage = "正则保存失败";
         this.renderFilters();
+        commitInFlight = false;
+        return false;
       }
+      commitInFlight = false;
+      return true;
+    };
+    input.addEventListener("change", async () => {
+      await commitPattern();
+    });
+    input.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || event.isComposing) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      void commitPattern().then((committed) => {
+        if (committed) {
+          this.suppressHoverUntilPointerMovement(wrapper, [input]);
+          input.blur();
+        }
+      });
     });
 
     wrapper.append(input);
@@ -1427,8 +1499,32 @@ export class SettingsPanel {
     input.step = "1";
     input.setAttribute("aria-label", labelText);
     this.bindChromeBlur(wrapper, [input]);
+    let committedValue = input.value;
+    let commitInFlight = false;
+    const commitValue = async (): Promise<void> => {
+      if (commitInFlight || input.value === committedValue) {
+        return;
+      }
+      commitInFlight = true;
+      try {
+        await onCommit(Number(input.value));
+        committedValue = input.value;
+      } finally {
+        commitInFlight = false;
+      }
+    };
     input.addEventListener("change", async () => {
-      await onCommit(Number(input.value));
+      await commitValue();
+    });
+    input.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || event.isComposing) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      this.suppressHoverUntilPointerMovement(wrapper, [input]);
+      input.blur();
+      void commitValue();
     });
 
     wrapper.append(input);
@@ -1620,6 +1716,8 @@ export class SettingsPanel {
       if (event.key === "Enter") {
         event.preventDefault();
         event.stopPropagation();
+        this.suppressHoverUntilPointerMovement(field, [swatch, textInput]);
+        swatch.blur();
         void commitDraft();
       }
       if (event.key === "Escape") {
@@ -1643,6 +1741,8 @@ export class SettingsPanel {
       if (event.key === "Enter") {
         event.preventDefault();
         event.stopPropagation();
+        this.suppressHoverUntilPointerMovement(field, [swatch, textInput]);
+        textInput.blur();
         void commitDraft();
       }
       if (event.key === "Escape") {

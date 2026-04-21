@@ -3964,6 +3964,26 @@ ${inlineSurfaceFrostedGlass.overlay}
       container.addEventListener("pointerdown", handleChromePointer);
       container.addEventListener("mousedown", handleChromePointer);
     }
+    suppressHoverUntilPointerMovement(container, controls) {
+      const clearSuppression = () => {
+        delete container.dataset.hoverSuppressed;
+        for (const control of controls) {
+          delete control.dataset.hoverSuppressed;
+        }
+        document.removeEventListener("pointermove", clearSuppression);
+        document.removeEventListener("mousemove", clearSuppression);
+        document.removeEventListener("pointerdown", clearSuppression);
+        document.removeEventListener("mousedown", clearSuppression);
+      };
+      container.dataset.hoverSuppressed = "true";
+      for (const control of controls) {
+        control.dataset.hoverSuppressed = "true";
+      }
+      document.addEventListener("pointermove", clearSuppression);
+      document.addEventListener("mousemove", clearSuppression);
+      document.addEventListener("pointerdown", clearSuppression);
+      document.addEventListener("mousedown", clearSuppression);
+    }
     createCheckbox(labelText, helpText, checked, onChange, needsRefresh = false) {
       const label = document.createElement("label");
       label.className = "bsb-tm-field bsb-tm-field-toggle";
@@ -4046,9 +4066,34 @@ ${inlineSurfaceFrostedGlass.overlay}
       input.spellcheck = false;
       input.setAttribute("aria-label", labelText);
       this.bindChromeBlur(wrapper, [input]);
+      let committedValue = value.trim();
+      let commitInFlight = false;
+      const commitValue = () => __async(this, null, function* () {
+        const nextValue = input.value.trim();
+        if (commitInFlight || nextValue === committedValue) {
+          return;
+        }
+        commitInFlight = true;
+        try {
+          yield onCommit(nextValue);
+          committedValue = nextValue;
+        } finally {
+          commitInFlight = false;
+        }
+      });
       input.addEventListener("change", () => __async(this, null, function* () {
-        yield onCommit(input.value.trim());
+        yield commitValue();
       }));
+      input.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" || event.isComposing) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        this.suppressHoverUntilPointerMovement(wrapper, [input]);
+        input.blur();
+        void commitValue();
+      });
       wrapper.append(input);
       return wrapper;
     }
@@ -4067,14 +4112,20 @@ ${inlineSurfaceFrostedGlass.overlay}
       if (this.filterValidationMessage) {
         input.setAttribute("aria-invalid", "true");
       }
-      input.addEventListener("change", () => __async(this, null, function* () {
+      let commitInFlight = false;
+      const commitPattern = () => __async(this, null, function* () {
         var _a;
+        if (commitInFlight) {
+          return false;
+        }
+        commitInFlight = true;
         const nextValue = input.value.trim();
         const validation = validateStoredPattern(nextValue);
         if (!validation.valid) {
           this.filterValidationMessage = (_a = validation.error) != null ? _a : "\u6B63\u5219\u683C\u5F0F\u65E0\u6548";
           this.renderFilters();
-          return;
+          commitInFlight = false;
+          return false;
         }
         this.filterValidationMessage = null;
         try {
@@ -4082,8 +4133,28 @@ ${inlineSurfaceFrostedGlass.overlay}
         } catch (_error) {
           this.filterValidationMessage = "\u6B63\u5219\u4FDD\u5B58\u5931\u8D25";
           this.renderFilters();
+          commitInFlight = false;
+          return false;
         }
+        commitInFlight = false;
+        return true;
+      });
+      input.addEventListener("change", () => __async(this, null, function* () {
+        yield commitPattern();
       }));
+      input.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" || event.isComposing) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        void commitPattern().then((committed) => {
+          if (committed) {
+            this.suppressHoverUntilPointerMovement(wrapper, [input]);
+            input.blur();
+          }
+        });
+      });
       wrapper.append(input);
       return wrapper;
     }
@@ -4142,9 +4213,33 @@ ${inlineSurfaceFrostedGlass.overlay}
       input.step = "1";
       input.setAttribute("aria-label", labelText);
       this.bindChromeBlur(wrapper, [input]);
+      let committedValue = input.value;
+      let commitInFlight = false;
+      const commitValue = () => __async(this, null, function* () {
+        if (commitInFlight || input.value === committedValue) {
+          return;
+        }
+        commitInFlight = true;
+        try {
+          yield onCommit(Number(input.value));
+          committedValue = input.value;
+        } finally {
+          commitInFlight = false;
+        }
+      });
       input.addEventListener("change", () => __async(this, null, function* () {
-        yield onCommit(Number(input.value));
+        yield commitValue();
       }));
+      input.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" || event.isComposing) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        this.suppressHoverUntilPointerMovement(wrapper, [input]);
+        input.blur();
+        void commitValue();
+      });
       wrapper.append(input);
       return wrapper;
     }
@@ -4300,6 +4395,8 @@ ${inlineSurfaceFrostedGlass.overlay}
         if (event.key === "Enter") {
           event.preventDefault();
           event.stopPropagation();
+          this.suppressHoverUntilPointerMovement(field, [swatch, textInput]);
+          swatch.blur();
           void commitDraft();
         }
         if (event.key === "Escape") {
@@ -4322,6 +4419,8 @@ ${inlineSurfaceFrostedGlass.overlay}
         if (event.key === "Enter") {
           event.preventDefault();
           event.stopPropagation();
+          this.suppressHoverUntilPointerMovement(field, [swatch, textInput]);
+          textInput.blur();
           void commitDraft();
         }
         if (event.key === "Escape") {
@@ -11070,7 +11169,7 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.38);
 }
 
-.bsb-tm-color-field:hover {
+.bsb-tm-color-field:not([data-hover-suppressed="true"]):hover {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.22);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(244, 248, 252, 0.72)),
@@ -11094,7 +11193,7 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
   transform: translateY(-1px);
 }
 
-.bsb-tm-color-field.compact:hover {
+.bsb-tm-color-field.compact:not([data-hover-suppressed="true"]):hover {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.2);
   box-shadow:
     inset 0 0 0 1px rgba(var(--bsb-brand-blue-rgb), 0.08),
@@ -11109,7 +11208,7 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
     0 0 0 3px rgba(var(--bsb-brand-blue-rgb), 0.07);
 }
 
-.bsb-tm-color-field:hover .bsb-tm-color-controls input:not(:focus),
+.bsb-tm-color-field:not([data-hover-suppressed="true"]):hover .bsb-tm-color-controls input:not(:focus),
 .bsb-tm-color-field:focus-within .bsb-tm-color-controls input:not(:focus) {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.22);
   background:
@@ -11120,7 +11219,7 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
     0 8px 18px rgba(15, 23, 42, 0.055);
 }
 
-.bsb-tm-color-field.compact:hover .bsb-tm-color-controls input:not(:focus),
+.bsb-tm-color-field.compact:not([data-hover-suppressed="true"]):hover .bsb-tm-color-controls input:not(:focus),
 .bsb-tm-color-field.compact:focus-within .bsb-tm-color-controls input:not(:focus) {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.78),
@@ -12516,11 +12615,11 @@ ${titleSurfaceFrostedGlass.overlay}
 .bsb-tm-tab-button:hover,
 .bsb-tm-link-card:hover,
 .bsb-tm-button:hover,
-.bsb-tm-panel input:not(.bsb-tm-switch):hover,
-.bsb-tm-panel select:hover,
-.bsb-tm-field:hover > input:not(.bsb-tm-switch):not(:focus):not([data-control-active="true"]),
-.bsb-tm-field:hover > select:not(:focus):not([data-control-active="true"]),
-.bsb-tm-category-row:hover > select:not(:focus):not([data-control-active="true"]) {
+.bsb-tm-panel input:not(.bsb-tm-switch):not([data-hover-suppressed="true"]):hover,
+.bsb-tm-panel select:not([data-hover-suppressed="true"]):hover,
+.bsb-tm-field:not([data-hover-suppressed="true"]):hover > input:not(.bsb-tm-switch):not(:focus):not([data-control-active="true"]):not([data-hover-suppressed="true"]),
+.bsb-tm-field:not([data-hover-suppressed="true"]):hover > select:not(:focus):not([data-control-active="true"]):not([data-hover-suppressed="true"]),
+.bsb-tm-category-row:not([data-hover-suppressed="true"]):hover > select:not(:focus):not([data-control-active="true"]):not([data-hover-suppressed="true"]) {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.28);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.8),
@@ -12528,8 +12627,8 @@ ${titleSurfaceFrostedGlass.overlay}
   transform: translateY(-1px);
 }
 
-.bsb-tm-field:hover,
-.bsb-tm-category-row:hover {
+.bsb-tm-field:not([data-hover-suppressed="true"]):hover,
+.bsb-tm-category-row:not([data-hover-suppressed="true"]):hover {
   border-color: rgba(var(--bsb-brand-blue-rgb), 0.22);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.82),

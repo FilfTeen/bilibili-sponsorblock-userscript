@@ -572,6 +572,73 @@ describe("settings panel", () => {
     expect(document.activeElement).not.toBe(input);
   });
 
+  it("commits and closes text inputs on Enter without replaying hover immediately", async () => {
+    const onPatchConfig = vi.fn(async () => {});
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig,
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const field = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-field.stacked")).find((candidate) =>
+      candidate.textContent?.includes("SponsorBlock 服务器地址")
+    );
+    const input = field?.querySelector<HTMLInputElement>("input[type='text']");
+    expect(field).toBeTruthy();
+    expect(input).toBeTruthy();
+
+    input!.focus();
+    input!.value = "https://example.invalid";
+    input!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(onPatchConfig).toHaveBeenCalledWith({ serverAddress: "https://example.invalid" });
+    expect(document.activeElement).not.toBe(input);
+    expect(field?.dataset.hoverSuppressed).toBe("true");
+    expect(input?.dataset.hoverSuppressed).toBe("true");
+
+    document.dispatchEvent(new PointerEvent("pointermove", { bubbles: true }));
+
+    expect(field?.dataset.hoverSuppressed).toBeUndefined();
+    expect(input?.dataset.hoverSuppressed).toBeUndefined();
+  });
+
+  it("commits and closes number inputs on Enter", async () => {
+    const onPatchConfig = vi.fn(async () => {});
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig,
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const field = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-field.stacked")).find((candidate) =>
+      candidate.textContent?.includes("提示停留时间")
+    );
+    const input = field?.querySelector<HTMLInputElement>("input[type='number']");
+    expect(field).toBeTruthy();
+    expect(input).toBeTruthy();
+
+    input!.focus();
+    input!.value = "8";
+    input!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(onPatchConfig).toHaveBeenCalledWith({ noticeDurationSec: 8 });
+    expect(document.activeElement).not.toBe(input);
+    expect(field?.dataset.hoverSuppressed).toBe("true");
+    expect(input?.dataset.hoverSuppressed).toBe("true");
+  });
+
   it("clears color card editing state when the pointer lands on color card chrome", () => {
     const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
       onPatchConfig: vi.fn(async () => {}),
@@ -596,6 +663,42 @@ describe("settings panel", () => {
     field!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
 
     expect(document.activeElement).not.toBe(input);
+  });
+
+  it("commits and closes color text inputs on Enter without replaying hover immediately", async () => {
+    const onPatchConfig = vi.fn(async () => {});
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig,
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("behavior");
+
+    const field = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-color-field[data-color-editor='true']")).find(
+      (candidate) => candidate.textContent?.includes(CATEGORY_LABELS.sponsor)
+    );
+    const input = field?.querySelector<HTMLInputElement>("input[type='text']");
+    expect(field).toBeTruthy();
+    expect(input).toBeTruthy();
+
+    input!.focus();
+    input!.value = "#112233";
+    input!.dispatchEvent(new Event("input", { bubbles: true }));
+    input!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(onPatchConfig).toHaveBeenCalledWith(expect.objectContaining({
+      categoryColorOverrides: expect.objectContaining({
+        sponsor: "#112233"
+      })
+    }));
+    expect(document.activeElement).not.toBe(input);
+    expect(field?.dataset.hoverSuppressed).toBe("true");
+    expect(input?.dataset.hoverSuppressed).toBe("true");
   });
 
   it("keeps same-value pointer select active visuals until the select closes", () => {
