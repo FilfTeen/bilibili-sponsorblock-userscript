@@ -25,6 +25,8 @@ const MBGA_MARKS = {
 const ARTICLE_COPY_UNLOCKED_ATTR = "data-bsb-mbga-copy-unlocked";
 const ARTICLE_COPY_UNLOCK_TIMEOUT_MS = 10_000;
 const MAX_MBGA_DECISION_RECORDS = 80;
+const MAX_MBGA_RECORD_URL_LENGTH = 160;
+const OPAQUE_RESOURCE_LABEL = "[opaque-resource]";
 const mbgaDecisionRecords: MbgaDecisionRecord[] = [];
 let mbgaTelemetryEnabled = true;
 
@@ -78,18 +80,71 @@ type UnsafeWindow = Window &
 
 type NoopCallable = ((...args: unknown[]) => undefined) & Record<PropertyKey, unknown>;
 
-function sanitizeMbgaRecordUrl(input: string | URL | Request | null | undefined, baseHref = window.location.href): string {
+function getMbgaRecordRawUrl(input: string | URL | Request | null | undefined): string {
   if (!input) {
     return "";
   }
+  if (typeof input === "string") {
+    return input.trim();
+  }
+  if (input instanceof URL) {
+    return input.toString();
+  }
+  if (typeof (input as { url?: unknown }).url === "string") {
+    return (input as { url: string }).url.trim();
+  }
+  return String(input).trim();
+}
+
+function clampMbgaRecordUrl(value: string): string {
+  return value.length <= MAX_MBGA_RECORD_URL_LENGTH ? value : `${value.slice(0, MAX_MBGA_RECORD_URL_LENGTH - 3)}...`;
+}
+
+function isOpaqueMbgaResource(raw: string): boolean {
+  const lower = raw.toLowerCase();
+  const likelyUrl = /^(?:https?:)?\/\//iu.test(raw) || raw.startsWith("/");
+  return (
+    !likelyUrl &&
+    (raw.length > MAX_MBGA_RECORD_URL_LENGTH ||
+      lower.includes("application/wasm") ||
+      lower.includes("base64,") ||
+      lower.startsWith("wasm:"))
+  );
+}
+
+function sanitizeMbgaRecordUrl(input: string | URL | Request | null | undefined, baseHref = window.location.href): string {
+  const raw = getMbgaRecordRawUrl(input);
+  if (!raw) {
+    return "";
+  }
+  const lower = raw.toLowerCase();
+  if (lower.startsWith("data:")) {
+    return "[data-url]";
+  }
+  if (lower.startsWith("blob:")) {
+    return "[blob-url]";
+  }
+  if (isOpaqueMbgaResource(raw)) {
+    return OPAQUE_RESOURCE_LABEL;
+  }
   try {
-    const url = normalizeRequestUrl(input, baseHref);
+    const url = normalizeRequestUrl(raw, baseHref);
     if (!url) {
       throw new Error("invalid URL");
     }
-    return `${url.origin}${url.pathname}`;
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      if (url.protocol === "data:") {
+        return "[data-url]";
+      }
+      if (url.protocol === "blob:") {
+        return "[blob-url]";
+      }
+      return OPAQUE_RESOURCE_LABEL;
+    }
+    return clampMbgaRecordUrl(`${url.origin}${url.pathname}`);
   } catch (_error) {
-    return String(input).split(/[?#]/u, 1)[0] ?? "";
+    const withoutQueryOrHash = raw.split(/[?#]/u, 1)[0] ?? "";
+    return isOpaqueMbgaResource(withoutQueryOrHash) ? OPAQUE_RESOURCE_LABEL : clampMbgaRecordUrl(withoutQueryOrHash);
   }
 }
 
