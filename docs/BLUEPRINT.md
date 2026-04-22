@@ -40,7 +40,7 @@
 | QoL Core 控制台 | 配置和维护入口 | `src/ui/panel.ts`、`src/ui/styles.ts` | `test/panel.test.ts`、`test/styles.test.ts` | 颜色编辑、二阶段确认、滚动不跳动 |
 | 紧凑顶栏 | 视频页搜索和账号入口 | `src/ui/compact-header.ts`、`src/platform/native-request-guard.ts`、`src/utils/page.ts` | `test/compact-header.test.ts`、`test/native-request-guard.test.ts`、`test/page.test.ts` | 网页全屏隐藏，搜索框不被重建打断，请求 guard 不破坏登录态 |
 | 通知中心 | 低打扰提示和操作反馈 | `src/ui/notice-center.ts` | `test/notice-center.test.ts` | 出现/消失动画、播放器避让、无残留 |
-| MBGA | 生态净化和页面小修 | `src/features/mbga/core.ts` | `test/mbga.test.ts` | 播放/动态/专栏/直播页面无明显副作用 |
+| MBGA | 生态噪音压制（best-effort）和页面小修 | `src/features/mbga/core.ts` | `test/mbga.test.ts` | 播放/动态/专栏/直播页面无明显副作用；网络效果需 A/B 证据 |
 
 ## 3. 页面范围
 
@@ -90,9 +90,9 @@
 
 - SponsorBlock 服务地址可配置，默认 `https://www.bsbsb.top`。
 - 上游 API 请求带 `x-ext-version`，不手动伪造 `Origin`。
-- 紧凑顶栏启用后，原生请求 guard 只阻断确认冗余的顶部栏 badge 请求，不阻断头像、搜索、登录态、播放、评论、动态和风控请求。
+- 紧凑顶栏启用后，原生请求 guard 只对当前窄名单内的顶部栏 badge 请求返回合成响应；这些请求是否始终冗余仍需随 B 站实验流复核。guard 不阻断头像、搜索、登录态、播放、评论、动态和风控请求。
 - 评论作者资料接口用于辅助托评判断，失败时无感回退。
-- MBGA 可拦截部分页面网络能力。
+- MBGA 只对少量已知页面网络/行为路径做 best-effort 处理，不能当成完整隐私防护或完整 PCDN 禁用能力。
 
 安全边界：
 
