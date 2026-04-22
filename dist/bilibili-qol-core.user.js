@@ -1272,6 +1272,8 @@
   var ARTICLE_COPY_UNLOCKED_ATTR = "data-bsb-mbga-copy-unlocked";
   var ARTICLE_COPY_UNLOCK_TIMEOUT_MS = 1e4;
   var MAX_MBGA_DECISION_RECORDS = 80;
+  var MAX_MBGA_RECORD_URL_LENGTH = 160;
+  var OPAQUE_RESOURCE_LABEL = "[opaque-resource]";
   var mbgaDecisionRecords = [];
   var mbgaTelemetryEnabled = true;
   var USELESS_URL_PARAMS = [
@@ -1291,19 +1293,63 @@
     { host: "cm.bilibili.com", reason: "cm telemetry" },
     { host: "data.bilibili.com", reason: "data telemetry" }
   ];
-  function sanitizeMbgaRecordUrl(input, baseHref = window.location.href) {
-    var _a;
+  function getMbgaRecordRawUrl(input) {
     if (!input) {
       return "";
     }
+    if (typeof input === "string") {
+      return input.trim();
+    }
+    if (input instanceof URL) {
+      return input.toString();
+    }
+    if (typeof input.url === "string") {
+      return input.url.trim();
+    }
+    return String(input).trim();
+  }
+  function clampMbgaRecordUrl(value) {
+    return value.length <= MAX_MBGA_RECORD_URL_LENGTH ? value : `${value.slice(0, MAX_MBGA_RECORD_URL_LENGTH - 3)}...`;
+  }
+  function isOpaqueMbgaResource(raw) {
+    const lower = raw.toLowerCase();
+    const likelyUrl = /^(?:https?:)?\/\//iu.test(raw) || raw.startsWith("/");
+    return !likelyUrl && (raw.length > MAX_MBGA_RECORD_URL_LENGTH || lower.includes("application/wasm") || lower.includes("base64,") || lower.startsWith("wasm:"));
+  }
+  function sanitizeMbgaRecordUrl(input, baseHref = window.location.href) {
+    var _a;
+    const raw = getMbgaRecordRawUrl(input);
+    if (!raw) {
+      return "";
+    }
+    const lower = raw.toLowerCase();
+    if (lower.startsWith("data:")) {
+      return "[data-url]";
+    }
+    if (lower.startsWith("blob:")) {
+      return "[blob-url]";
+    }
+    if (isOpaqueMbgaResource(raw)) {
+      return OPAQUE_RESOURCE_LABEL;
+    }
     try {
-      const url = normalizeRequestUrl(input, baseHref);
+      const url = normalizeRequestUrl(raw, baseHref);
       if (!url) {
         throw new Error("invalid URL");
       }
-      return `${url.origin}${url.pathname}`;
+      if (url.protocol !== "http:" && url.protocol !== "https:") {
+        if (url.protocol === "data:") {
+          return "[data-url]";
+        }
+        if (url.protocol === "blob:") {
+          return "[blob-url]";
+        }
+        return OPAQUE_RESOURCE_LABEL;
+      }
+      return clampMbgaRecordUrl(`${url.origin}${url.pathname}`);
     } catch (_error) {
-      return (_a = String(input).split(/[?#]/u, 1)[0]) != null ? _a : "";
+      const withoutQueryOrHash = (_a = raw.split(/[?#]/u, 1)[0]) != null ? _a : "";
+      return isOpaqueMbgaResource(withoutQueryOrHash) ? OPAQUE_RESOURCE_LABEL : clampMbgaRecordUrl(withoutQueryOrHash);
     }
   }
   function detectMbgaPageType(url) {
@@ -2296,18 +2342,57 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
   var SNAPSHOT_REQUEST_EVENT = "bsb-tm:native-request-guard-snapshot-request";
   var SNAPSHOT_RESPONSE_EVENT = "bsb-tm:native-request-guard-snapshot-response";
   var REDUNDANT_TOPBAR_PATHS = ["/x/msgfeed/unread", "/x/web-interface/nav/stat"];
+  var MAX_NATIVE_GUARD_RECORD_URL_LENGTH = 160;
+  var OPAQUE_RESOURCE_LABEL2 = "[opaque-resource]";
   var bridgeInjected2 = false;
+  function getNativeRequestRawUrl(input) {
+    if (typeof input === "string") {
+      return input.trim();
+    }
+    if (input && typeof input.url === "string") {
+      return input.url.trim();
+    }
+    return String(input != null ? input : "").trim();
+  }
+  function clampNativeRequestUrl(value) {
+    return value.length <= MAX_NATIVE_GUARD_RECORD_URL_LENGTH ? value : `${value.slice(0, MAX_NATIVE_GUARD_RECORD_URL_LENGTH - 3)}...`;
+  }
+  function isOpaqueNativeRequestResource(raw) {
+    const lower = raw.toLowerCase();
+    const likelyUrl = /^(?:https?:)?\/\//iu.test(raw) || raw.startsWith("/");
+    return !likelyUrl && (raw.length > MAX_NATIVE_GUARD_RECORD_URL_LENGTH || lower.includes("application/wasm") || lower.includes("base64,") || lower.startsWith("wasm:"));
+  }
   function sanitizeNativeRequestUrl(input, baseHref = window.location.href) {
     var _a;
+    const raw = getNativeRequestRawUrl(input);
+    if (!raw) {
+      return "";
+    }
+    const lower = raw.toLowerCase();
+    if (lower.startsWith("data:")) {
+      return "[data-url]";
+    }
+    if (lower.startsWith("blob:")) {
+      return "[blob-url]";
+    }
+    if (isOpaqueNativeRequestResource(raw)) {
+      return OPAQUE_RESOURCE_LABEL2;
+    }
     try {
-      const raw = typeof input === "string" ? input : input && typeof input.url === "string" ? input.url : "";
-      if (!raw) {
-        return "";
-      }
       const parsed = new URL(raw, baseHref);
-      return `${parsed.origin}${parsed.pathname}`;
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        if (parsed.protocol === "data:") {
+          return "[data-url]";
+        }
+        if (parsed.protocol === "blob:") {
+          return "[blob-url]";
+        }
+        return OPAQUE_RESOURCE_LABEL2;
+      }
+      return clampNativeRequestUrl(`${parsed.origin}${parsed.pathname}`);
     } catch (_error) {
-      return (_a = String(input != null ? input : "").split(/[?#]/u, 1)[0]) != null ? _a : "";
+      const withoutQueryOrHash = (_a = raw.split(/[?#]/u, 1)[0]) != null ? _a : "";
+      return isOpaqueNativeRequestResource(withoutQueryOrHash) ? OPAQUE_RESOURCE_LABEL2 : clampNativeRequestUrl(withoutQueryOrHash);
     }
   }
   function sanitizeNativeRequestGuardSnapshot(input) {
@@ -2356,16 +2441,54 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
     records: []
   };
 
+  const maxUrlLength = ${MAX_NATIVE_GUARD_RECORD_URL_LENGTH};
+  const opaqueResourceLabel = ${JSON.stringify(OPAQUE_RESOURCE_LABEL2)};
+
+  function clampUrl(value) {
+    return value.length <= maxUrlLength ? value : value.slice(0, maxUrlLength - 3) + "...";
+  }
+
+  function isOpaqueResource(raw) {
+    const lower = String(raw || "").toLowerCase();
+    const likelyUrl = /^(?:https?:)?\\/\\//i.test(raw) || String(raw || "").startsWith("/");
+    return !likelyUrl && (
+      String(raw || "").length > maxUrlLength ||
+      lower.includes("application/wasm") ||
+      lower.includes("base64,") ||
+      lower.startsWith("wasm:")
+    );
+  }
+
   function sanitizeUrl(input) {
+    const raw = (typeof input === "string" ? input : input && typeof input.url === "string" ? input.url : "").trim();
+    if (!raw) {
+      return "";
+    }
+    const lower = raw.toLowerCase();
+    if (lower.startsWith("data:")) {
+      return "[data-url]";
+    }
+    if (lower.startsWith("blob:")) {
+      return "[blob-url]";
+    }
+    if (isOpaqueResource(raw)) {
+      return opaqueResourceLabel;
+    }
     try {
-      const raw = typeof input === "string" ? input : input && typeof input.url === "string" ? input.url : "";
-      if (!raw) {
-        return "";
-      }
       const parsed = new URL(raw, window.location.href);
-      return parsed.origin + parsed.pathname;
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        if (parsed.protocol === "data:") {
+          return "[data-url]";
+        }
+        if (parsed.protocol === "blob:") {
+          return "[blob-url]";
+        }
+        return opaqueResourceLabel;
+      }
+      return clampUrl(parsed.origin + parsed.pathname);
     } catch (_error) {
-      return String(input || "").split(/[?#]/, 1)[0] || "";
+      const withoutQueryOrHash = raw.split(/[?#]/, 1)[0] || "";
+      return isOpaqueResource(withoutQueryOrHash) ? opaqueResourceLabel : clampUrl(withoutQueryOrHash);
     }
   }
 
@@ -2487,6 +2610,8 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
 
   // src/utils/diagnostics.ts
   var MAX_DIAGNOSTIC_EVENTS = 40;
+  var MAX_DIAGNOSTIC_SAMPLE_URL_LENGTH = 160;
+  var OPAQUE_RESOURCE_LABEL3 = "[opaque-resource]";
   var SENSITIVE_KEY_PATTERN = /user.?id|token|cookie|authorization|comment.?text|reply.?text|raw.?text|feedback.?token/iu;
   var diagnosticEvents = [];
   var listeners = /* @__PURE__ */ new Set();
@@ -2510,6 +2635,47 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
     } catch (_error) {
       const withoutQueryOrHash = (_a = input.split(/[?#]/u, 1)[0]) != null ? _a : "";
       return cleanString(withoutQueryOrHash);
+    }
+  }
+  function clampDiagnosticSampleUrl(value) {
+    return value.length <= MAX_DIAGNOSTIC_SAMPLE_URL_LENGTH ? value : `${value.slice(0, MAX_DIAGNOSTIC_SAMPLE_URL_LENGTH - 3)}...`;
+  }
+  function isOpaqueDiagnosticResource(raw) {
+    const lower = raw.toLowerCase();
+    const likelyUrl = /^(?:https?:)?\/\//iu.test(raw) || raw.startsWith("/");
+    return !likelyUrl && (raw.length > MAX_DIAGNOSTIC_SAMPLE_URL_LENGTH || lower.includes("application/wasm") || lower.includes("base64,") || lower.startsWith("wasm:"));
+  }
+  function sanitizeDiagnosticSampleUrl(input) {
+    var _a;
+    const raw = input.trim();
+    if (!raw) {
+      return "";
+    }
+    const lower = raw.toLowerCase();
+    if (lower.startsWith("data:")) {
+      return "[data-url]";
+    }
+    if (lower.startsWith("blob:")) {
+      return "[blob-url]";
+    }
+    if (isOpaqueDiagnosticResource(raw)) {
+      return OPAQUE_RESOURCE_LABEL3;
+    }
+    try {
+      const url = new URL(raw);
+      if (url.protocol !== "http:" && url.protocol !== "https:") {
+        if (url.protocol === "data:") {
+          return "[data-url]";
+        }
+        if (url.protocol === "blob:") {
+          return "[blob-url]";
+        }
+        return OPAQUE_RESOURCE_LABEL3;
+      }
+      return clampDiagnosticSampleUrl(`${url.origin}${url.pathname}`);
+    } catch (_error) {
+      const withoutQueryOrHash = (_a = raw.split(/[?#]/u, 1)[0]) != null ? _a : "";
+      return isOpaqueDiagnosticResource(withoutQueryOrHash) ? OPAQUE_RESOURCE_LABEL3 : clampDiagnosticSampleUrl(withoutQueryOrHash);
     }
   }
   function sanitizeValue(key, value) {
@@ -2651,7 +2817,7 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
     ];
     for (const record of recent) {
       lines.push(
-        `  - ${new Date(record.at).toISOString()} ${record.action} ${record.ruleId} ${sanitizeDiagnosticPageUrl(
+        `  - ${new Date(record.at).toISOString()} ${record.action} ${record.ruleId} ${sanitizeDiagnosticSampleUrl(
           record.url
         )} (${cleanString(record.reason)} / ${cleanString(record.source)})`
       );
@@ -2677,7 +2843,7 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
     lines.push("Native guard samples:");
     for (const record of records.slice(-10)) {
       lines.push(
-        `  - ${new Date(record.time).toISOString()} ${record.action} ${sanitizeDiagnosticPageUrl(record.url)} (${cleanString(
+        `  - ${new Date(record.time).toISOString()} ${record.action} ${sanitizeDiagnosticSampleUrl(record.url)} (${cleanString(
           record.reason
         )})`
       );

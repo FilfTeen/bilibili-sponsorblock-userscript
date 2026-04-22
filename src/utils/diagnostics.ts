@@ -26,6 +26,8 @@ type DiagnosticInput = {
 };
 
 const MAX_DIAGNOSTIC_EVENTS = 40;
+const MAX_DIAGNOSTIC_SAMPLE_URL_LENGTH = 160;
+const OPAQUE_RESOURCE_LABEL = "[opaque-resource]";
 const SENSITIVE_KEY_PATTERN = /user.?id|token|cookie|authorization|comment.?text|reply.?text|raw.?text|feedback.?token/iu;
 const diagnosticEvents: DiagnosticEvent[] = [];
 const listeners = new Set<(events: DiagnosticEvent[]) => void>();
@@ -54,6 +56,59 @@ export function sanitizeDiagnosticPageUrl(input: string): string {
   } catch (_error) {
     const withoutQueryOrHash = input.split(/[?#]/u, 1)[0] ?? "";
     return cleanString(withoutQueryOrHash);
+  }
+}
+
+function clampDiagnosticSampleUrl(value: string): string {
+  return value.length <= MAX_DIAGNOSTIC_SAMPLE_URL_LENGTH
+    ? value
+    : `${value.slice(0, MAX_DIAGNOSTIC_SAMPLE_URL_LENGTH - 3)}...`;
+}
+
+function isOpaqueDiagnosticResource(raw: string): boolean {
+  const lower = raw.toLowerCase();
+  const likelyUrl = /^(?:https?:)?\/\//iu.test(raw) || raw.startsWith("/");
+  return (
+    !likelyUrl &&
+    (raw.length > MAX_DIAGNOSTIC_SAMPLE_URL_LENGTH ||
+      lower.includes("application/wasm") ||
+      lower.includes("base64,") ||
+      lower.startsWith("wasm:"))
+  );
+}
+
+export function sanitizeDiagnosticSampleUrl(input: string): string {
+  const raw = input.trim();
+  if (!raw) {
+    return "";
+  }
+  const lower = raw.toLowerCase();
+  if (lower.startsWith("data:")) {
+    return "[data-url]";
+  }
+  if (lower.startsWith("blob:")) {
+    return "[blob-url]";
+  }
+  if (isOpaqueDiagnosticResource(raw)) {
+    return OPAQUE_RESOURCE_LABEL;
+  }
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      if (url.protocol === "data:") {
+        return "[data-url]";
+      }
+      if (url.protocol === "blob:") {
+        return "[blob-url]";
+      }
+      return OPAQUE_RESOURCE_LABEL;
+    }
+    return clampDiagnosticSampleUrl(`${url.origin}${url.pathname}`);
+  } catch (_error) {
+    const withoutQueryOrHash = raw.split(/[?#]/u, 1)[0] ?? "";
+    return isOpaqueDiagnosticResource(withoutQueryOrHash)
+      ? OPAQUE_RESOURCE_LABEL
+      : clampDiagnosticSampleUrl(withoutQueryOrHash);
   }
 }
 
@@ -212,7 +267,7 @@ function summarizeMbgaRecords(records: MbgaDecisionRecord[]): string[] {
   ];
   for (const record of recent) {
     lines.push(
-      `  - ${new Date(record.at).toISOString()} ${record.action} ${record.ruleId} ${sanitizeDiagnosticPageUrl(
+      `  - ${new Date(record.at).toISOString()} ${record.action} ${record.ruleId} ${sanitizeDiagnosticSampleUrl(
         record.url
       )} (${cleanString(record.reason)} / ${cleanString(record.source)})`
     );
@@ -238,7 +293,7 @@ function summarizeNativeGuard(snapshot: NativeRequestGuardSnapshot | null): stri
   lines.push("Native guard samples:");
   for (const record of records.slice(-10)) {
     lines.push(
-      `  - ${new Date(record.time).toISOString()} ${record.action} ${sanitizeDiagnosticPageUrl(record.url)} (${cleanString(
+      `  - ${new Date(record.time).toISOString()} ${record.action} ${sanitizeDiagnosticSampleUrl(record.url)} (${cleanString(
         record.reason
       )})`
     );

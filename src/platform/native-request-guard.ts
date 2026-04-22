@@ -27,19 +27,71 @@ const CONFIG_EVENT = "bsb-tm:native-request-guard-config";
 const SNAPSHOT_REQUEST_EVENT = "bsb-tm:native-request-guard-snapshot-request";
 const SNAPSHOT_RESPONSE_EVENT = "bsb-tm:native-request-guard-snapshot-response";
 const REDUNDANT_TOPBAR_PATHS = ["/x/msgfeed/unread", "/x/web-interface/nav/stat"] as const;
+const MAX_NATIVE_GUARD_RECORD_URL_LENGTH = 160;
+const OPAQUE_RESOURCE_LABEL = "[opaque-resource]";
 
 let bridgeInjected = false;
 
+function getNativeRequestRawUrl(input: unknown): string {
+  if (typeof input === "string") {
+    return input.trim();
+  }
+  if (input && typeof (input as { url?: unknown }).url === "string") {
+    return (input as { url: string }).url.trim();
+  }
+  return String(input ?? "").trim();
+}
+
+function clampNativeRequestUrl(value: string): string {
+  return value.length <= MAX_NATIVE_GUARD_RECORD_URL_LENGTH
+    ? value
+    : `${value.slice(0, MAX_NATIVE_GUARD_RECORD_URL_LENGTH - 3)}...`;
+}
+
+function isOpaqueNativeRequestResource(raw: string): boolean {
+  const lower = raw.toLowerCase();
+  const likelyUrl = /^(?:https?:)?\/\//iu.test(raw) || raw.startsWith("/");
+  return (
+    !likelyUrl &&
+    (raw.length > MAX_NATIVE_GUARD_RECORD_URL_LENGTH ||
+      lower.includes("application/wasm") ||
+      lower.includes("base64,") ||
+      lower.startsWith("wasm:"))
+  );
+}
+
 function sanitizeNativeRequestUrl(input: unknown, baseHref = window.location.href): string {
+  const raw = getNativeRequestRawUrl(input);
+  if (!raw) {
+    return "";
+  }
+  const lower = raw.toLowerCase();
+  if (lower.startsWith("data:")) {
+    return "[data-url]";
+  }
+  if (lower.startsWith("blob:")) {
+    return "[blob-url]";
+  }
+  if (isOpaqueNativeRequestResource(raw)) {
+    return OPAQUE_RESOURCE_LABEL;
+  }
   try {
-    const raw = typeof input === "string" ? input : input && typeof (input as { url?: unknown }).url === "string" ? (input as { url: string }).url : "";
-    if (!raw) {
-      return "";
-    }
     const parsed = new URL(raw, baseHref);
-    return `${parsed.origin}${parsed.pathname}`;
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      if (parsed.protocol === "data:") {
+        return "[data-url]";
+      }
+      if (parsed.protocol === "blob:") {
+        return "[blob-url]";
+      }
+      return OPAQUE_RESOURCE_LABEL;
+    }
+    return clampNativeRequestUrl(`${parsed.origin}${parsed.pathname}`);
   } catch (_error) {
-    return String(input ?? "").split(/[?#]/u, 1)[0] ?? "";
+    const withoutQueryOrHash = raw.split(/[?#]/u, 1)[0] ?? "";
+    return isOpaqueNativeRequestResource(withoutQueryOrHash)
+      ? OPAQUE_RESOURCE_LABEL
+      : clampNativeRequestUrl(withoutQueryOrHash);
   }
 }
 
@@ -121,16 +173,54 @@ function buildNativeRequestGuardSource(): string {
     records: []
   };
 
+  const maxUrlLength = ${MAX_NATIVE_GUARD_RECORD_URL_LENGTH};
+  const opaqueResourceLabel = ${JSON.stringify(OPAQUE_RESOURCE_LABEL)};
+
+  function clampUrl(value) {
+    return value.length <= maxUrlLength ? value : value.slice(0, maxUrlLength - 3) + "...";
+  }
+
+  function isOpaqueResource(raw) {
+    const lower = String(raw || "").toLowerCase();
+    const likelyUrl = /^(?:https?:)?\\/\\//i.test(raw) || String(raw || "").startsWith("/");
+    return !likelyUrl && (
+      String(raw || "").length > maxUrlLength ||
+      lower.includes("application/wasm") ||
+      lower.includes("base64,") ||
+      lower.startsWith("wasm:")
+    );
+  }
+
   function sanitizeUrl(input) {
+    const raw = (typeof input === "string" ? input : input && typeof input.url === "string" ? input.url : "").trim();
+    if (!raw) {
+      return "";
+    }
+    const lower = raw.toLowerCase();
+    if (lower.startsWith("data:")) {
+      return "[data-url]";
+    }
+    if (lower.startsWith("blob:")) {
+      return "[blob-url]";
+    }
+    if (isOpaqueResource(raw)) {
+      return opaqueResourceLabel;
+    }
     try {
-      const raw = typeof input === "string" ? input : input && typeof input.url === "string" ? input.url : "";
-      if (!raw) {
-        return "";
-      }
       const parsed = new URL(raw, window.location.href);
-      return parsed.origin + parsed.pathname;
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        if (parsed.protocol === "data:") {
+          return "[data-url]";
+        }
+        if (parsed.protocol === "blob:") {
+          return "[blob-url]";
+        }
+        return opaqueResourceLabel;
+      }
+      return clampUrl(parsed.origin + parsed.pathname);
     } catch (_error) {
-      return String(input || "").split(/[?#]/, 1)[0] || "";
+      const withoutQueryOrHash = raw.split(/[?#]/, 1)[0] || "";
+      return isOpaqueResource(withoutQueryOrHash) ? opaqueResourceLabel : clampUrl(withoutQueryOrHash);
     }
   }
 

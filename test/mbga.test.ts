@@ -229,6 +229,34 @@ describe("MBGA network interception", () => {
     expect(sendBeaconSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("normalizes opaque MBGA decision record URLs", async () => {
+    const rule = getRule("block-telemetry-reporters");
+    const fakeWindow = createFakeWindow("https://www.bilibili.com/");
+    fakeWindow.fetch = vi.fn(async () => new Response("ok", { status: 200 }));
+    fakeWindow.XMLHttpRequest = FakeXmlHttpRequest as unknown as typeof XMLHttpRequest;
+
+    rule.apply({
+      config: cloneDefaultConfig(),
+      doc: document,
+      win: fakeWindow,
+      url: new URL(fakeWindow.location.href)
+    });
+
+    await fakeWindow.fetch("data:application/wasm;base64,secret-token");
+    await fakeWindow.fetch(`nullapplication/wasm;base64,${"A".repeat(260)}?token=secret`);
+    await fakeWindow.fetch("https://data.bilibili.com/log/web?token=secret#frag");
+
+    const records = getMbgaDecisionRecords();
+    expect(records.some((record) => record.url === "[data-url]")).toBe(true);
+    expect(records.some((record) => record.url === "[opaque-resource]")).toBe(true);
+    expect(records.some((record) => record.url === "https://data.bilibili.com/log/web")).toBe(true);
+    expect(records.every((record) => record.url.length <= 160)).toBe(true);
+    expect(JSON.stringify(records)).not.toContain("secret-token");
+    expect(JSON.stringify(records)).not.toContain("application/wasm");
+    expect(JSON.stringify(records)).not.toContain("?token");
+    expect(JSON.stringify(records)).not.toContain("#frag");
+  });
+
   it("short-circuits blocked xhr requests with load semantics", async () => {
     const rule = getRule("block-telemetry-reporters");
     const fakeWindow = createFakeWindow("https://www.bilibili.com/");

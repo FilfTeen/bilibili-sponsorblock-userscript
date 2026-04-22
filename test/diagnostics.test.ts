@@ -9,6 +9,7 @@ import {
   reportDiagnostic,
   sanitizeDiagnosticDetail,
   sanitizeDiagnosticPageUrl,
+  sanitizeDiagnosticSampleUrl,
   setDiagnosticDebugEnabled,
   subscribeDiagnostics
 } from "../src/utils/diagnostics";
@@ -124,6 +125,12 @@ describe("developer diagnostics", () => {
                   url: "https://api.bilibili.com/x/msgfeed/unread?token=secret-token#frag",
                   time: Date.UTC(2026, 0, 1),
                   reason: "ready"
+                },
+                {
+                  action: "observed-fetch",
+                  url: `nullapplication/wasm;base64,${"A".repeat(260)}`,
+                  time: Date.UTC(2026, 0, 1),
+                  reason: "ready"
                 }
               ]
             }
@@ -138,8 +145,11 @@ describe("developer diagnostics", () => {
     document.removeEventListener("bsb-tm:native-request-guard-snapshot-request", handleRequest);
     expect(report).toContain("Native guard: enabled=true");
     expect(report).toContain("Native guard actions: blocked-fetch=1");
+    expect(report).toContain("observed-fetch=1");
     expect(report).toContain("https://api.bilibili.com/x/msgfeed/unread");
+    expect(report).toContain("[opaque-resource]");
     expect(report).not.toContain("secret-token");
+    expect(report).not.toContain("application/wasm");
     expect(report).not.toContain("#frag");
   });
 
@@ -203,6 +213,19 @@ describe("developer diagnostics", () => {
     expect(sanitized).not.toContain("secret-user");
     expect(sanitized).not.toContain("?");
     expect(sanitized).not.toContain("#");
+  });
+
+  it("normalizes diagnostic sample resource URLs without leaking opaque payloads", () => {
+    expect(sanitizeDiagnosticSampleUrl("data:application/wasm;base64,secret-token")).toBe("[data-url]");
+    expect(sanitizeDiagnosticSampleUrl("blob:https://www.bilibili.com/secret-token")).toBe("[blob-url]");
+
+    const opaque = sanitizeDiagnosticSampleUrl(`nullapplication/wasm;base64,${"A".repeat(260)}?token=secret`);
+    expect(opaque).toBe("[opaque-resource]");
+    expect(opaque).toHaveLength(17);
+
+    const http = sanitizeDiagnosticSampleUrl("https://api.bilibili.com/x/web-interface/nav?token=secret#hash");
+    expect(http).toBe("https://api.bilibili.com/x/web-interface/nav");
+    expect(http).not.toContain("secret");
   });
 
   it("toggles diagnostic debug mode without requiring console commands", () => {

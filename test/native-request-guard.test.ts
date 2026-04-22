@@ -64,6 +64,18 @@ describe("native request guard", () => {
           url: "https://api.bilibili.com/x/player/wbi/v2?spm_id_from=333.788",
           time: 3,
           reason: "ready"
+        },
+        {
+          action: "observed-xhr",
+          url: "data:application/wasm;base64,secret-token",
+          time: 4,
+          reason: "ready"
+        },
+        {
+          action: "observed-fetch",
+          url: `nullapplication/wasm;base64,${"A".repeat(260)}?token=secret`,
+          time: 5,
+          reason: "ready"
         }
       ]
     });
@@ -71,10 +83,16 @@ describe("native request guard", () => {
     expect(snapshot?.records.map((record) => record.action)).toEqual([
       "blocked-fetch",
       "would-block-xhr",
+      "observed-fetch",
+      "observed-xhr",
       "observed-fetch"
     ]);
     expect(snapshot?.records[0]?.url).toBe("https://api.bilibili.com/x/msgfeed/unread");
+    expect(snapshot?.records[3]?.url).toBe("[data-url]");
+    expect(snapshot?.records[4]?.url).toBe("[opaque-resource]");
+    expect(snapshot?.records.every((record) => record.url.length <= 160)).toBe(true);
     expect(JSON.stringify(snapshot)).not.toContain("secret");
+    expect(JSON.stringify(snapshot)).not.toContain("application/wasm");
     expect(JSON.stringify(snapshot)).not.toContain("spm_id_from");
     expect(JSON.stringify(snapshot)).not.toContain("#");
   });
