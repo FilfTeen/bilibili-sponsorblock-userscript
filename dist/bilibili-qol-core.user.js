@@ -5162,7 +5162,6 @@ ${inlineSurfaceFrostedGlass.overlay}
         }
         button.disabled = true;
         button.textContent = "\u5220\u9664\u4E2D";
-        item.dataset.removing = "true";
         item.setAttribute("aria-busy", "true");
         try {
           yield this.callbacks.onDeleteLocalVideoLabel(record.videoId);
@@ -5171,6 +5170,7 @@ ${inlineSurfaceFrostedGlass.overlay}
             videoRecords: this.localLearningState.videoRecords.filter((candidate) => candidate.videoId !== record.videoId),
             errorMessage: null
           });
+          this.markLocalLearningItemRemoving(item);
           this.finishLocalLearningItemRemoval(item, () => {
             this.renderHelpIfOpen();
             this.refreshLocalLearningRecords();
@@ -5192,6 +5192,13 @@ ${inlineSurfaceFrostedGlass.overlay}
         }
       }));
       return button;
+    }
+    markLocalLearningItemRemoving(item) {
+      const measuredHeight = Math.ceil(Math.max(item.scrollHeight, item.getBoundingClientRect().height));
+      item.style.setProperty("--bsb-local-learning-item-height", `${Math.max(measuredHeight, 1)}px`);
+      void item.offsetHeight;
+      item.dataset.removing = "true";
+      item.setAttribute("aria-busy", "true");
     }
     createCommentFeedbackLearningSection() {
       const section = document.createElement("section");
@@ -13721,10 +13728,13 @@ ${titleSurfaceFrostedGlass.overlay}
 }
 
 .bsb-tm-local-learning-list {
+  --bsb-local-learning-list-max-height: 296px;
   display: grid;
   gap: 8px;
-  max-height: 260px;
-  overflow: auto;
+  align-content: start;
+  max-height: var(--bsb-local-learning-list-max-height);
+  overflow-x: hidden;
+  overflow-y: auto;
   padding-right: 2px;
 }
 
@@ -13733,8 +13743,8 @@ ${titleSurfaceFrostedGlass.overlay}
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
-  max-height: 128px;
-  overflow: hidden;
+  max-height: var(--bsb-local-learning-item-height, none);
+  overflow: visible;
   padding: 10px 12px;
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 14px;
@@ -13751,6 +13761,7 @@ ${titleSurfaceFrostedGlass.overlay}
 
 .bsb-tm-local-learning-item[data-removing="true"] {
   max-height: 0;
+  overflow: hidden;
   padding-top: 0;
   padding-bottom: 0;
   border-color: transparent;

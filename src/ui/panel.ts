@@ -1050,7 +1050,6 @@ export class SettingsPanel {
 
       button.disabled = true;
       button.textContent = "删除中";
-      item.dataset.removing = "true";
       item.setAttribute("aria-busy", "true");
 
       try {
@@ -1061,6 +1060,7 @@ export class SettingsPanel {
           videoRecords: this.localLearningState.videoRecords.filter((candidate) => candidate.videoId !== record.videoId),
           errorMessage: null
         };
+        this.markLocalLearningItemRemoving(item);
         this.finishLocalLearningItemRemoval(item, () => {
           this.renderHelpIfOpen();
           this.refreshLocalLearningRecords();
@@ -1082,6 +1082,15 @@ export class SettingsPanel {
       }
     });
     return button;
+  }
+
+  private markLocalLearningItemRemoving(item: HTMLElement): void {
+    const measuredHeight = Math.ceil(Math.max(item.scrollHeight, item.getBoundingClientRect().height));
+    item.style.setProperty("--bsb-local-learning-item-height", `${Math.max(measuredHeight, 1)}px`);
+    // Force Safari to see the measured height before the collapse state is applied.
+    void item.offsetHeight;
+    item.dataset.removing = "true";
+    item.setAttribute("aria-busy", "true");
   }
 
   private createCommentFeedbackLearningSection(): HTMLElement {

@@ -1981,10 +1981,13 @@ ${titleSurfaceFrostedGlass.overlay}
 }
 
 .bsb-tm-local-learning-list {
+  --bsb-local-learning-list-max-height: 296px;
   display: grid;
   gap: 8px;
-  max-height: 260px;
-  overflow: auto;
+  align-content: start;
+  max-height: var(--bsb-local-learning-list-max-height);
+  overflow-x: hidden;
+  overflow-y: auto;
   padding-right: 2px;
 }
 
@@ -1993,8 +1996,8 @@ ${titleSurfaceFrostedGlass.overlay}
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
-  max-height: 128px;
-  overflow: hidden;
+  max-height: var(--bsb-local-learning-item-height, none);
+  overflow: visible;
   padding: 10px 12px;
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 14px;
@@ -2011,6 +2014,7 @@ ${titleSurfaceFrostedGlass.overlay}
 
 .bsb-tm-local-learning-item[data-removing="true"] {
   max-height: 0;
+  overflow: hidden;
   padding-top: 0;
   padding-bottom: 0;
   border-color: transparent;

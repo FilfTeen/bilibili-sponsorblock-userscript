@@ -1371,6 +1371,71 @@ describe("settings panel", () => {
     expect(card?.querySelectorAll("[data-bsb-local-label-delete]")).toHaveLength(2);
   });
 
+  it("uses a compact empty state when there are no local video records", async () => {
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig: vi.fn(async () => {}),
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {}),
+      onListLocalVideoLabels: vi.fn(async () => []),
+      onDeleteLocalVideoLabel: vi.fn(async () => {}),
+      onClearLocalVideoLabels: vi.fn(async () => {}),
+      onGetCommentFeedbackSummary: vi.fn(async () => ({
+        count: 0,
+        maxRecords: 1000,
+        latestUpdatedAt: null
+      })),
+      onClearCommentFeedback: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("help");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const card = document.querySelector<HTMLElement>("[data-bsb-local-learning-manager='true']");
+    expect(card?.querySelectorAll(".bsb-tm-local-learning-item")).toHaveLength(0);
+    expect(card?.querySelector(".bsb-tm-local-learning-empty")?.textContent).toContain("暂无本地视频学习记录");
+    expect(card?.querySelector(".bsb-tm-local-learning-comment-summary p")?.textContent).toContain("当前有 0 条评论反馈锁");
+  });
+
+  it("renders more than three local learning records as full items for the scroll container", async () => {
+    const records: LocalVideoLabelListEntry[] = Array.from({ length: 4 }, (_, index) => ({
+      videoId: `BV1xx411c7m${index}`,
+      category: index === 3 ? null : "sponsor",
+      source: index === 3 ? "manual-dismiss" : "manual",
+      confidence: 1,
+      updatedAt: 5_000 - index,
+      reason: `完整显示的长原因 ${index}：这段文字用于确认列表项内容仍然保留在 DOM 中，不依赖固定高度裁切。`
+    }));
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig: vi.fn(async () => {}),
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {}),
+      onListLocalVideoLabels: vi.fn(async () => records),
+      onDeleteLocalVideoLabel: vi.fn(async () => {}),
+      onClearLocalVideoLabels: vi.fn(async () => {}),
+      onGetCommentFeedbackSummary: vi.fn(async () => ({
+        count: 0,
+        maxRecords: 1000,
+        latestUpdatedAt: null
+      })),
+      onClearCommentFeedback: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("help");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const items = Array.from(document.querySelectorAll<HTMLElement>(".bsb-tm-local-learning-item"));
+    expect(items).toHaveLength(4);
+    expect(items[3]?.textContent).toContain("完整显示的长原因 3");
+    for (const item of items) {
+      expect(item.style.maxHeight).toBe("");
+      expect(item.dataset.removing).toBeUndefined();
+    }
+  });
+
   it("deletes local learning records and requires confirmation before clearing all", async () => {
     let records: LocalVideoLabelListEntry[] = [
       {
@@ -1413,9 +1478,11 @@ describe("settings panel", () => {
     deleteButton?.click();
     expect(deleteButton?.disabled).toBe(true);
     expect(deleteButton?.textContent).toBe("删除中");
-    expect(item?.dataset.removing).toBe("true");
+    expect(item?.dataset.removing).toBeUndefined();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(onDeleteLocalVideoLabel).toHaveBeenCalledWith("BV17x411w7KC");
+    expect(item?.dataset.removing).toBe("true");
+    expect(item?.style.getPropertyValue("--bsb-local-learning-item-height")).toMatch(/px$/u);
     expect(document.querySelector("[data-bsb-local-learning-manager='true']")?.textContent).toContain("BV17x411w7KC");
     await new Promise((resolve) => setTimeout(resolve, 280));
     expect(document.querySelector("[data-bsb-local-learning-manager='true']")?.textContent).toContain("暂无本地视频学习记录");
@@ -1457,6 +1524,126 @@ describe("settings panel", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(onClearLocalVideoLabels).toHaveBeenCalledTimes(1);
     expect(document.querySelector("[data-bsb-local-learning-manager='true']")?.textContent).toContain("暂无本地视频学习记录");
+  });
+
+  it("marks only the deleted local learning item as removing", async () => {
+    let records: LocalVideoLabelListEntry[] = [
+      {
+        videoId: "BV17x411w7KC",
+        category: "sponsor",
+        source: "manual",
+        confidence: 1,
+        updatedAt: 2000,
+        reason: "手动确认本地标签"
+      },
+      {
+        videoId: "BV1xx411c7mD",
+        category: null,
+        source: "manual-dismiss",
+        confidence: 1,
+        updatedAt: 1000,
+        reason: "手动忽略本地标签"
+      }
+    ];
+    const onDeleteLocalVideoLabel = vi.fn(async (videoId: string) => {
+      records = records.filter((record) => record.videoId !== videoId);
+    });
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig: vi.fn(async () => {}),
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {}),
+      onListLocalVideoLabels: vi.fn(async () => records),
+      onDeleteLocalVideoLabel,
+      onClearLocalVideoLabels: vi.fn(async () => {}),
+      onGetCommentFeedbackSummary: vi.fn(async () => ({
+        count: 0,
+        maxRecords: 1000,
+        latestUpdatedAt: null
+      })),
+      onClearCommentFeedback: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("help");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    document.querySelector<HTMLButtonElement>("[data-bsb-local-label-delete='BV17x411w7KC']")?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const firstItem = document
+      .querySelector<HTMLButtonElement>("[data-bsb-local-label-delete='BV17x411w7KC']")
+      ?.closest<HTMLElement>(".bsb-tm-local-learning-item");
+    const secondItem = document
+      .querySelector<HTMLButtonElement>("[data-bsb-local-label-delete='BV1xx411c7mD']")
+      ?.closest<HTMLElement>(".bsb-tm-local-learning-item");
+    expect(firstItem?.dataset.removing).toBe("true");
+    expect(firstItem?.style.getPropertyValue("--bsb-local-learning-item-height")).toMatch(/px$/u);
+    expect(secondItem?.dataset.removing).toBeUndefined();
+
+    await new Promise((resolve) => setTimeout(resolve, 280));
+    const card = document.querySelector("[data-bsb-local-learning-manager='true']");
+    expect(card?.textContent).not.toContain("BV17x411w7KC");
+    expect(card?.textContent).toContain("BV1xx411c7mD");
+  });
+
+  it("removes local learning records immediately when reduced motion is requested", async () => {
+    const originalMatchMedia = window.matchMedia;
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn((query: string) => ({
+        matches: query === "(prefers-reduced-motion: reduce)",
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn()
+      }))
+    });
+
+    let records: LocalVideoLabelListEntry[] = [
+      {
+        videoId: "BV17x411w7KC",
+        category: "sponsor",
+        source: "manual",
+        confidence: 1,
+        updatedAt: 2000,
+        reason: "手动确认本地标签"
+      }
+    ];
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig: vi.fn(async () => {}),
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {}),
+      onListLocalVideoLabels: vi.fn(async () => records),
+      onDeleteLocalVideoLabel: vi.fn(async (videoId: string) => {
+        records = records.filter((record) => record.videoId !== videoId);
+      }),
+      onClearLocalVideoLabels: vi.fn(async () => {}),
+      onGetCommentFeedbackSummary: vi.fn(async () => ({
+        count: 0,
+        maxRecords: 1000,
+        latestUpdatedAt: null
+      })),
+      onClearCommentFeedback: vi.fn(async () => {})
+    });
+
+    try {
+      panel.mount();
+      panel.open("help");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      document.querySelector<HTMLButtonElement>("[data-bsb-local-label-delete='BV17x411w7KC']")?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(document.querySelector("[data-bsb-local-learning-manager='true']")?.textContent).toContain("暂无本地视频学习记录");
+    } finally {
+      Object.defineProperty(window, "matchMedia", {
+        configurable: true,
+        value: originalMatchMedia
+      });
+    }
   });
 
   it("keeps local learning records visible and restores the delete button when deletion fails", async () => {
