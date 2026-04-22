@@ -1304,6 +1304,8 @@ export class ScriptController {
       disabledReason = "pending-upstream";
     } else if (this.currentFullVideoLabels.length > 0) {
       disabledReason = "upstream-whole-video";
+    } else if (bvid && this.hasLocalManualDecision(bvid)) {
+      disabledReason = "manual-decision";
     }
 
     return {
@@ -1407,28 +1409,77 @@ export class ScriptController {
     return source === "comment-goods" || source === "comment-suspicion" || source === "page-heuristic" ? source : null;
   }
 
+  private resolveLocalSignalVideoId(segment: SegmentRecord): string | null {
+    const match = /^local-signal:(BV[^:]+):/u.exec(segment.UUID);
+    return match?.[1] ?? null;
+  }
+
+  private showLocalFeedbackFailure(videoId: string | null, error: unknown): void {
+    reportDiagnostic({
+      severity: "warn",
+      area: "storage",
+      message: "本地视频反馈写入失败",
+      detail: error
+    });
+    this.notices.show({
+      id: `local-feedback-failed:${videoId ?? "unknown"}`,
+      title: "本地反馈保存失败",
+      message: "这次本地反馈没有写入成功，当前提示状态不会被标记为已处理。",
+      durationMs: 3600
+    });
+  }
+
   private async handleLocalBadgeDecision(segment: SegmentRecord, decision: "confirm" | "dismiss"): Promise<void> {
     if (!this.currentContext || !segment.UUID.startsWith("local-signal:")) {
       return;
     }
 
-    if (this.hasLocalManualDecision(this.currentContext.bvid)) {
-      this.showDuplicateLocalFeedbackNotice(this.currentContext.bvid);
+    const segmentVideoId = this.resolveLocalSignalVideoId(segment);
+    const currentVideoId = this.currentContext.bvid;
+    if (!segmentVideoId || segmentVideoId !== currentVideoId) {
+      const error = new Error("local signal video context mismatch");
+      reportDiagnostic({
+        severity: "warn",
+        area: "runtime",
+        message: "本地反馈视频上下文不一致，已拒绝写入",
+        detail: {
+          segmentUUID: segment.UUID,
+          segmentVideoId,
+          currentVideoId
+        }
+      });
+      this.notices.show({
+        id: `local-feedback-mismatch:${currentVideoId}`,
+        title: "本地反馈未保存",
+        message: "页面视频上下文已经变化，这次反馈没有写入，避免写错视频。",
+        durationMs: 3600
+      });
+      throw error;
+    }
+
+    if (this.hasLocalManualDecision(currentVideoId)) {
+      this.showDuplicateLocalFeedbackNotice(currentVideoId);
       return;
     }
 
     if (decision === "confirm") {
-      await this.localVideoLabelStore.rememberManual(this.currentContext.bvid, segment.category, `手动保留 ${CATEGORY_LABELS[segment.category]}`);
+      try {
+        await this.localVideoLabelStore.rememberManual(currentVideoId, segment.category, `手动保留 ${CATEGORY_LABELS[segment.category]}`);
+      } catch (error) {
+        this.showLocalFeedbackFailure(currentVideoId, error);
+        throw error;
+      }
       this.currentRuntimeLocalSignal = null;
-      this.currentTitleLabel = this.buildLocalSignalSegment(this.currentContext.bvid, {
+      this.currentTitleLabel = this.buildLocalSignalSegment(currentVideoId, {
         category: segment.category,
         source: "manual",
         reason: `手动保留 ${CATEGORY_LABELS[segment.category]}`
       });
       this.updateTitleBadge(this.currentTitleLabel);
       this.panel.setFullVideoLabels([this.currentTitleLabel]);
+      this.panel.refreshLocalLearningRecords();
       this.notices.show({
-        id: `local-label-confirm:${this.currentContext.bvid}`,
+        id: `local-label-confirm:${currentVideoId}`,
         title: "已保留本地标签",
         message: `已记录为你的本地判断。后续进入当前视频时会继续显示“${CATEGORY_LABELS[segment.category]}”，该本地反馈不可重复提交。`,
         durationMs: 3600
@@ -1437,19 +1488,25 @@ export class ScriptController {
       return;
     }
 
-    await this.localVideoLabelStore.dismiss(this.currentContext.bvid, `手动忽略 ${CATEGORY_LABELS[segment.category]}`);
+    try {
+      await this.localVideoLabelStore.dismiss(currentVideoId, `手动忽略 ${CATEGORY_LABELS[segment.category]}`);
+    } catch (error) {
+      this.showLocalFeedbackFailure(currentVideoId, error);
+      throw error;
+    }
     this.currentRuntimeLocalSignal = null;
     this.currentTitleLabel = null;
     this.titleBadge.clear();
     this.panel.setFullVideoLabels([]);
+    this.panel.refreshLocalLearningRecords();
     this.updateRuntimeStatus({
       kind: this.currentSegments.length > 0 ? "loaded" : "empty",
       message: this.currentSegments.length > 0 ? `已加载 ${this.currentSegments.length} 个可处理片段` : "当前视频暂无可显示的整视频标签",
-      bvid: this.currentContext.bvid,
+      bvid: currentVideoId,
       segmentCount: this.currentSegments.length
     });
     this.notices.show({
-      id: `local-label-dismiss:${this.currentContext.bvid}`,
+      id: `local-label-dismiss:${currentVideoId}`,
       title: "已忽略本地标签",
       message: "已记录为你的本地判断。后续当前视频不会再显示这条本地商业提示，该本地反馈不可重复提交。",
       durationMs: 3600

@@ -113,6 +113,33 @@ describe("local video label store", () => {
     expect(payload).toEqual({});
   });
 
+  it("lists manual dismiss records immediately after dismiss", async () => {
+    let payload = {};
+    vi.stubGlobal("GM_getValue", vi.fn(async () => payload));
+    vi.stubGlobal(
+      "GM_setValue",
+      vi.fn(async (_key, value) => {
+        payload = value;
+      })
+    );
+
+    const store = new LocalVideoLabelStore();
+    await store.load();
+    await store.dismiss("BV17x411w7KC", "手动忽略 商单广告");
+
+    expect(store.isDismissed("BV17x411w7KC")).toBe(true);
+    expect(store.listRecords()).toEqual([
+      expect.objectContaining({
+        videoId: "BV17x411w7KC",
+        category: null,
+        source: "manual-dismiss",
+        confidence: 1,
+        reason: "手动忽略 商单广告"
+      })
+    ]);
+    expect(payload).toHaveProperty("BV17x411w7KC");
+  });
+
   it("rolls deletes and clears back when persistence fails", async () => {
     vi.stubGlobal(
       "GM_getValue",
@@ -137,6 +164,41 @@ describe("local video label store", () => {
 
     await expect(store.clearRecords()).rejects.toThrow("local label save failed");
     expect(store.listRecords()).toHaveLength(1);
+  });
+
+  it("rolls dismiss back when persistence fails", async () => {
+    vi.stubGlobal(
+      "GM_getValue",
+      vi.fn(async () => ({
+        BV17x411w7KC: {
+          category: "sponsor",
+          source: "manual",
+          confidence: 1,
+          updatedAt: 1000
+        }
+      }))
+    );
+    vi.stubGlobal("GM_setValue", vi.fn(async () => {
+      throw new Error("local label save failed");
+    }));
+
+    const store = new LocalVideoLabelStore();
+    await store.load();
+
+    await expect(store.dismiss("BV17x411w7KC")).rejects.toThrow("local label save failed");
+    expect(store.isDismissed("BV17x411w7KC")).toBe(false);
+    expect(store.getResolved("BV17x411w7KC")?.source).toBe("manual");
+  });
+
+  it("rejects invalid dismiss video ids instead of silently reporting success", async () => {
+    vi.stubGlobal("GM_getValue", vi.fn(async (_key, fallback) => fallback));
+    vi.stubGlobal("GM_setValue", vi.fn(async () => {}));
+
+    const store = new LocalVideoLabelStore();
+    await store.load();
+
+    await expect(store.dismiss("not-a-bv")).rejects.toThrow("invalid local video id");
+    expect(store.listRecords()).toEqual([]);
   });
 
   it("keeps legacy payloads compatible through normalization defaults", async () => {

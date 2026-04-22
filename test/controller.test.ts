@@ -507,7 +507,7 @@ describe("script controller", () => {
     );
   });
 
-  it("keeps comment feedback available after a persisted manual video decision", async () => {
+  it("locks comment feedback after a persisted manual video decision", async () => {
     const controller = createController();
     const store = Reflect.get(controller, "localVideoLabelStore") as LocalVideoLabelStore;
     const availabilitySpy = vi.fn();
@@ -527,11 +527,162 @@ describe("script controller", () => {
     Reflect.get(controller, "syncLocalFeedbackAvailability").call(controller);
 
     expect((availabilitySpy.mock.calls[0]?.[0] as CustomEvent).detail).toMatchObject({
-      enabled: true,
-      locked: false,
+      enabled: false,
+      locked: true,
+      disabledReason: "manual-decision",
       bvid: "BV1xx411c7mV"
     });
     window.removeEventListener("bsb:local-video-feedback-availability", availabilitySpy as EventListener);
+  });
+
+  it("persists a title badge local dismiss and blocks later automatic signals", async () => {
+    const controller = createController();
+    const store = Reflect.get(controller, "localVideoLabelStore") as LocalVideoLabelStore;
+    const panel = Reflect.get(controller, "panel") as { refreshLocalLearningRecords: () => void };
+    const refreshSpy = vi.spyOn(panel, "refreshLocalLearningRecords");
+    const rememberSignalSpy = vi.spyOn(store, "rememberSignal");
+
+    Reflect.set(controller, "started", true);
+    Reflect.set(controller, "currentConfig", cloneDefaultConfig());
+    Reflect.set(controller, "currentSegments", []);
+    Reflect.set(controller, "currentContext", {
+      bvid: "BV1xx411c7mD",
+      cid: "12345",
+      page: 1,
+      title: "测试视频",
+      href: "https://www.bilibili.com/video/BV1xx411c7mD"
+    } satisfies VideoContext);
+    Reflect.set(controller, "currentTitleLabel", {
+      UUID: "local-signal:BV1xx411c7mD:comment-suspicion:sponsor",
+      category: "sponsor",
+      actionType: "full",
+      segment: [0, 0],
+      start: 0,
+      end: 0,
+      duration: 0,
+      mode: "auto"
+    } satisfies SegmentRecord);
+
+    await Reflect.get(controller, "handleLocalBadgeDecision").call(
+      controller,
+      Reflect.get(controller, "currentTitleLabel"),
+      "dismiss"
+    );
+
+    expect(store.isDismissed("BV1xx411c7mD")).toBe(true);
+    expect(store.listRecords()).toEqual([
+      expect.objectContaining({
+        videoId: "BV1xx411c7mD",
+        source: "manual-dismiss",
+        category: null,
+        confidence: 1
+      })
+    ]);
+    expect(refreshSpy).toHaveBeenCalled();
+    expect(Reflect.get(controller, "currentTitleLabel")).toBeNull();
+
+    Reflect.get(controller, "handleVideoSignal").call(
+      controller,
+      new CustomEvent(VIDEO_SIGNAL_EVENT, {
+        detail: {
+          category: "sponsor",
+          source: "comment-suspicion",
+          confidence: 0.96,
+          reason: "后续评论滚动再次命中"
+        }
+      })
+    );
+
+    expect(Reflect.get(controller, "currentTitleLabel")).toBeNull();
+    expect(rememberSignalSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects local dismiss when the segment bvid no longer matches the current context", async () => {
+    const controller = createController();
+    const store = Reflect.get(controller, "localVideoLabelStore") as LocalVideoLabelStore;
+    const dismissSpy = vi.spyOn(store, "dismiss");
+    const notices = Reflect.get(controller, "notices") as { show: (options: unknown) => void };
+    const showSpy = vi.spyOn(notices, "show");
+
+    Reflect.set(controller, "started", true);
+    Reflect.set(controller, "currentConfig", cloneDefaultConfig());
+    Reflect.set(controller, "currentContext", {
+      bvid: "BV1xx411c7mA",
+      cid: "12345",
+      page: 1,
+      title: "测试视频 A",
+      href: "https://www.bilibili.com/video/BV1xx411c7mA"
+    } satisfies VideoContext);
+
+    await expect(
+      Reflect.get(controller, "handleLocalBadgeDecision").call(
+        controller,
+        {
+          UUID: "local-signal:BV1xx411c7mB:comment-suspicion:sponsor",
+          category: "sponsor",
+          actionType: "full",
+          segment: [0, 0],
+          start: 0,
+          end: 0,
+          duration: 0,
+          mode: "auto"
+        } satisfies SegmentRecord,
+        "dismiss"
+      )
+    ).rejects.toThrow("local signal video context mismatch");
+
+    expect(dismissSpy).not.toHaveBeenCalled();
+    expect(store.listRecords()).toEqual([]);
+    expect(showSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "本地反馈未保存"
+      })
+    );
+  });
+
+  it("does not show local dismiss success when persistence fails", async () => {
+    const controller = createController();
+    vi.mocked(globalThis.GM_setValue).mockRejectedValueOnce(new Error("local label save failed"));
+    const notices = Reflect.get(controller, "notices") as { show: (options: unknown) => void };
+    const showSpy = vi.spyOn(notices, "show");
+
+    Reflect.set(controller, "started", true);
+    Reflect.set(controller, "currentConfig", cloneDefaultConfig());
+    Reflect.set(controller, "currentContext", {
+      bvid: "BV1xx411c7mF",
+      cid: "12345",
+      page: 1,
+      title: "测试视频",
+      href: "https://www.bilibili.com/video/BV1xx411c7mF"
+    } satisfies VideoContext);
+
+    await expect(
+      Reflect.get(controller, "handleLocalBadgeDecision").call(
+        controller,
+        {
+          UUID: "local-signal:BV1xx411c7mF:comment-suspicion:sponsor",
+          category: "sponsor",
+          actionType: "full",
+          segment: [0, 0],
+          start: 0,
+          end: 0,
+          duration: 0,
+          mode: "auto"
+        } satisfies SegmentRecord,
+        "dismiss"
+      )
+    ).rejects.toThrow("local label save failed");
+
+    expect(showSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "本地反馈保存失败"
+      })
+    );
+    expect(showSpy).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "已忽略本地标签"
+      })
+    );
   });
 
   it("blocks comment feedback when an upstream whole-video label is already present", async () => {
