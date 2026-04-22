@@ -71,7 +71,7 @@ Bilibili QoL Core v0.3.10 是运行在 Tampermonkey 中的 Bilibili 增强 users
 
 guard 不阻断 `/x/web-interface/nav`、搜索、播放、评论、动态、登录、风控等请求。
 
-这些 guard 规则不是通用隐私防护；它们只覆盖当前代码明确列出的路径。`v0.3.11` 仍需用 Safari 主窗口 A/B 网络采样持续证明这些路径在当前 B 站实验流中没有被复用为关键功能。
+这些 guard 规则不是通用隐私防护；它们只覆盖当前代码明确列出的路径。`v0.3.11` 起 guard 会保留 bounded page-context records，并通过 userscript 侧 snapshot 暴露给开发者诊断报告。snapshot 只保留脱敏 URL、动作类型、时间和原因；如果页面桥不可用，诊断报告显示 unavailable，而不是抛错。
 
 ### 评论/动态链路
 
@@ -86,6 +86,10 @@ guard 不阻断 `/x/web-interface/nav`、搜索、播放、评论、动态、登
 MBGA 使用规则表 `MBGA_RULES`，按配置和页面类型启用网络、UI 或行为规则。它会访问 `unsafeWindow` 来拦截页面侧能力，因此所有规则都必须保持明确边界和可测试性。
 
 MBGA 当前应被理解为 best-effort 的已知规则集合，不应被描述为完整遥测阻断、完整 PCDN 禁用或完整隐私保护。
+
+MBGA 会在当前页面内存中记录最近有限数量的 decision telemetry，覆盖 `observed`、`blocked`、`synthetic`、`rewritten`、`stubbed`、`skipped` 和 `error`。每条记录包含规则、动作、脱敏 URL、页面类型、来源和原因；记录不写入 GM storage，不持久化，不记录 cookie、token、authorization、评论原文或用户 ID。MBGA 主开关关闭后不会继续新增记录。
+
+`disable-pcdn` 是实验子项。新用户默认关闭；旧用户配置中显式保存的 `true` 或 `false` 会保留。该规则只代表部分已知 PCDN / WebRTC / CDN 路径的 best-effort 压制，不代表完整禁用。
 
 ## 数据与存储
 

@@ -172,7 +172,7 @@ export const DEFAULT_CONFIG: StoredConfig = {
   commentAdColor: "#ff6b66",
   mbgaEnabled: true,
   mbgaBlockTracking: true,
-  mbgaDisablePcdn: true,
+  mbgaDisablePcdn: false,
   mbgaCleanUrl: true,
   mbgaSimplifyUi: true
 };

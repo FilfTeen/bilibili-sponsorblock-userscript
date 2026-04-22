@@ -14,7 +14,7 @@ The code is narrow in several places, which is good. The evidence is still incom
 | --- | --- | --- | --- | --- |
 | `clean-url-params` | `mountUrlCleaner`, `removeTracking` | explicit params: `buvid`, `vd_source`, `spm*`, etc. | Partially Verified | Keep default-on, but verify anchors/share links. |
 | `block-telemetry-reporters` | `mountBlockTracking`, `resolveMbgaNetworkDecision` | `cm.bilibili.com`, `data.bilibili.com` and subdomains. | Partially Verified | Keep only if documented as known-host best-effort. |
-| `disable-pcdn` | `mountPcdnDisabler` | video/bangumi/live pages only. | Risky / Partially Verified | Consider default-off or clearer sub-toggle after A/B sampling. |
+| `disable-pcdn` | `mountPcdnDisabler` | video/bangumi/live pages only. | Risky / Partially Verified | Keep experimental and default-off for new users until A/B sampling proves safety and value. |
 | `neutralize-page-grayscale` | `mountGrayscaleCleanup` | all pages, only when grayscale detected. | Partially Verified | Keep default-on; low blast radius. |
 | `main-feed-cleanup` | CSS in `mountMainFeedCleanup` | main feed ad selectors and `cm.bilibili.com` links. | Not Verified | Keep only if visual sample proves no feed breakage. |
 | `dynamic-wide-mode` | `mountDynamicWideMode` | `t.bilibili.com`. | Not Verified | Consider experimental label. |
@@ -115,7 +115,7 @@ Missing real evidence:
 Recommendation:
 
 - Keep the path list narrow.
-- Add a native guard snapshot UI or diagnostic report section for blocked records.
+- Add a native guard snapshot diagnostic report section for blocked records.
 - Verify login avatar, message badge, search, player, comments, and dynamic pages in Safari main window.
 
 ### disable-pcdn
@@ -137,7 +137,7 @@ Recommendation:
 
 - Treat as risky until proven.
 - For v0.3.11, sample `RTCPeerConnection` construction, resource host list, playback errors, and live room behavior with rule on/off.
-- Consider making this sub-rule opt-in if A/B evidence remains weak.
+- Keep this sub-rule opt-in/default-off for new users while A/B evidence remains weak.
 
 ## Required A/B Capture Plan For v0.3.11
 

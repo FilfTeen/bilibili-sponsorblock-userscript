@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { cloneDefaultConfig } from "../src/core/config-store";
+import { MBGA_RULES, clearMbgaDecisionRecords } from "../src/features/mbga/core";
 import {
   clearDiagnostics,
   formatDiagnosticReport,
@@ -14,6 +16,7 @@ import {
 afterEach(() => {
   setDiagnosticDebugEnabled(false);
   clearDiagnostics();
+  clearMbgaDecisionRecords();
   vi.restoreAllMocks();
 });
 
@@ -77,6 +80,8 @@ describe("developer diagnostics", () => {
 
     expect(report).toContain("Bilibili QoL Core diagnostics");
     expect(report).toContain("Debug: enabled");
+    expect(report).toContain("MBGA: empty");
+    expect(report).toContain("Native guard: unavailable");
     expect(report).toContain("[error/upstream] Vote failed");
     expect(report).toContain("429");
     expect(report).not.toContain("secret-user-id");
@@ -99,6 +104,81 @@ describe("developer diagnostics", () => {
     expect(report).not.toContain("secret-auth");
     expect(report).not.toContain("?");
     expect(report).not.toContain("#");
+  });
+
+  it("includes sanitized native guard summary when the page bridge responds", () => {
+    const handleRequest = (event: Event) => {
+      const detail = (event as CustomEvent<{ id: string }>).detail;
+      document.dispatchEvent(
+        new CustomEvent("bsb-tm:native-request-guard-snapshot-response", {
+          detail: {
+            id: detail.id,
+            snapshot: {
+              enabled: true,
+              supportedPage: true,
+              compactHeaderReady: true,
+              reason: "ready",
+              records: [
+                {
+                  action: "blocked-fetch",
+                  url: "https://api.bilibili.com/x/msgfeed/unread?token=secret-token#frag",
+                  time: Date.UTC(2026, 0, 1),
+                  reason: "ready"
+                }
+              ]
+            }
+          }
+        })
+      );
+    };
+    document.addEventListener("bsb-tm:native-request-guard-snapshot-request", handleRequest);
+
+    const report = formatDiagnosticReport();
+
+    document.removeEventListener("bsb-tm:native-request-guard-snapshot-request", handleRequest);
+    expect(report).toContain("Native guard: enabled=true");
+    expect(report).toContain("Native guard actions: blocked-fetch=1");
+    expect(report).toContain("https://api.bilibili.com/x/msgfeed/unread");
+    expect(report).not.toContain("secret-token");
+    expect(report).not.toContain("#frag");
+  });
+
+  it("includes sanitized MBGA decision summaries", async () => {
+    const rule = MBGA_RULES.find((item) => item.id === "block-telemetry-reporters");
+    if (!rule) {
+      throw new Error("Missing MBGA block-telemetry-reporters rule");
+    }
+    const fakeWindow = Object.create(window) as Window & typeof globalThis;
+    Object.defineProperty(fakeWindow, "location", {
+      configurable: true,
+      value: new URL("https://www.bilibili.com/video/BV1xx411c7mD?token=page-secret#frag")
+    });
+    Object.defineProperty(fakeWindow, "navigator", {
+      configurable: true,
+      value: {
+        ...window.navigator,
+        sendBeacon: vi.fn(() => true)
+      }
+    });
+    fakeWindow.fetch = vi.fn(async () => new Response("ok", { status: 200 }));
+
+    rule.apply({
+      config: cloneDefaultConfig(),
+      doc: document,
+      win: fakeWindow,
+      url: new URL(fakeWindow.location.href)
+    });
+    await fakeWindow.fetch("https://data.bilibili.com/log/web?token=request-secret#hash");
+
+    const report = formatDiagnosticReport();
+
+    expect(report).toContain("MBGA: total=1");
+    expect(report).toContain("MBGA actions: synthetic=1");
+    expect(report).toContain("block-telemetry-reporters");
+    expect(report).toContain("https://data.bilibili.com/log/web");
+    expect(report).not.toContain("request-secret");
+    expect(report).not.toContain("page-secret");
+    expect(report).not.toContain("#hash");
   });
 
   it("sanitizes invalid page URL strings without leaking query or hash fragments", () => {

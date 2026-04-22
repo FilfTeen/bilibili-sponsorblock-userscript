@@ -1,6 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MbgaContext } from "../src/types";
-import { MBGA_RULES, mountMbga, mountMbgaUi, removeTracking, resolveMbgaNetworkDecision } from "../src/features/mbga/core";
+import {
+  MBGA_RULES,
+  clearMbgaDecisionRecords,
+  getMbgaDecisionRecords,
+  mountMbga,
+  mountMbgaUi,
+  removeTracking,
+  resolveMbgaNetworkDecision
+} from "../src/features/mbga/core";
 import { cloneDefaultConfig } from "../src/core/config-store";
 
 function createContext(url: string): MbgaContext {
@@ -138,6 +146,7 @@ function stubWindowLocation(href: string): () => void {
 }
 
 beforeEach(() => {
+  clearMbgaDecisionRecords();
   installLocalStorageStub().clear();
   (window as Window & typeof globalThis & Record<string, unknown>).__BSB_MBGA_URL_CLEANER__ = undefined;
   (window as Window & typeof globalThis & Record<string, unknown>).__BSB_MBGA_BLOCK_TRACKING__ = undefined;
@@ -195,6 +204,11 @@ describe("MBGA network interception", () => {
     expect(allowed.status).toBe(200);
     expect(fakeWindow.navigator.sendBeacon?.("https://cm.bilibili.com/trace")).toBe(true);
     expect(sendBeaconSpy).not.toHaveBeenCalled();
+
+    const records = getMbgaDecisionRecords();
+    expect(records.map((record) => record.action)).toEqual(expect.arrayContaining(["synthetic", "observed", "blocked"]));
+    expect(records.some((record) => record.url.includes("?") || record.url.includes("#"))).toBe(false);
+    expect(records.some((record) => record.url === "https://data.bilibili.com/log/web")).toBe(true);
   });
 
   it("allows non-telemetry sendBeacon calls to pass through", () => {
@@ -267,6 +281,29 @@ describe("MBGA network interception", () => {
     expect(fakeWindow.webkitRTCPeerConnection).toBeUndefined();
     expect(fakeWindow.webkitRTCDataChannel).toBeUndefined();
   });
+
+  it("keeps MBGA decision records bounded", async () => {
+    const rule = getRule("block-telemetry-reporters");
+    const fakeWindow = createFakeWindow("https://www.bilibili.com/");
+    fakeWindow.fetch = vi.fn(async () => new Response("ok", { status: 200 }));
+    fakeWindow.XMLHttpRequest = FakeXmlHttpRequest as unknown as typeof XMLHttpRequest;
+
+    rule.apply({
+      config: cloneDefaultConfig(),
+      doc: document,
+      win: fakeWindow,
+      url: new URL(fakeWindow.location.href)
+    });
+
+    for (let index = 0; index < 90; index += 1) {
+      await fakeWindow.fetch(`https://api.bilibili.com/x/web-interface/nav?token=secret-${index}`);
+    }
+
+    const records = getMbgaDecisionRecords();
+    expect(records).toHaveLength(80);
+    expect(records[0]?.url).toBe("https://api.bilibili.com/x/web-interface/nav");
+    expect(records[0]?.url).not.toContain("secret");
+  });
 });
 
 describe("MBGA page guards", () => {
@@ -322,6 +359,15 @@ describe("MBGA page guards", () => {
     }
   });
 
+  it("does not collect MBGA records when the MBGA master switch is off", () => {
+    const config = cloneDefaultConfig();
+    config.mbgaEnabled = false;
+
+    mountMbga(config);
+
+    expect(getMbgaDecisionRecords()).toHaveLength(0);
+  });
+
   it("installs WebRTC stubs through disable-pcdn on video pages", () => {
     const rule = getRule("disable-pcdn");
     const fakeWindow = createFakeWindow("https://www.bilibili.com/video/BV1xx/");
@@ -352,6 +398,29 @@ describe("MBGA page guards", () => {
     expect(typeof fakeWindow.PCDNLoader).toBe("function");
     expect(typeof fakeWindow.BPP2PSDK).toBe("function");
     expect(typeof fakeWindow.SeederSDK).toBe("function");
+    expect(getMbgaDecisionRecords().some((record) => record.action === "stubbed")).toBe(true);
+  });
+
+  it("records PCDN URL rewrites without leaking query strings", () => {
+    const rule = getRule("disable-pcdn");
+    const fakeWindow = createFakeWindow("https://www.bilibili.com/video/BV1xx/");
+    fakeWindow.XMLHttpRequest = FakeXmlHttpRequest as unknown as typeof XMLHttpRequest;
+    defineConfigurableValue(fakeWindow, "HTMLMediaElement", class {});
+
+    rule.apply({
+      config: cloneDefaultConfig(),
+      doc: document,
+      win: fakeWindow,
+      url: new URL(fakeWindow.location.href)
+    });
+
+    const xhr = new fakeWindow.XMLHttpRequest() as unknown as FakeXmlHttpRequest;
+    xhr.open("GET", "https://abc.mcdn.bilivideo.cn:4483/upgcxcode/path.m4s?token=secret#frag");
+
+    const rewrite = getMbgaDecisionRecords().find((record) => record.action === "rewritten");
+    expect(rewrite?.url).toBe("https://abc.mcdn.bilivideo.cn:4483/upgcxcode/path.m4s");
+    expect(rewrite?.url).not.toContain("secret");
+    expect(rewrite?.url).not.toContain("#");
   });
 
   it("injects the dynamic wide mode toggle and persists opt-out", () => {
