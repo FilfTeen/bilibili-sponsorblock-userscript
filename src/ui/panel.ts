@@ -9,6 +9,8 @@ import {
   SCRIPT_NAME,
   THUMBNAIL_LABEL_MODE_LABELS
 } from "../constants";
+import type { LocalVideoLabelListEntry } from "../core/local-label-store";
+import type { CommentFeedbackRecordsSummary } from "../features/comment-filter";
 import type {
   Category,
   CategoryColorOverrides,
@@ -41,6 +43,11 @@ type PanelCallbacks = {
   onClearCache: () => Promise<void>;
   onReset: () => Promise<void>;
   onClose?: (reason: "user" | "system") => void;
+  onListLocalVideoLabels?: () => Promise<LocalVideoLabelListEntry[]>;
+  onDeleteLocalVideoLabel?: (videoId: string) => Promise<void>;
+  onClearLocalVideoLabels?: () => Promise<void>;
+  onGetCommentFeedbackSummary?: () => Promise<CommentFeedbackRecordsSummary>;
+  onClearCommentFeedback?: () => Promise<void>;
 };
 
 export type PanelTab = "overview" | "behavior" | "transparency" | "filters" | "mbga" | "help";
@@ -59,6 +66,27 @@ type ColorPreviewSpec =
       appearance: InlineBadgeAppearance;
       description: string;
     };
+
+type LocalLearningPanelState = {
+  status: "idle" | "loading" | "ready" | "error";
+  videoRecords: LocalVideoLabelListEntry[];
+  commentFeedback: CommentFeedbackRecordsSummary;
+  errorMessage: string | null;
+};
+
+const EMPTY_COMMENT_FEEDBACK_SUMMARY: CommentFeedbackRecordsSummary = {
+  count: 0,
+  maxRecords: 0,
+  latestUpdatedAt: null
+};
+
+const LOCAL_LABEL_SOURCE_LABELS: Record<LocalVideoLabelListEntry["source"], string> = {
+  "comment-goods": "自动信号：评论商品卡",
+  "comment-suspicion": "自动信号：评论线索",
+  "page-heuristic": "自动信号：页面线索",
+  manual: "手动保留",
+  "manual-dismiss": "手动忽略"
+};
 
 const TAB_LABELS: Record<PanelTab, string> = {
   overview: "概览",
@@ -105,6 +133,13 @@ export class SettingsPanel {
     bvid: null,
     segmentCount: null
   };
+  private localLearningState: LocalLearningPanelState = {
+    status: "idle",
+    videoRecords: [],
+    commentFeedback: EMPTY_COMMENT_FEEDBACK_SUMMARY,
+    errorMessage: null
+  };
+  private localLearningRequestId = 0;
   private readonly activeFeedbacks = new Map<string, string>(); // id -> originalText
   private readonly pendingConfirmations = new Set<string>(); // id
   private inlineControlUpdateDepth = 0;
@@ -822,6 +857,7 @@ export class SettingsPanel {
         }
       ])
     ];
+    children.push(this.createLocalLearningManagerCard());
     children.push(this.createDeveloperDiagnosticsCard());
     children.push(
       this.createInfoBox(
@@ -830,6 +866,277 @@ export class SettingsPanel {
       )
     );
     this.sections.get("help")?.replaceChildren(...children);
+  }
+
+  private refreshLocalLearningRecords(): void {
+    if (this.localLearningState.status === "loading") {
+      return;
+    }
+
+    const requestId = this.localLearningRequestId + 1;
+    this.localLearningRequestId = requestId;
+    this.localLearningState = {
+      ...this.localLearningState,
+      status: "loading",
+      errorMessage: null
+    };
+
+    Promise.all([
+      this.callbacks.onListLocalVideoLabels?.() ?? Promise.resolve([]),
+      this.callbacks.onGetCommentFeedbackSummary?.() ?? Promise.resolve(EMPTY_COMMENT_FEEDBACK_SUMMARY)
+    ])
+      .then(([videoRecords, commentFeedback]) => {
+        if (requestId !== this.localLearningRequestId) {
+          return;
+        }
+        this.localLearningState = {
+          status: "ready",
+          videoRecords,
+          commentFeedback,
+          errorMessage: null
+        };
+      })
+      .catch((error) => {
+        if (requestId !== this.localLearningRequestId) {
+          return;
+        }
+        this.localLearningState = {
+          ...this.localLearningState,
+          status: "error",
+          errorMessage: "本地学习记录读取失败"
+        };
+        reportDiagnostic({
+          severity: "warn",
+          area: "storage",
+          message: "本地学习记录读取失败",
+          detail: error
+        });
+      })
+      .finally(() => {
+        if (requestId === this.localLearningRequestId && this.activeTab === "help" && !this.backdrop.hidden) {
+          this.renderHelp();
+        }
+      });
+  }
+
+  private createLocalLearningManagerCard(): HTMLElement {
+    if (this.localLearningState.status === "idle") {
+      this.refreshLocalLearningRecords();
+    }
+
+    const card = document.createElement("div");
+    card.className = "bsb-tm-local-learning-card";
+    card.setAttribute("data-bsb-local-learning-manager", "true");
+
+    const heading = document.createElement("div");
+    heading.className = "bsb-tm-local-learning-heading";
+    const title = document.createElement("strong");
+    title.textContent = "本地学习记录";
+    const badge = document.createElement("span");
+    badge.className = "bsb-tm-local-learning-count";
+    badge.textContent =
+      this.localLearningState.status === "loading"
+        ? "读取中"
+        : `${this.localLearningState.videoRecords.length} 条视频 · ${this.localLearningState.commentFeedback.count} 条评论反馈锁`;
+    heading.append(title, badge);
+
+    const description = document.createElement("p");
+    description.className = "bsb-tm-section-description";
+    description.textContent =
+      "这里只管理当前浏览器里的本地学习记录。上游 SponsorBlock / video label 记录不在这里，也不能通过这里删除。删除本地记录后，后续自动推理仍可能再次出现。";
+
+    const videoSection = this.createLocalVideoLearningSection();
+    const commentSection = this.createCommentFeedbackLearningSection();
+
+    card.append(heading, description, videoSection, commentSection);
+    return card;
+  }
+
+  private createLocalVideoLearningSection(): HTMLElement {
+    const section = document.createElement("section");
+    section.className = "bsb-tm-local-learning-section";
+
+    const heading = document.createElement("div");
+    heading.className = "bsb-tm-local-learning-subheading";
+    const title = document.createElement("strong");
+    title.textContent = "本地视频标签";
+    const clearButton = this.createLocalLearningActionButton("清空视频记录", "danger", async () => {
+      if (!this.callbacks.onClearLocalVideoLabels) {
+        return;
+      }
+      await this.callbacks.onClearLocalVideoLabels();
+      this.localLearningState = { ...this.localLearningState, status: "idle" };
+      this.refreshLocalLearningRecords();
+    }, "确认清空视频记录？");
+    clearButton.setAttribute("data-bsb-local-label-clear", "true");
+    clearButton.disabled =
+      this.localLearningState.status !== "ready" ||
+      this.localLearningState.videoRecords.length === 0 ||
+      !this.callbacks.onClearLocalVideoLabels;
+    heading.append(title, clearButton);
+
+    const body = document.createElement("div");
+    body.className = "bsb-tm-local-learning-list";
+    if (this.localLearningState.status === "loading" || this.localLearningState.status === "idle") {
+      body.appendChild(this.createLocalLearningEmpty("正在读取本地视频学习记录..."));
+    } else if (this.localLearningState.status === "error") {
+      body.appendChild(this.createLocalLearningEmpty(this.localLearningState.errorMessage ?? "本地学习记录读取失败"));
+    } else if (this.localLearningState.videoRecords.length === 0) {
+      body.appendChild(this.createLocalLearningEmpty("暂无本地视频学习记录。"));
+    } else {
+      for (const record of this.localLearningState.videoRecords) {
+        body.appendChild(this.createLocalVideoLearningItem(record));
+      }
+    }
+
+    section.append(heading, body);
+    return section;
+  }
+
+  private createLocalVideoLearningItem(record: LocalVideoLabelListEntry): HTMLElement {
+    const item = document.createElement("article");
+    item.className = "bsb-tm-local-learning-item";
+    item.dataset.source = record.source;
+
+    const copy = document.createElement("div");
+    copy.className = "bsb-tm-local-learning-copy";
+    const title = document.createElement("strong");
+    title.textContent = record.videoId;
+    const meta = document.createElement("small");
+    const categoryText = record.category ? CATEGORY_LABELS[record.category] : "已忽略";
+    const confidenceText = `${Math.round(record.confidence * 100)}%`;
+    meta.textContent = `${categoryText} · ${LOCAL_LABEL_SOURCE_LABELS[record.source]} · 置信度 ${confidenceText}`;
+    const reason = document.createElement("p");
+    reason.className = "bsb-tm-section-description";
+    reason.textContent = record.reason
+      ? `${record.reason}。更新于 ${this.formatLocalLearningTime(record.updatedAt)}`
+      : `更新于 ${this.formatLocalLearningTime(record.updatedAt)}`;
+    copy.append(title, meta, reason);
+
+    const deleteButton = this.createLocalLearningActionButton("删除", "secondary", async () => {
+      if (!this.callbacks.onDeleteLocalVideoLabel) {
+        return;
+      }
+      await this.callbacks.onDeleteLocalVideoLabel(record.videoId);
+      this.localLearningState = { ...this.localLearningState, status: "idle" };
+      this.refreshLocalLearningRecords();
+    });
+    deleteButton.setAttribute("data-bsb-local-label-delete", record.videoId);
+    deleteButton.disabled = !this.callbacks.onDeleteLocalVideoLabel;
+
+    item.append(copy, deleteButton);
+    return item;
+  }
+
+  private createCommentFeedbackLearningSection(): HTMLElement {
+    const section = document.createElement("section");
+    section.className = "bsb-tm-local-learning-section";
+
+    const heading = document.createElement("div");
+    heading.className = "bsb-tm-local-learning-subheading";
+    const title = document.createElement("strong");
+    title.textContent = "评论反馈锁";
+    const clearButton = this.createLocalLearningActionButton("清空反馈锁", "danger", async () => {
+      if (!this.callbacks.onClearCommentFeedback) {
+        return;
+      }
+      await this.callbacks.onClearCommentFeedback();
+      this.localLearningState = { ...this.localLearningState, status: "idle" };
+      this.refreshLocalLearningRecords();
+    }, "确认清空反馈锁？");
+    clearButton.setAttribute("data-bsb-comment-feedback-clear", "true");
+    clearButton.disabled =
+      this.localLearningState.status !== "ready" ||
+      this.localLearningState.commentFeedback.count === 0 ||
+      !this.callbacks.onClearCommentFeedback;
+    heading.append(title, clearButton);
+
+    const body = document.createElement("div");
+    body.className = "bsb-tm-local-learning-comment-summary";
+    const summary = document.createElement("p");
+    summary.className = "bsb-tm-section-description";
+    if (this.localLearningState.status === "loading" || this.localLearningState.status === "idle") {
+      summary.textContent = "正在读取评论反馈锁...";
+    } else if (this.localLearningState.status === "error") {
+      summary.textContent = "评论反馈锁读取失败。";
+    } else {
+      const latest = this.localLearningState.commentFeedback.latestUpdatedAt
+        ? `最近更新于 ${this.formatLocalLearningTime(this.localLearningState.commentFeedback.latestUpdatedAt)}。`
+        : "";
+      summary.textContent = `当前有 ${this.localLearningState.commentFeedback.count} 条评论反馈锁，最多保留 ${this.localLearningState.commentFeedback.maxRecords} 条。${latest} 不展示评论原文或哈希明细。`;
+    }
+    body.appendChild(summary);
+
+    section.append(heading, body);
+    return section;
+  }
+
+  private createLocalLearningActionButton(
+    text: string,
+    variant: "secondary" | "danger",
+    onClick: () => Promise<void>,
+    confirmText?: string
+  ): HTMLButtonElement {
+    const button = document.createElement("button");
+    const originalText = text;
+    let confirming = false;
+    let resetTimer: number | null = null;
+    button.type = "button";
+    button.className = `bsb-tm-button ${variant} compact`;
+    button.textContent = text;
+    button.addEventListener("click", async () => {
+      if (button.disabled) {
+        return;
+      }
+      if (confirmText && !confirming) {
+        confirming = true;
+        button.textContent = confirmText;
+        button.classList.add("confirming");
+        resetTimer = window.setTimeout(() => {
+          confirming = false;
+          button.textContent = originalText;
+          button.classList.remove("confirming");
+        }, 3000);
+        return;
+      }
+      if (resetTimer !== null) {
+        window.clearTimeout(resetTimer);
+        resetTimer = null;
+      }
+      button.disabled = true;
+      try {
+        await onClick();
+      } catch (error) {
+        button.disabled = false;
+        confirming = false;
+        button.textContent = "操作失败";
+        button.classList.remove("confirming");
+        reportDiagnostic({
+          severity: "warn",
+          area: "storage",
+          message: "本地学习记录操作失败，已保留原记录",
+          detail: error
+        });
+        window.setTimeout(() => {
+          button.textContent = originalText;
+        }, 1600);
+      }
+    });
+    return button;
+  }
+
+  private createLocalLearningEmpty(text: string): HTMLElement {
+    const empty = document.createElement("p");
+    empty.className = "bsb-tm-local-learning-empty";
+    empty.textContent = text;
+    return empty;
+  }
+
+  private formatLocalLearningTime(timestamp: number): string {
+    if (!Number.isFinite(timestamp) || timestamp <= 0) {
+      return "未知时间";
+    }
+    return new Date(timestamp).toLocaleString();
   }
 
   private createDeveloperDiagnosticsCard(): HTMLElement {
@@ -971,6 +1278,9 @@ export class SettingsPanel {
       section.hidden = !active;
       section.setAttribute("aria-hidden", String(!active));
       section.dataset.active = String(active);
+    }
+    if (tab === "help") {
+      this.renderHelp();
     }
     this.content.scrollTop = options?.preserveScroll ? (options.scrollTop ?? this.contentScrollByTab[tab] ?? 0) : 0;
   }

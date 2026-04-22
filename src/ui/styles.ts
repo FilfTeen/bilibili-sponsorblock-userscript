@@ -1940,6 +1940,94 @@ ${titleSurfaceFrostedGlass.overlay}
     0 0 0 3px rgba(var(--bsb-danger-rgb), 0.08);
 }
 
+.bsb-tm-local-learning-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at top right, rgba(var(--bsb-brand-blue-rgb), 0.12), transparent 32%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(240, 247, 255, 0.76));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.84),
+    0 12px 28px rgba(15, 23, 42, 0.055);
+}
+
+.bsb-tm-local-learning-heading,
+.bsb-tm-local-learning-subheading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.bsb-tm-local-learning-count {
+  padding: 4px 9px;
+  border-radius: 999px;
+  color: var(--bsb-text-secondary);
+  background: rgba(var(--bsb-brand-blue-rgb), 0.1);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.bsb-tm-local-learning-section {
+  display: grid;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.bsb-tm-local-learning-list {
+  display: grid;
+  gap: 8px;
+  max-height: 260px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.bsb-tm-local-learning-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.bsb-tm-local-learning-item[data-source="manual"],
+.bsb-tm-local-learning-item[data-source="manual-dismiss"] {
+  border-color: rgba(var(--bsb-brand-blue-rgb), 0.2);
+}
+
+.bsb-tm-local-learning-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.bsb-tm-local-learning-copy small {
+  color: var(--bsb-text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.bsb-tm-local-learning-empty,
+.bsb-tm-local-learning-comment-summary p {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px dashed rgba(148, 163, 184, 0.28);
+  border-radius: 14px;
+  color: var(--bsb-subtle);
+  background: rgba(255, 255, 255, 0.42);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .bsb-tm-diagnostics-card {
   display: grid;
   gap: 12px;
