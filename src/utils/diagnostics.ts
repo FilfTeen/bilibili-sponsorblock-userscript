@@ -1,4 +1,10 @@
 import { PRODUCT_NAME, SCRIPT_VERSION } from "../constants";
+import { getMbgaDecisionRecords, type MbgaDecisionRecord } from "../features/mbga/core";
+import {
+  getNativeRequestGuardSnapshot,
+  type NativeRequestGuardRecord,
+  type NativeRequestGuardSnapshot
+} from "../platform/native-request-guard";
 
 export type DiagnosticSeverity = "info" | "warn" | "error";
 export type DiagnosticArea = "storage" | "network" | "ui" | "lifecycle" | "upstream" | "runtime";
@@ -178,6 +184,68 @@ export function reportDiagnostic(input: DiagnosticInput): DiagnosticEvent {
   return { ...event };
 }
 
+function countByAction(records: Array<{ action: string }>): string {
+  if (records.length === 0) {
+    return "empty";
+  }
+  const counts = new Map<string, number>();
+  for (const record of records) {
+    counts.set(record.action, (counts.get(record.action) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([action, count]) => `${action}=${count}`)
+    .join(", ");
+}
+
+function summarizeMbgaRecords(records: MbgaDecisionRecord[]): string[] {
+  if (records.length === 0) {
+    return ["MBGA: empty"];
+  }
+  const recent = records.slice(-10);
+  const recentRuleIds = [...new Set(recent.map((record) => record.ruleId))].join(", ") || "none";
+  const lines = [
+    `MBGA: total=${records.length}`,
+    `MBGA actions: ${countByAction(records)}`,
+    `MBGA recent rules: ${recentRuleIds}`,
+    "MBGA samples:"
+  ];
+  for (const record of recent) {
+    lines.push(
+      `  - ${new Date(record.at).toISOString()} ${record.action} ${record.ruleId} ${sanitizeDiagnosticPageUrl(
+        record.url
+      )} (${cleanString(record.reason)} / ${cleanString(record.source)})`
+    );
+  }
+  return lines;
+}
+
+function summarizeNativeGuard(snapshot: NativeRequestGuardSnapshot | null): string[] {
+  if (!snapshot) {
+    return ["Native guard: unavailable"];
+  }
+  const records: NativeRequestGuardRecord[] = snapshot.records ?? [];
+  const lines = [
+    `Native guard: enabled=${snapshot.enabled}, supportedPage=${snapshot.supportedPage}, compactHeaderReady=${snapshot.compactHeaderReady}, reason=${cleanString(
+      snapshot.reason
+    )}`,
+    `Native guard actions: ${countByAction(records)}`
+  ];
+  if (records.length === 0) {
+    lines.push("Native guard samples: empty");
+    return lines;
+  }
+  lines.push("Native guard samples:");
+  for (const record of records.slice(-10)) {
+    lines.push(
+      `  - ${new Date(record.time).toISOString()} ${record.action} ${sanitizeDiagnosticPageUrl(record.url)} (${cleanString(
+        record.reason
+      )})`
+    );
+  }
+  return lines;
+}
+
 export function formatDiagnosticReport(): string {
   const lines = [
     `${PRODUCT_NAME} diagnostics`,
@@ -188,6 +256,8 @@ export function formatDiagnosticReport(): string {
     `UserAgent: ${cleanString(navigator.userAgent)}`,
     `Events: ${diagnosticEvents.length}`
   ];
+  lines.push(...summarizeMbgaRecords(getMbgaDecisionRecords()));
+  lines.push(...summarizeNativeGuard(getNativeRequestGuardSnapshot()));
   for (const event of diagnosticEvents) {
     lines.push(
       `- ${new Date(event.at).toISOString()} [${event.severity}/${event.area}] ${event.message}${

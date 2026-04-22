@@ -16,6 +16,7 @@ describe("config normalization", () => {
     expect(config.dynamicRegexPattern).toBe(DEFAULT_DYNAMIC_REGEX_PATTERN);
     expect(config.showPreviewBar).toBe(true);
     expect(config.compactVideoHeader).toBe(true);
+    expect(config.mbgaDisablePcdn).toBe(false);
     expect(config.thumbnailLabelMode).toBe("overlay");
     expect(config.labelTransparency).toEqual({
       titleBadge: false,
@@ -24,6 +25,12 @@ describe("config normalization", () => {
       commentLocation: false,
       dynamicBadge: false
     });
+  });
+
+  it("preserves explicit MBGA PCDN decisions while new defaults stay conservative", () => {
+    expect(normalizeConfig(null).mbgaDisablePcdn).toBe(false);
+    expect(normalizeConfig({ mbgaDisablePcdn: true }).mbgaDisablePcdn).toBe(true);
+    expect(normalizeConfig({ mbgaDisablePcdn: false }).mbgaDisablePcdn).toBe(false);
   });
 
   it("clamps dynamic regex match count and accepts new modes", () => {

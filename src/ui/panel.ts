@@ -65,7 +65,7 @@ const TAB_LABELS: Record<PanelTab, string> = {
   behavior: "片段与标签",
   transparency: "标签透明度",
   filters: "动态 / 评论",
-  mbga: "生态净化 (MBGA)",
+  mbga: "生态噪音压制 (MBGA)",
   help: "帮助 / 反馈"
 };
 
@@ -74,7 +74,7 @@ const TAB_DESCRIPTIONS: Record<PanelTab, string> = {
   behavior: "片段、标签与显示策略",
   transparency: "胶囊透明度与降噪策略",
   filters: "动态和评论区增强",
-  mbga: "屏蔽追踪、原画锁定与沉浸化",
+  mbga: "已知规则、实验压制与沉浸化",
   help: "帮助链接与使用说明"
 };
 
@@ -711,8 +711,8 @@ export class SettingsPanel {
   private renderMbga(): void {
     const mbgaFields: HTMLElement[] = [
       this.createCheckbox(
-        "启用生态净化 (MBGA)",
-        "总开关。开启后将注入网络拦截层及样式优化补丁，还你一个更干净、高效的 B 站。",
+        "启用生态噪音压制 (MBGA)",
+        "总开关。开启后按已知规则尝试减少部分页面噪音，并启用若干 best-effort 页面小修。",
         this.config.mbgaEnabled,
         async (checked) => {
           await this.callbacks.onPatchConfig({ mbgaEnabled: checked });
@@ -720,8 +720,8 @@ export class SettingsPanel {
         true
       ),
       this.createCheckbox(
-        "屏蔽隐私追踪与行为上报",
-        "拦截 data.bilibili.com / cm.bilibili.com 等遥测请求，保护个人隐私。",
+        "减少已知遥测与追踪噪音",
+        "仅处理 data.bilibili.com / cm.bilibili.com 等少量已知 host，不是完整隐私防护或全面遥测阻断。",
         this.config.mbgaBlockTracking,
         async (checked) => {
           await this.callbacks.onPatchConfig({ mbgaBlockTracking: checked });
@@ -729,8 +729,8 @@ export class SettingsPanel {
         true
       ),
       this.createCheckbox(
-        "锁定最高画质与直连官方源",
-        "强制直播原画，并禁用 Mcdn / P2P 技术，减少本地资源占用与发热。",
+        "实验：PCDN / WebRTC 路径压制",
+        "默认关闭。仅对部分已知 PCDN / WebRTC / CDN 路径做 best-effort 压制，可能影响播放、直播或互动功能。",
         this.config.mbgaDisablePcdn,
         async (checked) => {
           await this.callbacks.onPatchConfig({ mbgaDisablePcdn: checked });
@@ -747,8 +747,8 @@ export class SettingsPanel {
         true
       ),
       this.createCheckbox(
-        "深度网页净化与简化",
-        "移除广告提示、黑白滤镜、解除复制限制、动态宽屏适配等 UI 补丁。",
+        "页面小修与低侵入简化",
+        "按已知 DOM 规则处理广告提示、黑白滤镜、复制限制、动态宽屏适配等 UI 小修；页面变化时可能失效。",
         this.config.mbgaSimplifyUi,
         async (checked) => {
           await this.callbacks.onPatchConfig({ mbgaSimplifyUi: checked });
@@ -764,12 +764,12 @@ export class SettingsPanel {
 
     section.replaceChildren(
       this.createSectionHeading(
-        "生态净化 (MBGA)",
-        "复刻自经典的 MBGA 脚本，旨在通过网络层劫持与原生网页重构，还你一个干净、高效且私密的 B 站。"
+        "生态噪音压制 (MBGA)",
+        "基于少量已知规则的 best-effort 页面小修和网络噪音压制。它不是完整隐私防护、完整遥测阻断或完整 PCDN 禁用工具。"
       ),
       this.createFormGroup(
         "功能开关",
-        "所有改动均经过安全审计，旨在保证 QoL Core 核心功能不被干扰的前提下，最大限度释放本地算力。开启后请刷新页面以完全生效。",
+        "网络与播放器相关改动需要刷新页面才会完全生效；实验项请在 Safari 主窗口确认无播放或直播副作用后再长期启用。",
         this.createFieldGrid(mbgaFields)
       )
     );
