@@ -3240,7 +3240,7 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
     dismiss(videoId, reason = "\u624B\u52A8\u5FFD\u7565\u672C\u5730\u6807\u7B7E") {
       return __async(this, null, function* () {
         if (!videoId.startsWith("BV")) {
-          return;
+          throw new Error("invalid local video id");
         }
         const previous = new Map(this.records);
         this.records.set(videoId, {
@@ -4460,6 +4460,50 @@ ${inlineSurfaceFrostedGlass.overlay}
       this.renderOverview();
       this.restoreActiveScroll();
     }
+    refreshLocalLearningRecords() {
+      var _a, _b, _c, _d, _e, _f;
+      if (this.localLearningState.status === "loading") {
+        return;
+      }
+      const requestId = this.localLearningRequestId + 1;
+      this.localLearningRequestId = requestId;
+      this.localLearningState = __spreadProps(__spreadValues({}, this.localLearningState), {
+        status: "loading",
+        errorMessage: null
+      });
+      Promise.all([
+        (_c = (_b = (_a = this.callbacks).onListLocalVideoLabels) == null ? void 0 : _b.call(_a)) != null ? _c : Promise.resolve([]),
+        (_f = (_e = (_d = this.callbacks).onGetCommentFeedbackSummary) == null ? void 0 : _e.call(_d)) != null ? _f : Promise.resolve(EMPTY_COMMENT_FEEDBACK_SUMMARY)
+      ]).then(([videoRecords, commentFeedback]) => {
+        if (requestId !== this.localLearningRequestId) {
+          return;
+        }
+        this.localLearningState = {
+          status: "ready",
+          videoRecords,
+          commentFeedback,
+          errorMessage: null
+        };
+      }).catch((error) => {
+        if (requestId !== this.localLearningRequestId) {
+          return;
+        }
+        this.localLearningState = __spreadProps(__spreadValues({}, this.localLearningState), {
+          status: "error",
+          errorMessage: "\u672C\u5730\u5B66\u4E60\u8BB0\u5F55\u8BFB\u53D6\u5931\u8D25"
+        });
+        reportDiagnostic({
+          severity: "warn",
+          area: "storage",
+          message: "\u672C\u5730\u5B66\u4E60\u8BB0\u5F55\u8BFB\u53D6\u5931\u8D25",
+          detail: error
+        });
+      }).finally(() => {
+        if (requestId === this.localLearningRequestId && this.activeTab === "help" && !this.backdrop.hidden) {
+          this.renderHelp();
+        }
+      });
+    }
     render(preserveScroll = false) {
       var _a;
       const nextScrollTop = preserveScroll ? (_a = this.contentScrollByTab[this.activeTab]) != null ? _a : this.content.scrollTop : 0;
@@ -5010,50 +5054,6 @@ ${inlineSurfaceFrostedGlass.overlay}
         )
       );
       (_a = this.sections.get("help")) == null ? void 0 : _a.replaceChildren(...children);
-    }
-    refreshLocalLearningRecords() {
-      var _a, _b, _c, _d, _e, _f;
-      if (this.localLearningState.status === "loading") {
-        return;
-      }
-      const requestId = this.localLearningRequestId + 1;
-      this.localLearningRequestId = requestId;
-      this.localLearningState = __spreadProps(__spreadValues({}, this.localLearningState), {
-        status: "loading",
-        errorMessage: null
-      });
-      Promise.all([
-        (_c = (_b = (_a = this.callbacks).onListLocalVideoLabels) == null ? void 0 : _b.call(_a)) != null ? _c : Promise.resolve([]),
-        (_f = (_e = (_d = this.callbacks).onGetCommentFeedbackSummary) == null ? void 0 : _e.call(_d)) != null ? _f : Promise.resolve(EMPTY_COMMENT_FEEDBACK_SUMMARY)
-      ]).then(([videoRecords, commentFeedback]) => {
-        if (requestId !== this.localLearningRequestId) {
-          return;
-        }
-        this.localLearningState = {
-          status: "ready",
-          videoRecords,
-          commentFeedback,
-          errorMessage: null
-        };
-      }).catch((error) => {
-        if (requestId !== this.localLearningRequestId) {
-          return;
-        }
-        this.localLearningState = __spreadProps(__spreadValues({}, this.localLearningState), {
-          status: "error",
-          errorMessage: "\u672C\u5730\u5B66\u4E60\u8BB0\u5F55\u8BFB\u53D6\u5931\u8D25"
-        });
-        reportDiagnostic({
-          severity: "warn",
-          area: "storage",
-          message: "\u672C\u5730\u5B66\u4E60\u8BB0\u5F55\u8BFB\u53D6\u5931\u8D25",
-          detail: error
-        });
-      }).finally(() => {
-        if (requestId === this.localLearningRequestId && this.activeTab === "help" && !this.backdrop.hidden) {
-          this.renderHelp();
-        }
-      });
     }
     createLocalLearningManagerCard() {
       if (this.localLearningState.status === "idle") {
@@ -6920,7 +6920,11 @@ ${inlineSurfaceFrostedGlass.overlay}
               this.applyAppearance(segment);
             }
           } else if (this.localActionsAvailable) {
-            yield this.callbacks.onLocalDecision(segment, type === 1 ? "confirm" : "dismiss");
+            try {
+              yield this.callbacks.onLocalDecision(segment, type === 1 ? "confirm" : "dismiss");
+            } catch (e) {
+              return;
+            }
             if (this.currentSegment === segment) {
               this.voteLocked = true;
               this.applyAppearance(segment);
@@ -8856,7 +8860,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       }
     }
     shouldRenderDisabledFeedback() {
-      return this.localVideoFeedbackAvailability.disabledReason === "upstream-whole-video" || this.localVideoFeedbackAvailability.disabledReason === "pending-upstream";
+      return this.localVideoFeedbackAvailability.disabledReason === "manual-decision" || this.localVideoFeedbackAvailability.disabledReason === "upstream-whole-video" || this.localVideoFeedbackAvailability.disabledReason === "pending-upstream";
     }
     processVueComments() {
       if (!this.currentConfig.commentLocationEnabled) {
@@ -10343,6 +10347,8 @@ ${inlineSurfaceFrostedGlass.overlay}
         disabledReason = "pending-upstream";
       } else if (this.currentFullVideoLabels.length > 0) {
         disabledReason = "upstream-whole-video";
+      } else if (bvid && this.hasLocalManualDecision(bvid)) {
+        disabledReason = "manual-decision";
       }
       return {
         enabled: baseEnabled && !disabledReason,
@@ -10428,27 +10434,74 @@ ${inlineSurfaceFrostedGlass.overlay}
     resolveAutomaticLocalSignalSource(source) {
       return source === "comment-goods" || source === "comment-suspicion" || source === "page-heuristic" ? source : null;
     }
+    resolveLocalSignalVideoId(segment) {
+      var _a;
+      const match = /^local-signal:(BV[^:]+):/u.exec(segment.UUID);
+      return (_a = match == null ? void 0 : match[1]) != null ? _a : null;
+    }
+    showLocalFeedbackFailure(videoId, error) {
+      reportDiagnostic({
+        severity: "warn",
+        area: "storage",
+        message: "\u672C\u5730\u89C6\u9891\u53CD\u9988\u5199\u5165\u5931\u8D25",
+        detail: error
+      });
+      this.notices.show({
+        id: `local-feedback-failed:${videoId != null ? videoId : "unknown"}`,
+        title: "\u672C\u5730\u53CD\u9988\u4FDD\u5B58\u5931\u8D25",
+        message: "\u8FD9\u6B21\u672C\u5730\u53CD\u9988\u6CA1\u6709\u5199\u5165\u6210\u529F\uFF0C\u5F53\u524D\u63D0\u793A\u72B6\u6001\u4E0D\u4F1A\u88AB\u6807\u8BB0\u4E3A\u5DF2\u5904\u7406\u3002",
+        durationMs: 3600
+      });
+    }
     handleLocalBadgeDecision(segment, decision) {
       return __async(this, null, function* () {
         if (!this.currentContext || !segment.UUID.startsWith("local-signal:")) {
           return;
         }
-        if (this.hasLocalManualDecision(this.currentContext.bvid)) {
-          this.showDuplicateLocalFeedbackNotice(this.currentContext.bvid);
+        const segmentVideoId = this.resolveLocalSignalVideoId(segment);
+        const currentVideoId = this.currentContext.bvid;
+        if (!segmentVideoId || segmentVideoId !== currentVideoId) {
+          const error = new Error("local signal video context mismatch");
+          reportDiagnostic({
+            severity: "warn",
+            area: "runtime",
+            message: "\u672C\u5730\u53CD\u9988\u89C6\u9891\u4E0A\u4E0B\u6587\u4E0D\u4E00\u81F4\uFF0C\u5DF2\u62D2\u7EDD\u5199\u5165",
+            detail: {
+              segmentUUID: segment.UUID,
+              segmentVideoId,
+              currentVideoId
+            }
+          });
+          this.notices.show({
+            id: `local-feedback-mismatch:${currentVideoId}`,
+            title: "\u672C\u5730\u53CD\u9988\u672A\u4FDD\u5B58",
+            message: "\u9875\u9762\u89C6\u9891\u4E0A\u4E0B\u6587\u5DF2\u7ECF\u53D8\u5316\uFF0C\u8FD9\u6B21\u53CD\u9988\u6CA1\u6709\u5199\u5165\uFF0C\u907F\u514D\u5199\u9519\u89C6\u9891\u3002",
+            durationMs: 3600
+          });
+          throw error;
+        }
+        if (this.hasLocalManualDecision(currentVideoId)) {
+          this.showDuplicateLocalFeedbackNotice(currentVideoId);
           return;
         }
         if (decision === "confirm") {
-          yield this.localVideoLabelStore.rememberManual(this.currentContext.bvid, segment.category, `\u624B\u52A8\u4FDD\u7559 ${CATEGORY_LABELS[segment.category]}`);
+          try {
+            yield this.localVideoLabelStore.rememberManual(currentVideoId, segment.category, `\u624B\u52A8\u4FDD\u7559 ${CATEGORY_LABELS[segment.category]}`);
+          } catch (error) {
+            this.showLocalFeedbackFailure(currentVideoId, error);
+            throw error;
+          }
           this.currentRuntimeLocalSignal = null;
-          this.currentTitleLabel = this.buildLocalSignalSegment(this.currentContext.bvid, {
+          this.currentTitleLabel = this.buildLocalSignalSegment(currentVideoId, {
             category: segment.category,
             source: "manual",
             reason: `\u624B\u52A8\u4FDD\u7559 ${CATEGORY_LABELS[segment.category]}`
           });
           this.updateTitleBadge(this.currentTitleLabel);
           this.panel.setFullVideoLabels([this.currentTitleLabel]);
+          this.panel.refreshLocalLearningRecords();
           this.notices.show({
-            id: `local-label-confirm:${this.currentContext.bvid}`,
+            id: `local-label-confirm:${currentVideoId}`,
             title: "\u5DF2\u4FDD\u7559\u672C\u5730\u6807\u7B7E",
             message: `\u5DF2\u8BB0\u5F55\u4E3A\u4F60\u7684\u672C\u5730\u5224\u65AD\u3002\u540E\u7EED\u8FDB\u5165\u5F53\u524D\u89C6\u9891\u65F6\u4F1A\u7EE7\u7EED\u663E\u793A\u201C${CATEGORY_LABELS[segment.category]}\u201D\uFF0C\u8BE5\u672C\u5730\u53CD\u9988\u4E0D\u53EF\u91CD\u590D\u63D0\u4EA4\u3002`,
             durationMs: 3600
@@ -10456,19 +10509,25 @@ ${inlineSurfaceFrostedGlass.overlay}
           this.syncLocalFeedbackAvailability();
           return;
         }
-        yield this.localVideoLabelStore.dismiss(this.currentContext.bvid, `\u624B\u52A8\u5FFD\u7565 ${CATEGORY_LABELS[segment.category]}`);
+        try {
+          yield this.localVideoLabelStore.dismiss(currentVideoId, `\u624B\u52A8\u5FFD\u7565 ${CATEGORY_LABELS[segment.category]}`);
+        } catch (error) {
+          this.showLocalFeedbackFailure(currentVideoId, error);
+          throw error;
+        }
         this.currentRuntimeLocalSignal = null;
         this.currentTitleLabel = null;
         this.titleBadge.clear();
         this.panel.setFullVideoLabels([]);
+        this.panel.refreshLocalLearningRecords();
         this.updateRuntimeStatus({
           kind: this.currentSegments.length > 0 ? "loaded" : "empty",
           message: this.currentSegments.length > 0 ? `\u5DF2\u52A0\u8F7D ${this.currentSegments.length} \u4E2A\u53EF\u5904\u7406\u7247\u6BB5` : "\u5F53\u524D\u89C6\u9891\u6682\u65E0\u53EF\u663E\u793A\u7684\u6574\u89C6\u9891\u6807\u7B7E",
-          bvid: this.currentContext.bvid,
+          bvid: currentVideoId,
           segmentCount: this.currentSegments.length
         });
         this.notices.show({
-          id: `local-label-dismiss:${this.currentContext.bvid}`,
+          id: `local-label-dismiss:${currentVideoId}`,
           title: "\u5DF2\u5FFD\u7565\u672C\u5730\u6807\u7B7E",
           message: "\u5DF2\u8BB0\u5F55\u4E3A\u4F60\u7684\u672C\u5730\u5224\u65AD\u3002\u540E\u7EED\u5F53\u524D\u89C6\u9891\u4E0D\u4F1A\u518D\u663E\u793A\u8FD9\u6761\u672C\u5730\u5546\u4E1A\u63D0\u793A\uFF0C\u8BE5\u672C\u5730\u53CD\u9988\u4E0D\u53EF\u91CD\u590D\u63D0\u4EA4\u3002",
           durationMs: 3600

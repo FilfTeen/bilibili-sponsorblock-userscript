@@ -914,6 +914,38 @@ describe("comment filter", () => {
     expect(trigger?.title).toContain("不会覆盖上游判断");
   });
 
+  it("shows submitted feedback state when a manual local decision already exists", async () => {
+    history.replaceState({}, "", "https://www.bilibili.com/video/BV1xx411c7mL");
+
+    const root = document.createElement("bili-comments");
+    const rootShadow = root.attachShadow({ mode: "open" });
+    document.body.appendChild(root);
+    rootShadow.appendChild(createThread(createCommentRenderer(false, "点评论区置顶领取优惠券") as HTMLElement));
+
+    const controller = createStartedCommentController();
+    Reflect.get(controller, "handleFeedbackAvailability").call(
+      controller,
+      new CustomEvent(LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT, {
+        detail: {
+          enabled: false,
+          locked: true,
+          disabledReason: "manual-decision",
+          bvid: "BV1xx411c7mL"
+        }
+      })
+    );
+    Reflect.get(controller, "refresh").call(controller);
+
+    const actionRoot = getMainActionRoot(rootShadow);
+    const menu = actionRoot?.querySelector<HTMLElement>("[data-bsb-comment-feedback-menu='true']");
+    const trigger = actionRoot?.querySelector<HTMLButtonElement>("[data-bsb-comment-feedback-trigger='true']");
+    expect(menu?.dataset.disabled).toBe("true");
+    expect(menu?.dataset.submitted).toBe("true");
+    expect(trigger?.disabled).toBe(true);
+    expect(trigger?.textContent).toBe("已提交");
+    expect(trigger?.title).toContain("本地学习不会重复处理");
+  });
+
   it("keeps submitted comment feedback independent per comment after a re-render", async () => {
     history.replaceState({}, "", "https://www.bilibili.com/video/BV1xx411c7mS");
     const storedFeedback: Record<string, number> = {};

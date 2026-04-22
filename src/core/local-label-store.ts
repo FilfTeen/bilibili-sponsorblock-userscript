@@ -186,7 +186,7 @@ export class LocalVideoLabelStore {
 
   async dismiss(videoId: string, reason = "手动忽略本地标签"): Promise<void> {
     if (!videoId.startsWith("BV")) {
-      return;
+      throw new Error("invalid local video id");
     }
     const previous = new Map(this.records);
     this.records.set(videoId, {

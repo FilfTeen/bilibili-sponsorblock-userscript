@@ -1441,6 +1441,48 @@ describe("settings panel", () => {
     expect(onClearLocalVideoLabels).toHaveBeenCalledTimes(1);
   });
 
+  it("refreshes the local learning card after an external local dismiss", async () => {
+    let records: LocalVideoLabelListEntry[] = [];
+    const panel = new SettingsPanel(cloneDefaultConfig(), { skipCount: 0, minutesSaved: 0 }, {
+      onPatchConfig: vi.fn(async () => {}),
+      onCategoryModeChange: vi.fn(async () => {}),
+      onClearCache: vi.fn(async () => {}),
+      onReset: vi.fn(async () => {}),
+      onListLocalVideoLabels: vi.fn(async () => records),
+      onDeleteLocalVideoLabel: vi.fn(async () => {}),
+      onClearLocalVideoLabels: vi.fn(async () => {}),
+      onGetCommentFeedbackSummary: vi.fn(async () => ({
+        count: 0,
+        maxRecords: 1000,
+        latestUpdatedAt: null
+      })),
+      onClearCommentFeedback: vi.fn(async () => {})
+    });
+
+    panel.mount();
+    panel.open("help");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(document.querySelector("[data-bsb-local-learning-manager='true']")?.textContent).toContain("暂无本地视频学习记录");
+
+    records = [
+      {
+        videoId: "BV1xx411c7mD",
+        category: null,
+        source: "manual-dismiss",
+        confidence: 1,
+        updatedAt: 5000,
+        reason: "手动忽略 商单广告"
+      }
+    ];
+    panel.refreshLocalLearningRecords();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const card = document.querySelector("[data-bsb-local-learning-manager='true']");
+    expect(card?.textContent).toContain("1 条视频");
+    expect(card?.textContent).toContain("BV1xx411c7mD");
+    expect(card?.textContent).toContain("手动忽略");
+  });
+
   it("clears comment feedback locks only after confirmation", async () => {
     let commentFeedbackCount = 3;
     const onClearCommentFeedback = vi.fn(async () => {

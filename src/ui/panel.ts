@@ -294,6 +294,57 @@ export class SettingsPanel {
     this.restoreActiveScroll();
   }
 
+  refreshLocalLearningRecords(): void {
+    if (this.localLearningState.status === "loading") {
+      return;
+    }
+
+    const requestId = this.localLearningRequestId + 1;
+    this.localLearningRequestId = requestId;
+    this.localLearningState = {
+      ...this.localLearningState,
+      status: "loading",
+      errorMessage: null
+    };
+
+    Promise.all([
+      this.callbacks.onListLocalVideoLabels?.() ?? Promise.resolve([]),
+      this.callbacks.onGetCommentFeedbackSummary?.() ?? Promise.resolve(EMPTY_COMMENT_FEEDBACK_SUMMARY)
+    ])
+      .then(([videoRecords, commentFeedback]) => {
+        if (requestId !== this.localLearningRequestId) {
+          return;
+        }
+        this.localLearningState = {
+          status: "ready",
+          videoRecords,
+          commentFeedback,
+          errorMessage: null
+        };
+      })
+      .catch((error) => {
+        if (requestId !== this.localLearningRequestId) {
+          return;
+        }
+        this.localLearningState = {
+          ...this.localLearningState,
+          status: "error",
+          errorMessage: "本地学习记录读取失败"
+        };
+        reportDiagnostic({
+          severity: "warn",
+          area: "storage",
+          message: "本地学习记录读取失败",
+          detail: error
+        });
+      })
+      .finally(() => {
+        if (requestId === this.localLearningRequestId && this.activeTab === "help" && !this.backdrop.hidden) {
+          this.renderHelp();
+        }
+      });
+  }
+
   private render(preserveScroll = false): void {
     const nextScrollTop = preserveScroll ? (this.contentScrollByTab[this.activeTab] ?? this.content.scrollTop) : 0;
     this.renderOverview();
@@ -866,57 +917,6 @@ export class SettingsPanel {
       )
     );
     this.sections.get("help")?.replaceChildren(...children);
-  }
-
-  private refreshLocalLearningRecords(): void {
-    if (this.localLearningState.status === "loading") {
-      return;
-    }
-
-    const requestId = this.localLearningRequestId + 1;
-    this.localLearningRequestId = requestId;
-    this.localLearningState = {
-      ...this.localLearningState,
-      status: "loading",
-      errorMessage: null
-    };
-
-    Promise.all([
-      this.callbacks.onListLocalVideoLabels?.() ?? Promise.resolve([]),
-      this.callbacks.onGetCommentFeedbackSummary?.() ?? Promise.resolve(EMPTY_COMMENT_FEEDBACK_SUMMARY)
-    ])
-      .then(([videoRecords, commentFeedback]) => {
-        if (requestId !== this.localLearningRequestId) {
-          return;
-        }
-        this.localLearningState = {
-          status: "ready",
-          videoRecords,
-          commentFeedback,
-          errorMessage: null
-        };
-      })
-      .catch((error) => {
-        if (requestId !== this.localLearningRequestId) {
-          return;
-        }
-        this.localLearningState = {
-          ...this.localLearningState,
-          status: "error",
-          errorMessage: "本地学习记录读取失败"
-        };
-        reportDiagnostic({
-          severity: "warn",
-          area: "storage",
-          message: "本地学习记录读取失败",
-          detail: error
-        });
-      })
-      .finally(() => {
-        if (requestId === this.localLearningRequestId && this.activeTab === "help" && !this.backdrop.hidden) {
-          this.renderHelp();
-        }
-      });
   }
 
   private createLocalLearningManagerCard(): HTMLElement {

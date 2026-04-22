@@ -412,7 +412,11 @@ export class TitleBadge {
           this.applyAppearance(segment);
         }
       } else if (this.localActionsAvailable) {
-        await this.callbacks.onLocalDecision(segment, type === 1 ? "confirm" : "dismiss");
+        try {
+          await this.callbacks.onLocalDecision(segment, type === 1 ? "confirm" : "dismiss");
+        } catch {
+          return;
+        }
         if (this.currentSegment === segment) {
           this.voteLocked = true;
           this.applyAppearance(segment);

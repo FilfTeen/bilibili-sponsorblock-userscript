@@ -1693,6 +1693,7 @@ export class CommentSponsorController {
 
   private shouldRenderDisabledFeedback(): boolean {
     return (
+      this.localVideoFeedbackAvailability.disabledReason === "manual-decision" ||
       this.localVideoFeedbackAvailability.disabledReason === "upstream-whole-video" ||
       this.localVideoFeedbackAvailability.disabledReason === "pending-upstream"
     );
