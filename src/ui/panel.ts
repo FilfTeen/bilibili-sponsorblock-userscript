@@ -79,6 +79,7 @@ const EMPTY_COMMENT_FEEDBACK_SUMMARY: CommentFeedbackRecordsSummary = {
   maxRecords: 0,
   latestUpdatedAt: null
 };
+const LOCAL_LEARNING_ITEM_REMOVE_MS = 180;
 
 const LOCAL_LABEL_SOURCE_LABELS: Record<LocalVideoLabelListEntry["source"], string> = {
   "comment-goods": "自动信号：评论商品卡",
@@ -140,6 +141,7 @@ export class SettingsPanel {
     errorMessage: null
   };
   private localLearningRequestId = 0;
+  private localLearningRefreshPending = false;
   private readonly activeFeedbacks = new Map<string, string>(); // id -> originalText
   private readonly pendingConfirmations = new Set<string>(); // id
   private inlineControlUpdateDepth = 0;
@@ -296,11 +298,13 @@ export class SettingsPanel {
 
   refreshLocalLearningRecords(): void {
     if (this.localLearningState.status === "loading") {
+      this.localLearningRefreshPending = true;
       return;
     }
 
     const requestId = this.localLearningRequestId + 1;
     this.localLearningRequestId = requestId;
+    this.localLearningRefreshPending = false;
     this.localLearningState = {
       ...this.localLearningState,
       status: "loading",
@@ -339,8 +343,15 @@ export class SettingsPanel {
         });
       })
       .finally(() => {
-        if (requestId === this.localLearningRequestId && this.activeTab === "help" && !this.backdrop.hidden) {
+        if (requestId !== this.localLearningRequestId) {
+          return;
+        }
+        if (this.activeTab === "help" && !this.backdrop.hidden) {
           this.renderHelp();
+        }
+        if (this.localLearningRefreshPending) {
+          this.localLearningRefreshPending = false;
+          this.refreshLocalLearningRecords();
         }
       });
   }
@@ -965,7 +976,13 @@ export class SettingsPanel {
         return;
       }
       await this.callbacks.onClearLocalVideoLabels();
-      this.localLearningState = { ...this.localLearningState, status: "idle" };
+      this.localLearningState = {
+        ...this.localLearningState,
+        status: "ready",
+        videoRecords: [],
+        errorMessage: null
+      };
+      this.renderHelpIfOpen();
       this.refreshLocalLearningRecords();
     }, "确认清空视频记录？");
     clearButton.setAttribute("data-bsb-local-label-clear", "true");
@@ -1013,19 +1030,58 @@ export class SettingsPanel {
       : `更新于 ${this.formatLocalLearningTime(record.updatedAt)}`;
     copy.append(title, meta, reason);
 
-    const deleteButton = this.createLocalLearningActionButton("删除", "secondary", async () => {
-      if (!this.callbacks.onDeleteLocalVideoLabel) {
-        return;
-      }
-      await this.callbacks.onDeleteLocalVideoLabel(record.videoId);
-      this.localLearningState = { ...this.localLearningState, status: "idle" };
-      this.refreshLocalLearningRecords();
-    });
+    const deleteButton = this.createLocalVideoDeleteButton(record, item);
     deleteButton.setAttribute("data-bsb-local-label-delete", record.videoId);
     deleteButton.disabled = !this.callbacks.onDeleteLocalVideoLabel;
 
     item.append(copy, deleteButton);
     return item;
+  }
+
+  private createLocalVideoDeleteButton(record: LocalVideoLabelListEntry, item: HTMLElement): HTMLButtonElement {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "bsb-tm-button secondary compact";
+    button.textContent = "删除";
+    button.addEventListener("click", async () => {
+      if (button.disabled || !this.callbacks.onDeleteLocalVideoLabel) {
+        return;
+      }
+
+      button.disabled = true;
+      button.textContent = "删除中";
+      item.dataset.removing = "true";
+      item.setAttribute("aria-busy", "true");
+
+      try {
+        await this.callbacks.onDeleteLocalVideoLabel(record.videoId);
+        this.localLearningState = {
+          ...this.localLearningState,
+          status: "ready",
+          videoRecords: this.localLearningState.videoRecords.filter((candidate) => candidate.videoId !== record.videoId),
+          errorMessage: null
+        };
+        this.finishLocalLearningItemRemoval(item, () => {
+          this.renderHelpIfOpen();
+          this.refreshLocalLearningRecords();
+        });
+      } catch (error) {
+        delete item.dataset.removing;
+        item.removeAttribute("aria-busy");
+        button.disabled = false;
+        button.textContent = "操作失败";
+        reportDiagnostic({
+          severity: "warn",
+          area: "storage",
+          message: "本地学习记录操作失败，已保留原记录",
+          detail: error
+        });
+        window.setTimeout(() => {
+          button.textContent = "删除";
+        }, 1600);
+      }
+    });
+    return button;
   }
 
   private createCommentFeedbackLearningSection(): HTMLElement {
@@ -1041,7 +1097,17 @@ export class SettingsPanel {
         return;
       }
       await this.callbacks.onClearCommentFeedback();
-      this.localLearningState = { ...this.localLearningState, status: "idle" };
+      this.localLearningState = {
+        ...this.localLearningState,
+        status: "ready",
+        commentFeedback: {
+          ...this.localLearningState.commentFeedback,
+          count: 0,
+          latestUpdatedAt: null
+        },
+        errorMessage: null
+      };
+      this.renderHelpIfOpen();
       this.refreshLocalLearningRecords();
     }, "确认清空反馈锁？");
     clearButton.setAttribute("data-bsb-comment-feedback-clear", "true");
@@ -1069,6 +1135,40 @@ export class SettingsPanel {
 
     section.append(heading, body);
     return section;
+  }
+
+  private renderHelpIfOpen(): void {
+    if (this.activeTab === "help" && !this.backdrop.hidden) {
+      this.renderHelp();
+    }
+  }
+
+  private finishLocalLearningItemRemoval(item: HTMLElement, onDone: () => void): void {
+    if (this.prefersReducedMotion()) {
+      onDone();
+      return;
+    }
+
+    let finished = false;
+    let timer: number | null = null;
+    const finish = () => {
+      if (finished) {
+        return;
+      }
+      finished = true;
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+      item.removeEventListener("transitionend", finish);
+      onDone();
+    };
+
+    item.addEventListener("transitionend", finish);
+    timer = window.setTimeout(finish, LOCAL_LEARNING_ITEM_REMOVE_MS + 80);
+  }
+
+  private prefersReducedMotion(): boolean {
+    return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   }
 
   private createLocalLearningActionButton(

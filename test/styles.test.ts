@@ -165,6 +165,18 @@ describe("shared glass contexts", () => {
     );
   });
 
+  it("gives local learning record deletion a bounded low-motion transition", () => {
+    expect(styles).toMatch(
+      /\.bsb-tm-local-learning-item \{[\s\S]*max-height: 128px;[\s\S]*overflow: hidden;[\s\S]*transition:[\s\S]*opacity 160ms var\(--bsb-ease-swift\),[\s\S]*max-height 180ms var\(--bsb-ease-fluid\),/
+    );
+    expect(styles).toMatch(
+      /\.bsb-tm-local-learning-item\[data-removing="true"\] \{[\s\S]*max-height: 0;[\s\S]*opacity: 0;[\s\S]*pointer-events: none;[\s\S]*transform: translateY\(-4px\);/
+    );
+    expect(styles).toMatch(
+      /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*\.bsb-tm-local-learning-item \{[\s\S]*transition: none;[\s\S]*\.bsb-tm-local-learning-item\[data-removing="true"\] \{[\s\S]*transform: none;/
+    );
+  });
+
   it("does not keep pointer-origin focus as a persistent selected card state", () => {
     expect(styles).toMatch(
       /\.bsb-tm-field:not\(\[data-pointer-focus="true"\]\):focus-within,[\s\S]*\.bsb-tm-category-row:not\(\[data-pointer-focus="true"\]\):focus-within,[\s\S]*\.bsb-tm-link-card:focus-visible \{/
