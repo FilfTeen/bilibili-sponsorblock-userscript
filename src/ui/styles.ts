@@ -1993,10 +1993,30 @@ ${titleSurfaceFrostedGlass.overlay}
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
+  max-height: 128px;
+  overflow: hidden;
   padding: 10px 12px;
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.62);
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity 160ms var(--bsb-ease-swift),
+    transform 180ms var(--bsb-ease-fluid),
+    max-height 180ms var(--bsb-ease-fluid),
+    padding 180ms var(--bsb-ease-fluid),
+    border-color 160ms var(--bsb-ease-swift);
+}
+
+.bsb-tm-local-learning-item[data-removing="true"] {
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-color: transparent;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
 }
 
 .bsb-tm-local-learning-item[data-source="manual"],
@@ -2026,6 +2046,16 @@ ${titleSurfaceFrostedGlass.overlay}
   background: rgba(255, 255, 255, 0.42);
   font-size: 12px;
   line-height: 1.45;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bsb-tm-local-learning-item {
+    transition: none;
+  }
+
+  .bsb-tm-local-learning-item[data-removing="true"] {
+    transform: none;
+  }
 }
 
 .bsb-tm-diagnostics-card {

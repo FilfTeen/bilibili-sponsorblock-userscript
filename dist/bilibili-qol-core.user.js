@@ -4266,6 +4266,7 @@ ${inlineSurfaceFrostedGlass.overlay}
     maxRecords: 0,
     latestUpdatedAt: null
   };
+  var LOCAL_LEARNING_ITEM_REMOVE_MS = 180;
   var LOCAL_LABEL_SOURCE_LABELS = {
     "comment-goods": "\u81EA\u52A8\u4FE1\u53F7\uFF1A\u8BC4\u8BBA\u5546\u54C1\u5361",
     "comment-suspicion": "\u81EA\u52A8\u4FE1\u53F7\uFF1A\u8BC4\u8BBA\u7EBF\u7D22",
@@ -4325,6 +4326,7 @@ ${inlineSurfaceFrostedGlass.overlay}
         errorMessage: null
       });
       __publicField(this, "localLearningRequestId", 0);
+      __publicField(this, "localLearningRefreshPending", false);
       __publicField(this, "activeFeedbacks", /* @__PURE__ */ new Map());
       // id -> originalText
       __publicField(this, "pendingConfirmations", /* @__PURE__ */ new Set());
@@ -4463,10 +4465,12 @@ ${inlineSurfaceFrostedGlass.overlay}
     refreshLocalLearningRecords() {
       var _a, _b, _c, _d, _e, _f;
       if (this.localLearningState.status === "loading") {
+        this.localLearningRefreshPending = true;
         return;
       }
       const requestId = this.localLearningRequestId + 1;
       this.localLearningRequestId = requestId;
+      this.localLearningRefreshPending = false;
       this.localLearningState = __spreadProps(__spreadValues({}, this.localLearningState), {
         status: "loading",
         errorMessage: null
@@ -4499,8 +4503,15 @@ ${inlineSurfaceFrostedGlass.overlay}
           detail: error
         });
       }).finally(() => {
-        if (requestId === this.localLearningRequestId && this.activeTab === "help" && !this.backdrop.hidden) {
+        if (requestId !== this.localLearningRequestId) {
+          return;
+        }
+        if (this.activeTab === "help" && !this.backdrop.hidden) {
           this.renderHelp();
+        }
+        if (this.localLearningRefreshPending) {
+          this.localLearningRefreshPending = false;
+          this.refreshLocalLearningRecords();
         }
       });
     }
@@ -5091,7 +5102,12 @@ ${inlineSurfaceFrostedGlass.overlay}
           return;
         }
         yield this.callbacks.onClearLocalVideoLabels();
-        this.localLearningState = __spreadProps(__spreadValues({}, this.localLearningState), { status: "idle" });
+        this.localLearningState = __spreadProps(__spreadValues({}, this.localLearningState), {
+          status: "ready",
+          videoRecords: [],
+          errorMessage: null
+        });
+        this.renderHelpIfOpen();
         this.refreshLocalLearningRecords();
       }), "\u786E\u8BA4\u6E05\u7A7A\u89C6\u9891\u8BB0\u5F55\uFF1F");
       clearButton.setAttribute("data-bsb-local-label-clear", "true");
@@ -5129,18 +5145,53 @@ ${inlineSurfaceFrostedGlass.overlay}
       reason.className = "bsb-tm-section-description";
       reason.textContent = record.reason ? `${record.reason}\u3002\u66F4\u65B0\u4E8E ${this.formatLocalLearningTime(record.updatedAt)}` : `\u66F4\u65B0\u4E8E ${this.formatLocalLearningTime(record.updatedAt)}`;
       copy.append(title, meta, reason);
-      const deleteButton = this.createLocalLearningActionButton("\u5220\u9664", "secondary", () => __async(this, null, function* () {
-        if (!this.callbacks.onDeleteLocalVideoLabel) {
-          return;
-        }
-        yield this.callbacks.onDeleteLocalVideoLabel(record.videoId);
-        this.localLearningState = __spreadProps(__spreadValues({}, this.localLearningState), { status: "idle" });
-        this.refreshLocalLearningRecords();
-      }));
+      const deleteButton = this.createLocalVideoDeleteButton(record, item);
       deleteButton.setAttribute("data-bsb-local-label-delete", record.videoId);
       deleteButton.disabled = !this.callbacks.onDeleteLocalVideoLabel;
       item.append(copy, deleteButton);
       return item;
+    }
+    createLocalVideoDeleteButton(record, item) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "bsb-tm-button secondary compact";
+      button.textContent = "\u5220\u9664";
+      button.addEventListener("click", () => __async(this, null, function* () {
+        if (button.disabled || !this.callbacks.onDeleteLocalVideoLabel) {
+          return;
+        }
+        button.disabled = true;
+        button.textContent = "\u5220\u9664\u4E2D";
+        item.dataset.removing = "true";
+        item.setAttribute("aria-busy", "true");
+        try {
+          yield this.callbacks.onDeleteLocalVideoLabel(record.videoId);
+          this.localLearningState = __spreadProps(__spreadValues({}, this.localLearningState), {
+            status: "ready",
+            videoRecords: this.localLearningState.videoRecords.filter((candidate) => candidate.videoId !== record.videoId),
+            errorMessage: null
+          });
+          this.finishLocalLearningItemRemoval(item, () => {
+            this.renderHelpIfOpen();
+            this.refreshLocalLearningRecords();
+          });
+        } catch (error) {
+          delete item.dataset.removing;
+          item.removeAttribute("aria-busy");
+          button.disabled = false;
+          button.textContent = "\u64CD\u4F5C\u5931\u8D25";
+          reportDiagnostic({
+            severity: "warn",
+            area: "storage",
+            message: "\u672C\u5730\u5B66\u4E60\u8BB0\u5F55\u64CD\u4F5C\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u539F\u8BB0\u5F55",
+            detail: error
+          });
+          window.setTimeout(() => {
+            button.textContent = "\u5220\u9664";
+          }, 1600);
+        }
+      }));
+      return button;
     }
     createCommentFeedbackLearningSection() {
       const section = document.createElement("section");
@@ -5154,7 +5205,15 @@ ${inlineSurfaceFrostedGlass.overlay}
           return;
         }
         yield this.callbacks.onClearCommentFeedback();
-        this.localLearningState = __spreadProps(__spreadValues({}, this.localLearningState), { status: "idle" });
+        this.localLearningState = __spreadProps(__spreadValues({}, this.localLearningState), {
+          status: "ready",
+          commentFeedback: __spreadProps(__spreadValues({}, this.localLearningState.commentFeedback), {
+            count: 0,
+            latestUpdatedAt: null
+          }),
+          errorMessage: null
+        });
+        this.renderHelpIfOpen();
         this.refreshLocalLearningRecords();
       }), "\u786E\u8BA4\u6E05\u7A7A\u53CD\u9988\u9501\uFF1F");
       clearButton.setAttribute("data-bsb-comment-feedback-clear", "true");
@@ -5175,6 +5234,35 @@ ${inlineSurfaceFrostedGlass.overlay}
       body.appendChild(summary);
       section.append(heading, body);
       return section;
+    }
+    renderHelpIfOpen() {
+      if (this.activeTab === "help" && !this.backdrop.hidden) {
+        this.renderHelp();
+      }
+    }
+    finishLocalLearningItemRemoval(item, onDone) {
+      if (this.prefersReducedMotion()) {
+        onDone();
+        return;
+      }
+      let finished = false;
+      let timer = null;
+      const finish = () => {
+        if (finished) {
+          return;
+        }
+        finished = true;
+        if (timer !== null) {
+          window.clearTimeout(timer);
+        }
+        item.removeEventListener("transitionend", finish);
+        onDone();
+      };
+      item.addEventListener("transitionend", finish);
+      timer = window.setTimeout(finish, LOCAL_LEARNING_ITEM_REMOVE_MS + 80);
+    }
+    prefersReducedMotion() {
+      return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     }
     createLocalLearningActionButton(text, variant, onClick, confirmText) {
       const button = document.createElement("button");
@@ -13645,10 +13733,30 @@ ${titleSurfaceFrostedGlass.overlay}
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
+  max-height: 128px;
+  overflow: hidden;
   padding: 10px 12px;
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.62);
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity 160ms var(--bsb-ease-swift),
+    transform 180ms var(--bsb-ease-fluid),
+    max-height 180ms var(--bsb-ease-fluid),
+    padding 180ms var(--bsb-ease-fluid),
+    border-color 160ms var(--bsb-ease-swift);
+}
+
+.bsb-tm-local-learning-item[data-removing="true"] {
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-color: transparent;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
 }
 
 .bsb-tm-local-learning-item[data-source="manual"],
@@ -13678,6 +13786,16 @@ ${titleSurfaceFrostedGlass.overlay}
   background: rgba(255, 255, 255, 0.42);
   font-size: 12px;
   line-height: 1.45;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bsb-tm-local-learning-item {
+    transition: none;
+  }
+
+  .bsb-tm-local-learning-item[data-removing="true"] {
+    transform: none;
+  }
 }
 
 .bsb-tm-diagnostics-card {
