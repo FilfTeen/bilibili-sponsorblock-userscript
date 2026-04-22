@@ -7,6 +7,10 @@ const MAX_LOCAL_VIDEO_LABELS = 400;
 
 type LocalLabelPayload = Record<string, LocalVideoLabelRecord>;
 
+export type LocalVideoLabelListEntry = LocalVideoLabelRecord & {
+  videoId: string;
+};
+
 function isCategory(value: string | null): value is Category {
   return (
     value === "sponsor" ||
@@ -116,6 +120,30 @@ export class LocalVideoLabelStore {
   isDismissed(videoId: string): boolean {
     const record = this.records.get(videoId);
     return Boolean(record && record.category === null && record.source === "manual-dismiss");
+  }
+
+  listRecords(): LocalVideoLabelListEntry[] {
+    return [...this.records.entries()]
+      .map(([videoId, record]) => ({
+        videoId,
+        ...record
+      }))
+      .sort((left, right) => right.updatedAt - left.updatedAt);
+  }
+
+  async deleteRecord(videoId: string): Promise<void> {
+    if (!videoId.startsWith("BV") || !this.records.has(videoId)) {
+      return;
+    }
+    const previous = new Map(this.records);
+    this.records.delete(videoId);
+    await this.persistWithRollback(previous);
+  }
+
+  async clearRecords(): Promise<void> {
+    const previous = new Map(this.records);
+    this.records.clear();
+    await this.persistWithRollback(previous);
   }
 
   async rememberSignal(videoId: string, signal: LocalVideoSignal): Promise<void> {

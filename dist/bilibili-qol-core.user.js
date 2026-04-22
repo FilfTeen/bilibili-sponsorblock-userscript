@@ -3177,6 +3177,28 @@ body[video-fit] #bilibili-player video { object-fit: cover !important; }
       const record = this.records.get(videoId);
       return Boolean(record && record.category === null && record.source === "manual-dismiss");
     }
+    listRecords() {
+      return [...this.records.entries()].map(([videoId, record]) => __spreadValues({
+        videoId
+      }, record)).sort((left, right) => right.updatedAt - left.updatedAt);
+    }
+    deleteRecord(videoId) {
+      return __async(this, null, function* () {
+        if (!videoId.startsWith("BV") || !this.records.has(videoId)) {
+          return;
+        }
+        const previous = new Map(this.records);
+        this.records.delete(videoId);
+        yield this.persistWithRollback(previous);
+      });
+    }
+    clearRecords() {
+      return __async(this, null, function* () {
+        const previous = new Map(this.records);
+        this.records.clear();
+        yield this.persistWithRollback(previous);
+      });
+    }
     rememberSignal(videoId, signal) {
       return __async(this, null, function* () {
         if (!videoId.startsWith("BV")) {
@@ -4239,6 +4261,18 @@ ${inlineSurfaceFrostedGlass.overlay}
   }
 
   // src/ui/panel.ts
+  var EMPTY_COMMENT_FEEDBACK_SUMMARY = {
+    count: 0,
+    maxRecords: 0,
+    latestUpdatedAt: null
+  };
+  var LOCAL_LABEL_SOURCE_LABELS = {
+    "comment-goods": "\u81EA\u52A8\u4FE1\u53F7\uFF1A\u8BC4\u8BBA\u5546\u54C1\u5361",
+    "comment-suspicion": "\u81EA\u52A8\u4FE1\u53F7\uFF1A\u8BC4\u8BBA\u7EBF\u7D22",
+    "page-heuristic": "\u81EA\u52A8\u4FE1\u53F7\uFF1A\u9875\u9762\u7EBF\u7D22",
+    manual: "\u624B\u52A8\u4FDD\u7559",
+    "manual-dismiss": "\u624B\u52A8\u5FFD\u7565"
+  };
   var TAB_LABELS = {
     overview: "\u6982\u89C8",
     behavior: "\u7247\u6BB5\u4E0E\u6807\u7B7E",
@@ -4284,6 +4318,13 @@ ${inlineSurfaceFrostedGlass.overlay}
         bvid: null,
         segmentCount: null
       });
+      __publicField(this, "localLearningState", {
+        status: "idle",
+        videoRecords: [],
+        commentFeedback: EMPTY_COMMENT_FEEDBACK_SUMMARY,
+        errorMessage: null
+      });
+      __publicField(this, "localLearningRequestId", 0);
       __publicField(this, "activeFeedbacks", /* @__PURE__ */ new Map());
       // id -> originalText
       __publicField(this, "pendingConfirmations", /* @__PURE__ */ new Set());
@@ -4960,6 +5001,7 @@ ${inlineSurfaceFrostedGlass.overlay}
           }
         ])
       ];
+      children.push(this.createLocalLearningManagerCard());
       children.push(this.createDeveloperDiagnosticsCard());
       children.push(
         this.createInfoBox(
@@ -4968,6 +5010,231 @@ ${inlineSurfaceFrostedGlass.overlay}
         )
       );
       (_a = this.sections.get("help")) == null ? void 0 : _a.replaceChildren(...children);
+    }
+    refreshLocalLearningRecords() {
+      var _a, _b, _c, _d, _e, _f;
+      if (this.localLearningState.status === "loading") {
+        return;
+      }
+      const requestId = this.localLearningRequestId + 1;
+      this.localLearningRequestId = requestId;
+      this.localLearningState = __spreadProps(__spreadValues({}, this.localLearningState), {
+        status: "loading",
+        errorMessage: null
+      });
+      Promise.all([
+        (_c = (_b = (_a = this.callbacks).onListLocalVideoLabels) == null ? void 0 : _b.call(_a)) != null ? _c : Promise.resolve([]),
+        (_f = (_e = (_d = this.callbacks).onGetCommentFeedbackSummary) == null ? void 0 : _e.call(_d)) != null ? _f : Promise.resolve(EMPTY_COMMENT_FEEDBACK_SUMMARY)
+      ]).then(([videoRecords, commentFeedback]) => {
+        if (requestId !== this.localLearningRequestId) {
+          return;
+        }
+        this.localLearningState = {
+          status: "ready",
+          videoRecords,
+          commentFeedback,
+          errorMessage: null
+        };
+      }).catch((error) => {
+        if (requestId !== this.localLearningRequestId) {
+          return;
+        }
+        this.localLearningState = __spreadProps(__spreadValues({}, this.localLearningState), {
+          status: "error",
+          errorMessage: "\u672C\u5730\u5B66\u4E60\u8BB0\u5F55\u8BFB\u53D6\u5931\u8D25"
+        });
+        reportDiagnostic({
+          severity: "warn",
+          area: "storage",
+          message: "\u672C\u5730\u5B66\u4E60\u8BB0\u5F55\u8BFB\u53D6\u5931\u8D25",
+          detail: error
+        });
+      }).finally(() => {
+        if (requestId === this.localLearningRequestId && this.activeTab === "help" && !this.backdrop.hidden) {
+          this.renderHelp();
+        }
+      });
+    }
+    createLocalLearningManagerCard() {
+      if (this.localLearningState.status === "idle") {
+        this.refreshLocalLearningRecords();
+      }
+      const card = document.createElement("div");
+      card.className = "bsb-tm-local-learning-card";
+      card.setAttribute("data-bsb-local-learning-manager", "true");
+      const heading = document.createElement("div");
+      heading.className = "bsb-tm-local-learning-heading";
+      const title = document.createElement("strong");
+      title.textContent = "\u672C\u5730\u5B66\u4E60\u8BB0\u5F55";
+      const badge = document.createElement("span");
+      badge.className = "bsb-tm-local-learning-count";
+      badge.textContent = this.localLearningState.status === "loading" ? "\u8BFB\u53D6\u4E2D" : `${this.localLearningState.videoRecords.length} \u6761\u89C6\u9891 \xB7 ${this.localLearningState.commentFeedback.count} \u6761\u8BC4\u8BBA\u53CD\u9988\u9501`;
+      heading.append(title, badge);
+      const description = document.createElement("p");
+      description.className = "bsb-tm-section-description";
+      description.textContent = "\u8FD9\u91CC\u53EA\u7BA1\u7406\u5F53\u524D\u6D4F\u89C8\u5668\u91CC\u7684\u672C\u5730\u5B66\u4E60\u8BB0\u5F55\u3002\u4E0A\u6E38 SponsorBlock / video label \u8BB0\u5F55\u4E0D\u5728\u8FD9\u91CC\uFF0C\u4E5F\u4E0D\u80FD\u901A\u8FC7\u8FD9\u91CC\u5220\u9664\u3002\u5220\u9664\u672C\u5730\u8BB0\u5F55\u540E\uFF0C\u540E\u7EED\u81EA\u52A8\u63A8\u7406\u4ECD\u53EF\u80FD\u518D\u6B21\u51FA\u73B0\u3002";
+      const videoSection = this.createLocalVideoLearningSection();
+      const commentSection = this.createCommentFeedbackLearningSection();
+      card.append(heading, description, videoSection, commentSection);
+      return card;
+    }
+    createLocalVideoLearningSection() {
+      var _a;
+      const section = document.createElement("section");
+      section.className = "bsb-tm-local-learning-section";
+      const heading = document.createElement("div");
+      heading.className = "bsb-tm-local-learning-subheading";
+      const title = document.createElement("strong");
+      title.textContent = "\u672C\u5730\u89C6\u9891\u6807\u7B7E";
+      const clearButton = this.createLocalLearningActionButton("\u6E05\u7A7A\u89C6\u9891\u8BB0\u5F55", "danger", () => __async(this, null, function* () {
+        if (!this.callbacks.onClearLocalVideoLabels) {
+          return;
+        }
+        yield this.callbacks.onClearLocalVideoLabels();
+        this.localLearningState = __spreadProps(__spreadValues({}, this.localLearningState), { status: "idle" });
+        this.refreshLocalLearningRecords();
+      }), "\u786E\u8BA4\u6E05\u7A7A\u89C6\u9891\u8BB0\u5F55\uFF1F");
+      clearButton.setAttribute("data-bsb-local-label-clear", "true");
+      clearButton.disabled = this.localLearningState.status !== "ready" || this.localLearningState.videoRecords.length === 0 || !this.callbacks.onClearLocalVideoLabels;
+      heading.append(title, clearButton);
+      const body = document.createElement("div");
+      body.className = "bsb-tm-local-learning-list";
+      if (this.localLearningState.status === "loading" || this.localLearningState.status === "idle") {
+        body.appendChild(this.createLocalLearningEmpty("\u6B63\u5728\u8BFB\u53D6\u672C\u5730\u89C6\u9891\u5B66\u4E60\u8BB0\u5F55..."));
+      } else if (this.localLearningState.status === "error") {
+        body.appendChild(this.createLocalLearningEmpty((_a = this.localLearningState.errorMessage) != null ? _a : "\u672C\u5730\u5B66\u4E60\u8BB0\u5F55\u8BFB\u53D6\u5931\u8D25"));
+      } else if (this.localLearningState.videoRecords.length === 0) {
+        body.appendChild(this.createLocalLearningEmpty("\u6682\u65E0\u672C\u5730\u89C6\u9891\u5B66\u4E60\u8BB0\u5F55\u3002"));
+      } else {
+        for (const record of this.localLearningState.videoRecords) {
+          body.appendChild(this.createLocalVideoLearningItem(record));
+        }
+      }
+      section.append(heading, body);
+      return section;
+    }
+    createLocalVideoLearningItem(record) {
+      const item = document.createElement("article");
+      item.className = "bsb-tm-local-learning-item";
+      item.dataset.source = record.source;
+      const copy = document.createElement("div");
+      copy.className = "bsb-tm-local-learning-copy";
+      const title = document.createElement("strong");
+      title.textContent = record.videoId;
+      const meta = document.createElement("small");
+      const categoryText = record.category ? CATEGORY_LABELS[record.category] : "\u5DF2\u5FFD\u7565";
+      const confidenceText = `${Math.round(record.confidence * 100)}%`;
+      meta.textContent = `${categoryText} \xB7 ${LOCAL_LABEL_SOURCE_LABELS[record.source]} \xB7 \u7F6E\u4FE1\u5EA6 ${confidenceText}`;
+      const reason = document.createElement("p");
+      reason.className = "bsb-tm-section-description";
+      reason.textContent = record.reason ? `${record.reason}\u3002\u66F4\u65B0\u4E8E ${this.formatLocalLearningTime(record.updatedAt)}` : `\u66F4\u65B0\u4E8E ${this.formatLocalLearningTime(record.updatedAt)}`;
+      copy.append(title, meta, reason);
+      const deleteButton = this.createLocalLearningActionButton("\u5220\u9664", "secondary", () => __async(this, null, function* () {
+        if (!this.callbacks.onDeleteLocalVideoLabel) {
+          return;
+        }
+        yield this.callbacks.onDeleteLocalVideoLabel(record.videoId);
+        this.localLearningState = __spreadProps(__spreadValues({}, this.localLearningState), { status: "idle" });
+        this.refreshLocalLearningRecords();
+      }));
+      deleteButton.setAttribute("data-bsb-local-label-delete", record.videoId);
+      deleteButton.disabled = !this.callbacks.onDeleteLocalVideoLabel;
+      item.append(copy, deleteButton);
+      return item;
+    }
+    createCommentFeedbackLearningSection() {
+      const section = document.createElement("section");
+      section.className = "bsb-tm-local-learning-section";
+      const heading = document.createElement("div");
+      heading.className = "bsb-tm-local-learning-subheading";
+      const title = document.createElement("strong");
+      title.textContent = "\u8BC4\u8BBA\u53CD\u9988\u9501";
+      const clearButton = this.createLocalLearningActionButton("\u6E05\u7A7A\u53CD\u9988\u9501", "danger", () => __async(this, null, function* () {
+        if (!this.callbacks.onClearCommentFeedback) {
+          return;
+        }
+        yield this.callbacks.onClearCommentFeedback();
+        this.localLearningState = __spreadProps(__spreadValues({}, this.localLearningState), { status: "idle" });
+        this.refreshLocalLearningRecords();
+      }), "\u786E\u8BA4\u6E05\u7A7A\u53CD\u9988\u9501\uFF1F");
+      clearButton.setAttribute("data-bsb-comment-feedback-clear", "true");
+      clearButton.disabled = this.localLearningState.status !== "ready" || this.localLearningState.commentFeedback.count === 0 || !this.callbacks.onClearCommentFeedback;
+      heading.append(title, clearButton);
+      const body = document.createElement("div");
+      body.className = "bsb-tm-local-learning-comment-summary";
+      const summary = document.createElement("p");
+      summary.className = "bsb-tm-section-description";
+      if (this.localLearningState.status === "loading" || this.localLearningState.status === "idle") {
+        summary.textContent = "\u6B63\u5728\u8BFB\u53D6\u8BC4\u8BBA\u53CD\u9988\u9501...";
+      } else if (this.localLearningState.status === "error") {
+        summary.textContent = "\u8BC4\u8BBA\u53CD\u9988\u9501\u8BFB\u53D6\u5931\u8D25\u3002";
+      } else {
+        const latest = this.localLearningState.commentFeedback.latestUpdatedAt ? `\u6700\u8FD1\u66F4\u65B0\u4E8E ${this.formatLocalLearningTime(this.localLearningState.commentFeedback.latestUpdatedAt)}\u3002` : "";
+        summary.textContent = `\u5F53\u524D\u6709 ${this.localLearningState.commentFeedback.count} \u6761\u8BC4\u8BBA\u53CD\u9988\u9501\uFF0C\u6700\u591A\u4FDD\u7559 ${this.localLearningState.commentFeedback.maxRecords} \u6761\u3002${latest} \u4E0D\u5C55\u793A\u8BC4\u8BBA\u539F\u6587\u6216\u54C8\u5E0C\u660E\u7EC6\u3002`;
+      }
+      body.appendChild(summary);
+      section.append(heading, body);
+      return section;
+    }
+    createLocalLearningActionButton(text, variant, onClick, confirmText) {
+      const button = document.createElement("button");
+      const originalText = text;
+      let confirming = false;
+      let resetTimer = null;
+      button.type = "button";
+      button.className = `bsb-tm-button ${variant} compact`;
+      button.textContent = text;
+      button.addEventListener("click", () => __async(null, null, function* () {
+        if (button.disabled) {
+          return;
+        }
+        if (confirmText && !confirming) {
+          confirming = true;
+          button.textContent = confirmText;
+          button.classList.add("confirming");
+          resetTimer = window.setTimeout(() => {
+            confirming = false;
+            button.textContent = originalText;
+            button.classList.remove("confirming");
+          }, 3e3);
+          return;
+        }
+        if (resetTimer !== null) {
+          window.clearTimeout(resetTimer);
+          resetTimer = null;
+        }
+        button.disabled = true;
+        try {
+          yield onClick();
+        } catch (error) {
+          button.disabled = false;
+          confirming = false;
+          button.textContent = "\u64CD\u4F5C\u5931\u8D25";
+          button.classList.remove("confirming");
+          reportDiagnostic({
+            severity: "warn",
+            area: "storage",
+            message: "\u672C\u5730\u5B66\u4E60\u8BB0\u5F55\u64CD\u4F5C\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u539F\u8BB0\u5F55",
+            detail: error
+          });
+          window.setTimeout(() => {
+            button.textContent = originalText;
+          }, 1600);
+        }
+      }));
+      return button;
+    }
+    createLocalLearningEmpty(text) {
+      const empty = document.createElement("p");
+      empty.className = "bsb-tm-local-learning-empty";
+      empty.textContent = text;
+      return empty;
+    }
+    formatLocalLearningTime(timestamp) {
+      if (!Number.isFinite(timestamp) || timestamp <= 0) {
+        return "\u672A\u77E5\u65F6\u95F4";
+      }
+      return new Date(timestamp).toLocaleString();
     }
     createDeveloperDiagnosticsCard() {
       const events = this.diagnosticEvents.slice(-8).reverse();
@@ -5101,6 +5368,9 @@ ${inlineSurfaceFrostedGlass.overlay}
         section.hidden = !active;
         section.setAttribute("aria-hidden", String(!active));
         section.dataset.active = String(active);
+      }
+      if (tab === "help") {
+        this.renderHelp();
       }
       this.content.scrollTop = (options == null ? void 0 : options.preserveScroll) ? (_b = (_a = options.scrollTop) != null ? _a : this.contentScrollByTab[tab]) != null ? _b : 0 : 0;
     }
@@ -7722,6 +7992,9 @@ ${inlineSurfaceFrostedGlass.overlay}
       })
     );
   }
+  function normalizeCommentFeedbackEntries(payload) {
+    return Object.entries(payload != null ? payload : {}).filter(([key, value]) => key.startsWith("BV") && Number.isFinite(value)).sort((left, right) => right[1] - left[1]).slice(0, COMMENT_FEEDBACK_MAX_RECORDS);
+  }
   function loadSubmittedCommentFeedbackKeys() {
     return __async(this, null, function* () {
       if (submittedCommentFeedbackLoaded) {
@@ -7732,7 +8005,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       }
       submittedCommentFeedbackLoadPromise = gmGetValue(COMMENT_FEEDBACK_STORAGE_KEY, null).then((payload) => {
         submittedCommentFeedbackKeys.clear();
-        const entries = Object.entries(payload != null ? payload : {}).filter(([key, value]) => key.startsWith("BV") && Number.isFinite(value)).sort((left, right) => right[1] - left[1]).slice(0, COMMENT_FEEDBACK_MAX_RECORDS);
+        const entries = normalizeCommentFeedbackEntries(payload);
         for (const [key] of entries) {
           submittedCommentFeedbackKeys.add(key);
         }
@@ -7762,9 +8035,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       submittedCommentFeedbackKeys.add(key);
       const existing = yield gmGetValue(COMMENT_FEEDBACK_STORAGE_KEY, null);
       const now = Date.now();
-      const payload = Object.fromEntries(
-        Object.entries(__spreadProps(__spreadValues({}, existing != null ? existing : {}), { [key]: now })).filter(([entryKey, value]) => entryKey.startsWith("BV") && Number.isFinite(value)).sort((left, right) => right[1] - left[1]).slice(0, COMMENT_FEEDBACK_MAX_RECORDS)
-      );
+      const payload = Object.fromEntries(normalizeCommentFeedbackEntries(__spreadProps(__spreadValues({}, existing != null ? existing : {}), { [key]: now })));
       submittedCommentFeedbackKeys.clear();
       for (const entryKey of Object.keys(payload)) {
         submittedCommentFeedbackKeys.add(entryKey);
@@ -7775,6 +8046,33 @@ ${inlineSurfaceFrostedGlass.overlay}
         submittedCommentFeedbackKeys.clear();
         for (const entryKey of previousKeys) {
           submittedCommentFeedbackKeys.add(entryKey);
+        }
+        throw error;
+      }
+    });
+  }
+  function getCommentFeedbackRecordsSummary() {
+    return __async(this, null, function* () {
+      var _a, _b;
+      const entries = normalizeCommentFeedbackEntries(yield gmGetValue(COMMENT_FEEDBACK_STORAGE_KEY, null));
+      return {
+        count: entries.length,
+        maxRecords: COMMENT_FEEDBACK_MAX_RECORDS,
+        latestUpdatedAt: (_b = (_a = entries[0]) == null ? void 0 : _a[1]) != null ? _b : null
+      };
+    });
+  }
+  function clearSubmittedCommentFeedbackRecords() {
+    return __async(this, null, function* () {
+      yield loadSubmittedCommentFeedbackKeys();
+      const previousKeys = new Set(submittedCommentFeedbackKeys);
+      submittedCommentFeedbackKeys.clear();
+      try {
+        yield gmSetValue(COMMENT_FEEDBACK_STORAGE_KEY, {});
+      } catch (error) {
+        submittedCommentFeedbackKeys.clear();
+        for (const key of previousKeys) {
+          submittedCommentFeedbackKeys.add(key);
         }
         throw error;
       }
@@ -9191,6 +9489,24 @@ ${inlineSurfaceFrostedGlass.overlay}
             message: "\u6240\u6709\u811A\u672C\u8BBE\u7F6E\u5DF2\u6062\u590D\u4E3A\u521D\u59CB\u9ED8\u8BA4\u503C\u3002",
             durationMs: 4e3
           });
+        }),
+        onListLocalVideoLabels: () => __async(this, null, function* () {
+          return this.localVideoLabelStore.listRecords();
+        }),
+        onDeleteLocalVideoLabel: (videoId) => __async(this, null, function* () {
+          yield this.localVideoLabelStore.deleteRecord(videoId);
+          this.syncLocalFeedbackAvailability();
+        }),
+        onClearLocalVideoLabels: () => __async(this, null, function* () {
+          yield this.localVideoLabelStore.clearRecords();
+          this.syncLocalFeedbackAvailability();
+        }),
+        onGetCommentFeedbackSummary: () => __async(this, null, function* () {
+          return getCommentFeedbackRecordsSummary();
+        }),
+        onClearCommentFeedback: () => __async(this, null, function* () {
+          yield clearSubmittedCommentFeedbackRecords();
+          this.syncLocalFeedbackAvailability();
         }),
         onClose: (reason) => {
           if (reason === "user") {
@@ -13215,6 +13531,94 @@ ${titleSurfaceFrostedGlass.overlay}
     inset 0 1px 0 rgba(255, 255, 255, 0.82),
     0 12px 26px rgba(var(--bsb-danger-rgb), 0.1),
     0 0 0 3px rgba(var(--bsb-danger-rgb), 0.08);
+}
+
+.bsb-tm-local-learning-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at top right, rgba(var(--bsb-brand-blue-rgb), 0.12), transparent 32%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(240, 247, 255, 0.76));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.84),
+    0 12px 28px rgba(15, 23, 42, 0.055);
+}
+
+.bsb-tm-local-learning-heading,
+.bsb-tm-local-learning-subheading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.bsb-tm-local-learning-count {
+  padding: 4px 9px;
+  border-radius: 999px;
+  color: var(--bsb-text-secondary);
+  background: rgba(var(--bsb-brand-blue-rgb), 0.1);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.bsb-tm-local-learning-section {
+  display: grid;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.bsb-tm-local-learning-list {
+  display: grid;
+  gap: 8px;
+  max-height: 260px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.bsb-tm-local-learning-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.bsb-tm-local-learning-item[data-source="manual"],
+.bsb-tm-local-learning-item[data-source="manual-dismiss"] {
+  border-color: rgba(var(--bsb-brand-blue-rgb), 0.2);
+}
+
+.bsb-tm-local-learning-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.bsb-tm-local-learning-copy small {
+  color: var(--bsb-text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.bsb-tm-local-learning-empty,
+.bsb-tm-local-learning-comment-summary p {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px dashed rgba(148, 163, 184, 0.28);
+  border-radius: 14px;
+  color: var(--bsb-subtle);
+  background: rgba(255, 255, 255, 0.42);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .bsb-tm-diagnostics-card {

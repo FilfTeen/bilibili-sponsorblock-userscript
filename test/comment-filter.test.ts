@@ -6,9 +6,11 @@ import {
   VIDEO_SIGNAL_FEEDBACK_EVENT,
   assessCommentRendererShill,
   classifyCommentRenderer,
+  clearSubmittedCommentFeedbackRecords,
   consumeCommentFeedbackToken,
   extractCommentAuthorMid,
   extractCommentLocation,
+  getCommentFeedbackRecordsSummary,
   commentMatchToVideoSignal,
   extractCommentText,
   hasSponsoredGoodsLink,
@@ -964,6 +966,47 @@ describe("comment filter", () => {
     expect(nextActionRoots[0]?.querySelector<HTMLButtonElement>("[data-bsb-comment-feedback-trigger='true']")?.disabled).toBe(true);
     expect(nextActionRoots[1]?.querySelector<HTMLButtonElement>("[data-bsb-comment-feedback-trigger='true']")?.textContent).toBe("反馈");
     expect(nextActionRoots[1]?.querySelector<HTMLButtonElement>("[data-bsb-comment-feedback-trigger='true']")?.disabled).toBe(false);
+  });
+
+  it("summarizes and clears stored comment feedback locks without exposing comment text", async () => {
+    let storedFeedback: Record<string, number> = {
+      "BV1xx411c7mS:private-hash": 2000,
+      "BV17x411w7KC:other-private-hash": 1000,
+      "not-a-video-key": 3000
+    };
+    vi.stubGlobal("GM_getValue", vi.fn(async () => storedFeedback));
+    vi.stubGlobal(
+      "GM_setValue",
+      vi.fn(async (_key, value) => {
+        storedFeedback = value;
+      })
+    );
+
+    const summary = await getCommentFeedbackRecordsSummary();
+    expect(summary).toMatchObject({
+      count: 2,
+      maxRecords: 1000,
+      latestUpdatedAt: 2000
+    });
+
+    await clearSubmittedCommentFeedbackRecords();
+
+    expect(storedFeedback).toEqual({});
+    expect(await getCommentFeedbackRecordsSummary()).toMatchObject({ count: 0, latestUpdatedAt: null });
+  });
+
+  it("keeps in-memory comment feedback locks when clearing storage fails", async () => {
+    const storedFeedback: Record<string, number> = {
+      "BV1xx411c7mS:private-hash": 2000
+    };
+    vi.stubGlobal("GM_getValue", vi.fn(async () => storedFeedback));
+    vi.stubGlobal("GM_setValue", vi.fn(async () => {
+      throw new Error("comment feedback clear failed");
+    }));
+
+    await expect(clearSubmittedCommentFeedbackRecords()).rejects.toThrow("comment feedback clear failed");
+
+    expect(await getCommentFeedbackRecordsSummary()).toMatchObject({ count: 1, latestUpdatedAt: 2000 });
   });
 
   it("dispatches structured feedback from the inserted comment actions", async () => {

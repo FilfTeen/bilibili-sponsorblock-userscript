@@ -51,6 +51,11 @@ const COMMENT_AUTHOR_PROBE_TIMEOUT_MS = 2000;
 const COMMENT_AUTHOR_PROBE_CACHE_MS = 12 * 60 * 60 * 1000;
 const COMMENT_AUTHOR_PROBE_MAX_IN_FLIGHT = 2;
 const COMMENT_FEEDBACK_MAX_RECORDS = 1000;
+export type CommentFeedbackRecordsSummary = {
+  count: number;
+  maxRecords: number;
+  latestUpdatedAt: number | null;
+};
 const COMMENT_RELEVANT_SELECTORS = [
   "bili-comments",
   "bili-comment-thread-renderer",
@@ -692,6 +697,13 @@ function dispatchVideoSignalFeedback(
   );
 }
 
+function normalizeCommentFeedbackEntries(payload: Record<string, number> | null | undefined): Array<[string, number]> {
+  return Object.entries(payload ?? {})
+    .filter(([key, value]) => key.startsWith("BV") && Number.isFinite(value))
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, COMMENT_FEEDBACK_MAX_RECORDS);
+}
+
 async function loadSubmittedCommentFeedbackKeys(): Promise<void> {
   if (submittedCommentFeedbackLoaded) {
     return;
@@ -703,10 +715,7 @@ async function loadSubmittedCommentFeedbackKeys(): Promise<void> {
   submittedCommentFeedbackLoadPromise = gmGetValue<Record<string, number> | null>(COMMENT_FEEDBACK_STORAGE_KEY, null)
     .then((payload) => {
       submittedCommentFeedbackKeys.clear();
-      const entries = Object.entries(payload ?? {})
-        .filter(([key, value]) => key.startsWith("BV") && Number.isFinite(value))
-        .sort((left, right) => right[1] - left[1])
-        .slice(0, COMMENT_FEEDBACK_MAX_RECORDS);
+      const entries = normalizeCommentFeedbackEntries(payload);
       for (const [key] of entries) {
         submittedCommentFeedbackKeys.add(key);
       }
@@ -737,12 +746,7 @@ async function rememberSubmittedCommentFeedbackKey(key: string | null): Promise<
   submittedCommentFeedbackKeys.add(key);
   const existing = await gmGetValue<Record<string, number> | null>(COMMENT_FEEDBACK_STORAGE_KEY, null);
   const now = Date.now();
-  const payload = Object.fromEntries(
-    Object.entries({ ...(existing ?? {}), [key]: now })
-      .filter(([entryKey, value]) => entryKey.startsWith("BV") && Number.isFinite(value))
-      .sort((left, right) => right[1] - left[1])
-      .slice(0, COMMENT_FEEDBACK_MAX_RECORDS)
-  );
+  const payload = Object.fromEntries(normalizeCommentFeedbackEntries({ ...(existing ?? {}), [key]: now }));
   submittedCommentFeedbackKeys.clear();
   for (const entryKey of Object.keys(payload)) {
     submittedCommentFeedbackKeys.add(entryKey);
@@ -753,6 +757,30 @@ async function rememberSubmittedCommentFeedbackKey(key: string | null): Promise<
     submittedCommentFeedbackKeys.clear();
     for (const entryKey of previousKeys) {
       submittedCommentFeedbackKeys.add(entryKey);
+    }
+    throw error;
+  }
+}
+
+export async function getCommentFeedbackRecordsSummary(): Promise<CommentFeedbackRecordsSummary> {
+  const entries = normalizeCommentFeedbackEntries(await gmGetValue<Record<string, number> | null>(COMMENT_FEEDBACK_STORAGE_KEY, null));
+  return {
+    count: entries.length,
+    maxRecords: COMMENT_FEEDBACK_MAX_RECORDS,
+    latestUpdatedAt: entries[0]?.[1] ?? null
+  };
+}
+
+export async function clearSubmittedCommentFeedbackRecords(): Promise<void> {
+  await loadSubmittedCommentFeedbackKeys();
+  const previousKeys = new Set(submittedCommentFeedbackKeys);
+  submittedCommentFeedbackKeys.clear();
+  try {
+    await gmSetValue(COMMENT_FEEDBACK_STORAGE_KEY, {});
+  } catch (error) {
+    submittedCommentFeedbackKeys.clear();
+    for (const key of previousKeys) {
+      submittedCommentFeedbackKeys.add(key);
     }
     throw error;
   }

@@ -20,7 +20,9 @@ import { PreviewBar } from "../ui/preview-bar";
 import { TitleBadge, type TitleBadgeVoteResult } from "../ui/title-badge";
 import { CompactVideoHeader } from "../ui/compact-header";
 import {
+  clearSubmittedCommentFeedbackRecords,
   consumeCommentFeedbackToken,
+  getCommentFeedbackRecordsSummary,
   LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT,
   scanCurrentPageCommentSignal,
   VIDEO_SIGNAL_EVENT,
@@ -338,6 +340,20 @@ export class ScriptController {
           message: "所有脚本设置已恢复为初始默认值。",
           durationMs: 4000
         });
+      },
+      onListLocalVideoLabels: async () => this.localVideoLabelStore.listRecords(),
+      onDeleteLocalVideoLabel: async (videoId) => {
+        await this.localVideoLabelStore.deleteRecord(videoId);
+        this.syncLocalFeedbackAvailability();
+      },
+      onClearLocalVideoLabels: async () => {
+        await this.localVideoLabelStore.clearRecords();
+        this.syncLocalFeedbackAvailability();
+      },
+      onGetCommentFeedbackSummary: async () => getCommentFeedbackRecordsSummary(),
+      onClearCommentFeedback: async () => {
+        await clearSubmittedCommentFeedbackRecords();
+        this.syncLocalFeedbackAvailability();
       },
       onClose: (reason) => {
         if (reason === "user") {

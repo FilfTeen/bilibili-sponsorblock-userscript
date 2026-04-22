@@ -103,6 +103,8 @@ Tampermonkey 存储键：
 - `bsb_tm_comment_feedback_v1`：评论反馈锁定记录。
 - `bsb_tm_vote_history_v1`：整视频标签投票历史。
 
+控制台 `帮助 / 反馈` 页的本地学习管理只读展示 `bsb_tm_local_video_labels_v1` 的脱敏摘要，并允许单条删除或清空；`bsb_tm_comment_feedback_v1` 只显示数量和更新时间，不展示评论原文或哈希明细。删除本地视频记录后不会写入新的压制标记，后续自动推理仍可按现有规则再次命中。
+
 缓存限制：
 
 - 默认 TTL：1 小时。
