@@ -1,14 +1,16 @@
-# v0.3.7 / v0.3.8 / v0.3.9 / v0.3.10 分支健康记录
+# v0.3.7 / v0.3.8 / v0.3.9 / v0.3.10 / v0.3.11 分支健康记录
 
 本记录来自发布后分支健康复核，用于区分“当前发布状态”和“v0.3.7 功能版审计过程中的历史现场”。
 
 ## 当前基线
 
-- `main`：已包含 QoL Core final tuning、`v0.3.7` 功能版、`v0.3.8` 仓库重命名迁移、`v0.3.9` 控制台交互补丁，以及 `v0.3.10` 发布阻塞修复。
+- `main` / `origin/main`：当前公开基线为 `v0.3.10`，指向提交 `35cca0a`。
+- `codex/qol-core-integration`：当前 v0.3.11 发布候选分支，包含 Local Learning Management、MBGA 诊断证据增强、Safari 证据文档和本次 release prep。
 - `v0.3.7`：功能版发布 tag，指向提交 `2847455`。
 - `v0.3.8`：仓库重命名和 Tampermonkey 更新链路迁移 tag，指向提交 `510717f`。
 - `v0.3.9`：控制台 pointer focus / 诊断交互补丁版本。
 - `v0.3.10`：诊断报告 URL 脱敏和 tag 构建版本规范化版本。
+- `v0.3.11`：Local Learning Management、MBGA instrumentation / diagnostics sample normalization / Safari evidence docs 版本。
 - 当前仓库 slug：`FilfTeen/bilibili-qol-core-userscript`。
 - 当前发布产物：`dist/bilibili-qol-core.user.js`。
 
@@ -39,9 +41,10 @@
 - `v0.3.8` 是迁移版：修正仓库 slug、发布 URL、Tampermonkey `@downloadURL` / `@updateURL` 和工程版本标注。
 - `v0.3.9` 是补丁版：修复 QoL Core 控制台的 pointer focus 残留和诊断开关交互反馈，不改变 SponsorBlock / 本地推理 / MBGA 业务口径。
 - `v0.3.10` 是发布阻塞修复版：修复诊断报告页面 URL 敏感参数泄露风险，并规范 tag 构建版本号。
+- `v0.3.11` 是本地学习管理和证据增强版：提供本地视频学习记录管理、评论反馈锁摘要/清理入口、MBGA 诊断记录和 Safari 证据文档；不扩大 MBGA 的完整性声明。
 
 ## 安全原则
 
 - 保留 `bsb_tm_*` 存储键作为兼容前缀，不做破坏性迁移。
 - 保留 `V037` 文件名作为历史归档，不机械重命名。
-- 当前工程说明、安装路径、发布路径和 userscript metadata 必须以 `v0.3.10` / `bilibili-qol-core-userscript` 为准。
+- 当前 release candidate 的工程说明、安装路径、发布路径和 userscript metadata 必须以 `v0.3.11` / `bilibili-qol-core-userscript` 为准。

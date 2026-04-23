@@ -4,15 +4,138 @@ export type NativeRequestGuardState = {
   compactHeaderReady: boolean;
 };
 
+export type NativeRequestGuardAction = "blocked-fetch" | "observed-fetch" | "would-block-xhr" | "observed-xhr";
+
+export type NativeRequestGuardRecord = {
+  url: string;
+  action: NativeRequestGuardAction;
+  time: number;
+  reason: string;
+};
+
+export type NativeRequestGuardSnapshot = NativeRequestGuardState & {
+  reason: string;
+  records: NativeRequestGuardRecord[];
+};
+
 type NativeRequestGuardConfig = NativeRequestGuardState & {
   reason?: string;
 };
 
 const GUARD_FLAG = "__BSB_NATIVE_REQUEST_GUARD__";
 const CONFIG_EVENT = "bsb-tm:native-request-guard-config";
+const SNAPSHOT_REQUEST_EVENT = "bsb-tm:native-request-guard-snapshot-request";
+const SNAPSHOT_RESPONSE_EVENT = "bsb-tm:native-request-guard-snapshot-response";
 const REDUNDANT_TOPBAR_PATHS = ["/x/msgfeed/unread", "/x/web-interface/nav/stat"] as const;
+const MAX_NATIVE_GUARD_RECORD_URL_LENGTH = 160;
+const OPAQUE_RESOURCE_LABEL = "[opaque-resource]";
 
 let bridgeInjected = false;
+
+function getNativeRequestRawUrl(input: unknown): string {
+  if (typeof input === "string") {
+    return input.trim();
+  }
+  if (input && typeof (input as { url?: unknown }).url === "string") {
+    return (input as { url: string }).url.trim();
+  }
+  return String(input ?? "").trim();
+}
+
+function clampNativeRequestUrl(value: string): string {
+  return value.length <= MAX_NATIVE_GUARD_RECORD_URL_LENGTH
+    ? value
+    : `${value.slice(0, MAX_NATIVE_GUARD_RECORD_URL_LENGTH - 3)}...`;
+}
+
+function isOpaqueNativeRequestResource(raw: string): boolean {
+  const lower = raw.toLowerCase();
+  const likelyUrl = /^(?:https?:)?\/\//iu.test(raw) || raw.startsWith("/");
+  return (
+    !likelyUrl &&
+    (raw.length > MAX_NATIVE_GUARD_RECORD_URL_LENGTH ||
+      lower.includes("application/wasm") ||
+      lower.includes("base64,") ||
+      lower.startsWith("wasm:"))
+  );
+}
+
+function sanitizeNativeRequestUrl(input: unknown, baseHref = window.location.href): string {
+  const raw = getNativeRequestRawUrl(input);
+  if (!raw) {
+    return "";
+  }
+  const lower = raw.toLowerCase();
+  if (lower.startsWith("data:")) {
+    return "[data-url]";
+  }
+  if (lower.startsWith("blob:")) {
+    return "[blob-url]";
+  }
+  if (isOpaqueNativeRequestResource(raw)) {
+    return OPAQUE_RESOURCE_LABEL;
+  }
+  try {
+    const parsed = new URL(raw, baseHref);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      if (parsed.protocol === "data:") {
+        return "[data-url]";
+      }
+      if (parsed.protocol === "blob:") {
+        return "[blob-url]";
+      }
+      return OPAQUE_RESOURCE_LABEL;
+    }
+    return clampNativeRequestUrl(`${parsed.origin}${parsed.pathname}`);
+  } catch (_error) {
+    const withoutQueryOrHash = raw.split(/[?#]/u, 1)[0] ?? "";
+    return isOpaqueNativeRequestResource(withoutQueryOrHash)
+      ? OPAQUE_RESOURCE_LABEL
+      : clampNativeRequestUrl(withoutQueryOrHash);
+  }
+}
+
+export function sanitizeNativeRequestGuardSnapshot(input: unknown): NativeRequestGuardSnapshot | null {
+  if (!input || typeof input !== "object") {
+    return null;
+  }
+  const snapshot = input as Partial<NativeRequestGuardSnapshot>;
+  const records = Array.isArray(snapshot.records)
+    ? snapshot.records
+        .map((record): NativeRequestGuardRecord | null => {
+          if (!record || typeof record !== "object") {
+            return null;
+          }
+          const item = record as Partial<NativeRequestGuardRecord>;
+          const action =
+            item.action === "blocked-fetch" ||
+            item.action === "observed-fetch" ||
+            item.action === "would-block-xhr" ||
+            item.action === "observed-xhr"
+              ? item.action
+              : null;
+          if (!action) {
+            return null;
+          }
+          return {
+            action,
+            url: sanitizeNativeRequestUrl(item.url),
+            time: Number.isFinite(item.time) ? Number(item.time) : 0,
+            reason: typeof item.reason === "string" ? item.reason : "unknown"
+          };
+        })
+        .filter((record): record is NativeRequestGuardRecord => Boolean(record))
+        .slice(-80)
+    : [];
+
+  return {
+    enabled: Boolean(snapshot.enabled),
+    supportedPage: Boolean(snapshot.supportedPage),
+    compactHeaderReady: Boolean(snapshot.compactHeaderReady),
+    reason: typeof snapshot.reason === "string" ? snapshot.reason : "unknown",
+    records
+  };
+}
 
 export function shouldBlockNativeHeaderRequest(url: string, state: NativeRequestGuardState): boolean {
   if (!state.enabled || !state.supportedPage || !state.compactHeaderReady) {
@@ -50,8 +173,59 @@ function buildNativeRequestGuardSource(): string {
     records: []
   };
 
+  const maxUrlLength = ${MAX_NATIVE_GUARD_RECORD_URL_LENGTH};
+  const opaqueResourceLabel = ${JSON.stringify(OPAQUE_RESOURCE_LABEL)};
+
+  function clampUrl(value) {
+    return value.length <= maxUrlLength ? value : value.slice(0, maxUrlLength - 3) + "...";
+  }
+
+  function isOpaqueResource(raw) {
+    const lower = String(raw || "").toLowerCase();
+    const likelyUrl = /^(?:https?:)?\\/\\//i.test(raw) || String(raw || "").startsWith("/");
+    return !likelyUrl && (
+      String(raw || "").length > maxUrlLength ||
+      lower.includes("application/wasm") ||
+      lower.includes("base64,") ||
+      lower.startsWith("wasm:")
+    );
+  }
+
+  function sanitizeUrl(input) {
+    const raw = (typeof input === "string" ? input : input && typeof input.url === "string" ? input.url : "").trim();
+    if (!raw) {
+      return "";
+    }
+    const lower = raw.toLowerCase();
+    if (lower.startsWith("data:")) {
+      return "[data-url]";
+    }
+    if (lower.startsWith("blob:")) {
+      return "[blob-url]";
+    }
+    if (isOpaqueResource(raw)) {
+      return opaqueResourceLabel;
+    }
+    try {
+      const parsed = new URL(raw, window.location.href);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        if (parsed.protocol === "data:") {
+          return "[data-url]";
+        }
+        if (parsed.protocol === "blob:") {
+          return "[blob-url]";
+        }
+        return opaqueResourceLabel;
+      }
+      return clampUrl(parsed.origin + parsed.pathname);
+    } catch (_error) {
+      const withoutQueryOrHash = raw.split(/[?#]/, 1)[0] || "";
+      return isOpaqueResource(withoutQueryOrHash) ? opaqueResourceLabel : clampUrl(withoutQueryOrHash);
+    }
+  }
+
   function remember(url, action) {
-    state.records.push({ url: String(url), action, time: Date.now(), reason: state.reason });
+    state.records.push({ url: sanitizeUrl(url), action, time: Date.now(), reason: state.reason });
     if (state.records.length > 80) {
       state.records.shift();
     }
@@ -111,6 +285,15 @@ function buildNativeRequestGuardSource(): string {
   document.addEventListener(${JSON.stringify(CONFIG_EVENT)}, (event) => {
     window[flag].configure(event.detail || {});
   });
+
+  document.addEventListener(${JSON.stringify(SNAPSHOT_REQUEST_EVENT)}, (event) => {
+    document.dispatchEvent(new CustomEvent(${JSON.stringify(SNAPSHOT_RESPONSE_EVENT)}, {
+      detail: {
+        id: event && event.detail && event.detail.id,
+        snapshot: window[flag].snapshot()
+      }
+    }));
+  });
 })();`;
 }
 
@@ -133,4 +316,30 @@ export function configureNativeRequestGuard(config: NativeRequestGuardConfig): v
       detail: config
     })
   );
+}
+
+export function getNativeRequestGuardSnapshot(): NativeRequestGuardSnapshot | null {
+  try {
+    const requestId = `native-guard-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    let snapshot: NativeRequestGuardSnapshot | null = null;
+    const handleResponse = (event: Event) => {
+      const detail = (event as CustomEvent<{ id?: string; snapshot?: unknown }>).detail;
+      if (detail?.id !== requestId) {
+        return;
+      }
+      snapshot = sanitizeNativeRequestGuardSnapshot(detail.snapshot);
+    };
+    document.addEventListener(SNAPSHOT_RESPONSE_EVENT, handleResponse);
+    document.dispatchEvent(
+      new CustomEvent(SNAPSHOT_REQUEST_EVENT, {
+        detail: {
+          id: requestId
+        }
+      })
+    );
+    document.removeEventListener(SNAPSHOT_RESPONSE_EVENT, handleResponse);
+    return snapshot;
+  } catch (_error) {
+    return null;
+  }
 }

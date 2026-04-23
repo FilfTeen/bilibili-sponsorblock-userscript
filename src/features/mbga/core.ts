@@ -1,6 +1,18 @@
 import type { MbgaContext, MbgaNetworkDecision, MbgaRule, StoredConfig } from "../../types";
 import { debugLog } from "../../utils/dom";
 
+export type MbgaDecisionAction = "observed" | "blocked" | "synthetic" | "rewritten" | "stubbed" | "skipped" | "error";
+
+export type MbgaDecisionRecord = {
+  at: number;
+  ruleId: string;
+  action: MbgaDecisionAction;
+  url: string;
+  reason: string;
+  pageType: string;
+  source: string;
+};
+
 const MBGA_MARKS = {
   urlCleaner: "__BSB_MBGA_URL_CLEANER__",
   blockTracking: "__BSB_MBGA_BLOCK_TRACKING__",
@@ -12,6 +24,11 @@ const MBGA_MARKS = {
 } as const;
 const ARTICLE_COPY_UNLOCKED_ATTR = "data-bsb-mbga-copy-unlocked";
 const ARTICLE_COPY_UNLOCK_TIMEOUT_MS = 10_000;
+const MAX_MBGA_DECISION_RECORDS = 80;
+const MAX_MBGA_RECORD_URL_LENGTH = 160;
+const OPAQUE_RESOURCE_LABEL = "[opaque-resource]";
+const mbgaDecisionRecords: MbgaDecisionRecord[] = [];
+let mbgaTelemetryEnabled = true;
 
 const USELESS_URL_PARAMS = [
   "buvid",
@@ -62,6 +79,131 @@ type UnsafeWindow = Window &
   };
 
 type NoopCallable = ((...args: unknown[]) => undefined) & Record<PropertyKey, unknown>;
+
+function getMbgaRecordRawUrl(input: string | URL | Request | null | undefined): string {
+  if (!input) {
+    return "";
+  }
+  if (typeof input === "string") {
+    return input.trim();
+  }
+  if (input instanceof URL) {
+    return input.toString();
+  }
+  if (typeof (input as { url?: unknown }).url === "string") {
+    return (input as { url: string }).url.trim();
+  }
+  return String(input).trim();
+}
+
+function clampMbgaRecordUrl(value: string): string {
+  return value.length <= MAX_MBGA_RECORD_URL_LENGTH ? value : `${value.slice(0, MAX_MBGA_RECORD_URL_LENGTH - 3)}...`;
+}
+
+function isOpaqueMbgaResource(raw: string): boolean {
+  const lower = raw.toLowerCase();
+  const likelyUrl = /^(?:https?:)?\/\//iu.test(raw) || raw.startsWith("/");
+  return (
+    !likelyUrl &&
+    (raw.length > MAX_MBGA_RECORD_URL_LENGTH ||
+      lower.includes("application/wasm") ||
+      lower.includes("base64,") ||
+      lower.startsWith("wasm:"))
+  );
+}
+
+function sanitizeMbgaRecordUrl(input: string | URL | Request | null | undefined, baseHref = window.location.href): string {
+  const raw = getMbgaRecordRawUrl(input);
+  if (!raw) {
+    return "";
+  }
+  const lower = raw.toLowerCase();
+  if (lower.startsWith("data:")) {
+    return "[data-url]";
+  }
+  if (lower.startsWith("blob:")) {
+    return "[blob-url]";
+  }
+  if (isOpaqueMbgaResource(raw)) {
+    return OPAQUE_RESOURCE_LABEL;
+  }
+  try {
+    const url = normalizeRequestUrl(raw, baseHref);
+    if (!url) {
+      throw new Error("invalid URL");
+    }
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      if (url.protocol === "data:") {
+        return "[data-url]";
+      }
+      if (url.protocol === "blob:") {
+        return "[blob-url]";
+      }
+      return OPAQUE_RESOURCE_LABEL;
+    }
+    return clampMbgaRecordUrl(`${url.origin}${url.pathname}`);
+  } catch (_error) {
+    const withoutQueryOrHash = raw.split(/[?#]/u, 1)[0] ?? "";
+    return isOpaqueMbgaResource(withoutQueryOrHash) ? OPAQUE_RESOURCE_LABEL : clampMbgaRecordUrl(withoutQueryOrHash);
+  }
+}
+
+function detectMbgaPageType(url: URL): string {
+  if (isVideoPage(url)) {
+    return url.pathname.startsWith("/bangumi/") ? "bangumi" : "video";
+  }
+  if (isArticlePage(url)) {
+    return "article";
+  }
+  if (isDynamicPage(url)) {
+    return "dynamic";
+  }
+  if (isLivePage(url)) {
+    return "live";
+  }
+  if (isMainFeedPage(url)) {
+    return "main";
+  }
+  return "other";
+}
+
+function rememberMbgaDecision(
+  ctx: Pick<MbgaContext, "url">,
+  ruleId: string,
+  action: MbgaDecisionAction,
+  input: string | URL | Request | null | undefined,
+  reason: string,
+  source: string
+): void {
+  if (!mbgaTelemetryEnabled) {
+    return;
+  }
+  try {
+    mbgaDecisionRecords.push({
+      at: Date.now(),
+      ruleId,
+      action,
+      url: sanitizeMbgaRecordUrl(input, ctx.url.href),
+      reason,
+      pageType: detectMbgaPageType(ctx.url),
+      source
+    });
+    while (mbgaDecisionRecords.length > MAX_MBGA_DECISION_RECORDS) {
+      mbgaDecisionRecords.shift();
+    }
+  } catch (_error) {
+    // Telemetry must never affect page behavior.
+  }
+}
+
+export function getMbgaDecisionRecords(): MbgaDecisionRecord[] {
+  return mbgaDecisionRecords.map((record) => ({ ...record }));
+}
+
+export function clearMbgaDecisionRecords(): void {
+  mbgaDecisionRecords.splice(0, mbgaDecisionRecords.length);
+  mbgaTelemetryEnabled = true;
+}
 
 function getUnsafeWindow(): UnsafeWindow {
   return typeof (window as UnsafeWindow).unsafeWindow !== "undefined"
@@ -134,10 +276,10 @@ function createNoopCallable(): NoopCallable {
   });
 }
 
-function installGlobalValue(win: UnsafeWindow, key: PropertyKey, value: unknown): void {
+function installGlobalValue(win: UnsafeWindow, key: PropertyKey, value: unknown): boolean {
   const current = Reflect.get(win, key);
   if (typeof current !== "undefined") {
-    return;
+    return false;
   }
   try {
     Object.defineProperty(win, key, {
@@ -149,6 +291,7 @@ function installGlobalValue(win: UnsafeWindow, key: PropertyKey, value: unknown)
   } catch (_error) {
     Reflect.set(win, key, value);
   }
+  return true;
 }
 
 function installSentryShim(win: UnsafeWindow): void {
@@ -186,19 +329,30 @@ function installSentryShim(win: UnsafeWindow): void {
   win.Sentry = sentry;
 }
 
-function installWebRtcStubs(win: UnsafeWindow): void {
+function installWebRtcStubs(ctx: MbgaContext, win: UnsafeWindow): void {
   try {
     class StubPeerConnection {
       addEventListener(): void {}
       createDataChannel(): void {}
     }
     class StubDataChannel {}
-    installGlobalValue(win, "RTCPeerConnection", StubPeerConnection);
-    installGlobalValue(win, "RTCDataChannel", StubDataChannel);
-    installGlobalValue(win, "webkitRTCPeerConnection", StubPeerConnection);
-    installGlobalValue(win, "webkitRTCDataChannel", StubDataChannel);
+    for (const [key, value] of [
+      ["RTCPeerConnection", StubPeerConnection],
+      ["RTCDataChannel", StubDataChannel],
+      ["webkitRTCPeerConnection", StubPeerConnection],
+      ["webkitRTCDataChannel", StubDataChannel]
+    ] as const) {
+      rememberMbgaDecision(
+        ctx,
+        "disable-pcdn",
+        installGlobalValue(win, key, value) ? "stubbed" : "skipped",
+        win.location.href,
+        `${key} ${typeof Reflect.get(win, key) === "undefined" ? "unavailable" : "present"}`,
+        "webrtc-stub"
+      );
+    }
   } catch (_error) {
-    // WebRTC is best-effort only.
+    rememberMbgaDecision(ctx, "disable-pcdn", "error", win.location.href, "WebRTC stub install failed", "webrtc-stub");
   }
 }
 
@@ -407,17 +561,34 @@ function mountUrlCleaner(ctx: MbgaContext): void {
   }
 
   win[MBGA_MARKS.urlCleaner] = true;
-  win.history.replaceState(undefined, "", removeTracking(win.location.href, win.location.href));
+  const cleanedInitialUrl = removeTracking(win.location.href, win.location.href);
+  if (cleanedInitialUrl !== win.location.href) {
+    rememberMbgaDecision(ctx, "clean-url-params", "rewritten", win.location.href, "tracking params removed", "history");
+  }
+  win.history.replaceState(undefined, "", cleanedInitialUrl);
 
   const originalPushState = win.history.pushState;
   win.history.pushState = function (state: unknown, unused: string, url?: string | URL | null) {
     const nextUrl = typeof url === "undefined" || url === null ? url : removeTracking(String(url), win.location.href);
+    if (typeof url !== "undefined" && url !== null && String(nextUrl) !== String(url)) {
+      rememberMbgaDecision(ctx, "clean-url-params", "rewritten", String(url), "tracking params removed", "history.pushState");
+    }
     return originalPushState.call(this, state, unused, nextUrl);
   };
 
   const originalReplaceState = win.history.replaceState;
   win.history.replaceState = function (state: unknown, unused: string, url?: string | URL | null) {
     const nextUrl = typeof url === "undefined" || url === null ? url : removeTracking(String(url), win.location.href);
+    if (typeof url !== "undefined" && url !== null && String(nextUrl) !== String(url)) {
+      rememberMbgaDecision(
+        ctx,
+        "clean-url-params",
+        "rewritten",
+        String(url),
+        "tracking params removed",
+        "history.replaceState"
+      );
+    }
     return originalReplaceState.call(this, state, unused, nextUrl);
   };
 }
@@ -434,8 +605,10 @@ function mountBlockTracking(ctx: MbgaContext): void {
     win.fetch = function (input: string | URL | Request, init?: RequestInit): Promise<Response> {
       const decision = resolveMbgaNetworkDecision(input, win.location.href);
       if (decision.action === "block") {
+        rememberMbgaDecision(ctx, "block-telemetry-reporters", "synthetic", input, decision.reason, "fetch");
         return Promise.resolve(createSyntheticFetchResponse(win, decision));
       }
+      rememberMbgaDecision(ctx, "block-telemetry-reporters", "observed", input, decision.reason, "fetch");
       return originalFetch(input, init);
     };
   }
@@ -454,6 +627,7 @@ function mountBlockTracking(ctx: MbgaContext): void {
       password?: string | null
     ) {
       const decision = resolveMbgaNetworkDecision(url, win.location.href);
+      rememberMbgaDecision(ctx, "block-telemetry-reporters", "observed", url, decision.reason, "xhr.open");
       defineWritableValue(this as object, decisionKey, decision);
       defineWritableValue(this as object, urlKey, String(url));
       return originalOpen.call(this, method, String(url), async ?? true, username ?? null, password ?? null);
@@ -463,6 +637,7 @@ function mountBlockTracking(ctx: MbgaContext): void {
       const decision = Reflect.get(this as object, decisionKey) as MbgaNetworkDecision | undefined;
       if (decision?.action === "block") {
         const requestUrl = String(Reflect.get(this as object, urlKey) ?? "");
+        rememberMbgaDecision(ctx, "block-telemetry-reporters", "synthetic", requestUrl, decision.reason, "xhr.send");
         queueMicrotask(() => completeBlockedXhr(this, win, requestUrl, decision));
         return;
       }
@@ -475,13 +650,23 @@ function mountBlockTracking(ctx: MbgaContext): void {
     win.navigator.sendBeacon = function (url: string | URL, data?: BodyInit | null): boolean {
       const decision = resolveMbgaNetworkDecision(url, win.location.href);
       if (decision.action === "block") {
+        rememberMbgaDecision(ctx, "block-telemetry-reporters", "blocked", url, decision.reason, "sendBeacon");
         return true;
       }
+      rememberMbgaDecision(ctx, "block-telemetry-reporters", "observed", url, decision.reason, "sendBeacon");
       return originalSendBeacon(url, data);
     };
   } else if (win.navigator) {
     win.navigator.sendBeacon = function (url: string | URL): boolean {
       const decision = resolveMbgaNetworkDecision(url, win.location.href);
+      rememberMbgaDecision(
+        ctx,
+        "block-telemetry-reporters",
+        decision.action === "block" ? "blocked" : "observed",
+        url,
+        decision.reason,
+        "sendBeacon"
+      );
       return decision.action === "block" ? true : false;
     };
   }
@@ -534,16 +719,39 @@ function mountPcdnDisabler(ctx: MbgaContext): void {
   }
   win[MBGA_MARKS.pcdnDisabler] = true;
 
-  installWebRtcStubs(win);
-  installGlobalValue(win, "PCDNLoader", class {});
-  installGlobalValue(
-    win,
-    "BPP2PSDK",
-    class {
-      on(): void {}
-    }
+  installWebRtcStubs(ctx, win);
+  rememberMbgaDecision(
+    ctx,
+    "disable-pcdn",
+    installGlobalValue(win, "PCDNLoader", class {}) ? "stubbed" : "skipped",
+    win.location.href,
+    "PCDNLoader",
+    "global-stub"
   );
-  installGlobalValue(win, "SeederSDK", class {});
+  rememberMbgaDecision(
+    ctx,
+    "disable-pcdn",
+    installGlobalValue(
+      win,
+      "BPP2PSDK",
+      class {
+        on(): void {}
+      }
+    )
+      ? "stubbed"
+      : "skipped",
+    win.location.href,
+    "BPP2PSDK",
+    "global-stub"
+  );
+  rememberMbgaDecision(
+    ctx,
+    "disable-pcdn",
+    installGlobalValue(win, "SeederSDK", class {}) ? "stubbed" : "skipped",
+    win.location.href,
+    "SeederSDK",
+    "global-stub"
+  );
 
   if (isVideoPage(ctx.url)) {
     let cdnDomain: string | undefined;
@@ -555,6 +763,7 @@ function mountPcdnDisabler(ctx: MbgaContext): void {
         if (url.hostname.endsWith(".mcdn.bilivideo.cn")) {
           url.host = cdnDomain || "upos-sz-mirrorcoso1.bilivideo.com";
           url.port = "443";
+          rememberMbgaDecision(ctx, "disable-pcdn", "rewritten", input, "mcdn host rewritten", "video-url");
           return url.toString();
         }
         if (url.hostname.endsWith(".szbdyd.com")) {
@@ -562,6 +771,7 @@ function mountPcdnDisabler(ctx: MbgaContext): void {
           if (source) {
             url.host = source;
             url.port = "443";
+            rememberMbgaDecision(ctx, "disable-pcdn", "rewritten", input, "szbdyd source rewritten", "video-url");
           }
           return url.toString();
         }
@@ -616,6 +826,7 @@ function mountPcdnDisabler(ctx: MbgaContext): void {
     win.disableMcdn = true;
     win.disableSmtcdns = true;
     win.forceHighestQuality = true;
+    rememberMbgaDecision(ctx, "disable-pcdn", "stubbed", win.location.href, "live flags enabled", "live");
     let recentErrors = 0;
     win.setInterval(() => {
       if (recentErrors > 0) {
@@ -636,6 +847,7 @@ function mountPcdnDisabler(ctx: MbgaContext): void {
           let modified = false;
 
           if (mcdnPattern.test(urlString) && win.disableMcdn) {
+            rememberMbgaDecision(ctx, "disable-pcdn", "blocked", urlString, "live mcdn disabled", "live-fetch");
             return Promise.reject(new Error("MCDN Disabled by MBGA"));
           }
           if (smtcdnsPattern.test(urlString) && win.disableSmtcdns) {
@@ -645,6 +857,9 @@ function mountPcdnDisabler(ctx: MbgaContext): void {
           if (qualityPattern.test(urlString) && win.forceHighestQuality) {
             nextUrl = nextUrl.replace(qualityPattern, "$1").replace(/(\d+)_(mini|pro)hevc/gu, "$1");
             modified = true;
+          }
+          if (modified) {
+            rememberMbgaDecision(ctx, "disable-pcdn", "rewritten", urlString, "live stream URL rewritten", "live-fetch");
           }
 
           const requestInput = modified ? nextUrl : input;
@@ -984,6 +1199,7 @@ const MBGA_UI_RULE_IDS = new Set([
 ]);
 
 function applyMbgaRules(config: StoredConfig, shouldApply: (rule: MbgaRule) => boolean): void {
+  mbgaTelemetryEnabled = config.mbgaEnabled;
   const ctx = createMbgaContext(config);
   for (const rule of MBGA_RULES) {
     if (!shouldApply(rule)) {
@@ -995,6 +1211,7 @@ function applyMbgaRules(config: StoredConfig, shouldApply: (rule: MbgaRule) => b
     try {
       rule.apply(ctx);
     } catch (error) {
+      rememberMbgaDecision(ctx, rule.id, "error", ctx.url.href, error instanceof Error ? error.message : "rule failed", "rule");
       debugLog(`MBGA rule failed: ${rule.id}`, error);
     }
   }

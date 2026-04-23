@@ -165,6 +165,38 @@ describe("shared glass contexts", () => {
     );
   });
 
+  it("gives local learning record deletion a bounded low-motion transition", () => {
+    const listBlock = styles.match(/\.bsb-tm-local-learning-list \{[\s\S]*?\n\}/)?.[0] ?? "";
+    const itemBlock = styles.match(/\.bsb-tm-local-learning-item \{[\s\S]*?\n\}/)?.[0] ?? "";
+    const removingBlock =
+      styles.match(/\.bsb-tm-local-learning-item\[data-removing="true"\] \{[\s\S]*?\n\}/)?.[0] ?? "";
+    const emptyBlock =
+      styles.match(/\.bsb-tm-local-learning-empty,[\s\S]*?\.bsb-tm-local-learning-comment-summary p \{[\s\S]*?\n\}/)?.[0] ??
+      "";
+
+    expect(listBlock).toContain("--bsb-local-learning-list-max-height: 296px;");
+    expect(listBlock).toContain("max-height: var(--bsb-local-learning-list-max-height);");
+    expect(listBlock).toContain("overflow-y: auto;");
+    expect(listBlock).toContain("align-content: start;");
+    expect(itemBlock).not.toContain("max-height: 128px;");
+    expect(itemBlock).not.toContain("overflow: hidden;");
+    expect(itemBlock).toContain("max-height: var(--bsb-local-learning-item-height, none);");
+    expect(itemBlock).toContain("overflow: visible;");
+    expect(styles).toMatch(
+      /\.bsb-tm-local-learning-item \{[\s\S]*transition:[\s\S]*opacity 160ms var\(--bsb-ease-swift\),[\s\S]*max-height 180ms var\(--bsb-ease-fluid\),/
+    );
+    expect(removingBlock).toContain("max-height: 0;");
+    expect(removingBlock).toContain("overflow: hidden;");
+    expect(removingBlock).toContain("opacity: 0;");
+    expect(removingBlock).toContain("pointer-events: none;");
+    expect(removingBlock).toContain("transform: translateY(-4px);");
+    expect(emptyBlock).toContain("border: 1px dashed rgba(148, 163, 184, 0.28);");
+    expect(emptyBlock).toContain("padding: 10px 12px;");
+    expect(styles).toMatch(
+      /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*\.bsb-tm-local-learning-item \{[\s\S]*transition: none;[\s\S]*\.bsb-tm-local-learning-item\[data-removing="true"\] \{[\s\S]*transform: none;/
+    );
+  });
+
   it("does not keep pointer-origin focus as a persistent selected card state", () => {
     expect(styles).toMatch(
       /\.bsb-tm-field:not\(\[data-pointer-focus="true"\]\):focus-within,[\s\S]*\.bsb-tm-category-row:not\(\[data-pointer-focus="true"\]\):focus-within,[\s\S]*\.bsb-tm-link-card:focus-visible \{/

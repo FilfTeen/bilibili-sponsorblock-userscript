@@ -3,9 +3,11 @@
 ## Verdict
 
 - MBGA Overall: Partially Verified.
-- Default-On Recommendation: keep only low-risk, narrow rules as default-on; reconsider `disable-pcdn` as experimental or default-off until stronger evidence exists.
+- Default-On Recommendation: keep only low-risk, narrow rules as default-on; `disable-pcdn` should be treated as experimental and default-off for new users until stronger evidence exists.
 - Release Risk: no v0.3.10 rollback signal was found, but current evidence does not support strong claims such as complete telemetry blocking, privacy protection, or complete PCDN disabling.
-- Implementation Recommendation: do not expand the block list yet. First add decision telemetry for MBGA rules and repeat HAR/Web Inspector A/B capture.
+- Implementation Recommendation: do not expand the block list yet. Add decision telemetry for MBGA rules and repeat HAR/Web Inspector A/B capture.
+
+v0.3.11 policy follow-up: MBGA decision telemetry and native request guard diagnostic snapshots are being added as the next evidence layer. This does not upgrade MBGA to complete blocking; it only makes current behavior easier to audit.
 
 This pass used Safari main-window AppleScript page probes, PerformanceResourceTiming, QoL runtime flags, native guard snapshots, and screenshots. It did not use Chrome. It did not export Safari Web Inspector HAR files, so network conclusions remain below HAR-grade certainty.
 
@@ -46,7 +48,7 @@ This pass used Safari main-window AppleScript page probes, PerformanceResourceTi
 | --- | --- | --- | --- | --- |
 | `clean-url-params` | Verified for sampled video URL | Off video retained `?vd_source=...`; on video URL became clean path. | Low. Need more anchor/share-link coverage. | Keep default-on. Add tests or Safari samples for comment anchors and share links. |
 | `block-telemetry-reporters` | Partially Verified | Off samples show `cm.bilibili.com` and `data.bilibili.com`; on supported pages show reduced Performance evidence, but native guard still observes data/cm attempts and no HAR synthetic status was captured. | Medium. Public wording can overclaim. | Keep as best-effort known-host rule; add MBGA block records or HAR export before expanding. |
-| `disable-pcdn` | Partially Verified / Risky | Normal video off had `mcdn.bilivideo.cn`; on video did not. However `RTCPeerConnection` stayed native and live was unsupported. | Medium-high because "disable PCDN/WebRTC" is not proven and may affect playback if expanded incorrectly. | Consider default-off or split into "known CDN URL rewrite" and "WebRTC suppression"; do not claim complete PCDN disable. |
+| `disable-pcdn` | Partially Verified / Risky | Normal video off had `mcdn.bilivideo.cn`; on video did not. However `RTCPeerConnection` stayed native and live was unsupported. | Medium-high because "disable PCDN/WebRTC" is not proven and may affect playback if expanded incorrectly. | Treat as experimental and default-off for new users; do not claim complete PCDN disable. |
 | `native-request-guard` | Not Verified | Guard was active on video/bangumi, but no `blocked-fetch`/`would-block-xhr` records and target paths were not observed. | Low immediate risk due narrow list, but evidence does not prove value. | Keep narrow; add diagnostic blocked record exposure and repeat when target endpoints appear. |
 | `dynamic-wide-mode` | Verified for sampled dynamic page | On dynamic had `mbgaDynamicWideSwitch=true` and `html[wide]`. | Medium UI compatibility risk across Bilibili DOM changes. | Keep optional/default-on only if docs call it UI best-effort. |
 | `article-copy-unlock` | Not Verified | On article had rule flag true, but sampled page lacked `.article-holder` and no unlocked marker. | Unknown. | Need a known article with current holder DOM. Do not claim verified. |
@@ -111,7 +113,7 @@ The `output/` directory is git-ignored; the JSON and screenshots are local evide
 
 ## Recommended v0.3.11 Actions
 
-- Default setting changes: consider making `mbgaDisablePcdn` default-off or explicitly experimental until WebRTC and live behavior are proven. Keep `mbgaCleanUrl` default-on. Keep `mbgaBlockTracking` only as best-effort known-host filtering.
+- Default setting changes: make `mbgaDisablePcdn` default-off for new users or keep it explicitly experimental until WebRTC and live behavior are proven. Keep `mbgaCleanUrl` default-on. Keep `mbgaBlockTracking` only as best-effort known-host filtering.
 - Rule changes: add internal MBGA decision records for blocked fetch/XHR/beacon events so future diagnostics can distinguish "observed" from "synthetic response". Do not expand the host/path block list from this sample alone.
 - Documentation changes: remove or downgrade claims that MBGA protects privacy, fully blocks telemetry, disables WebRTC, disables PCDN, or cleans live pages.
 - Further sampling: export Safari Web Inspector HAR with MBGA off/on; sample a known article with `.article-holder`; sample a live page only after deciding whether QoL Core should support `live.bilibili.com`; interact with the player settings menu for `video-fit-mode`.

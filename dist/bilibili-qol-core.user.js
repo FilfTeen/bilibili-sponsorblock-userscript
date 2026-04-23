@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili QoL Core
 // @namespace    https://github.com/FilfTeen/bilibili-qol-core-userscript
-// @version      0.3.10
+// @version      0.3.11
 // @description  Local-first quality-of-life toolkit for Bilibili: SponsorBlock segments, labels, comment/dynamic signals, MBGA cleanup, and low-intrusion UI.
 // @author       Hush_
 // @license      GPL-3.0-only
@@ -213,7 +213,7 @@
   var PRODUCT_NAME = "Bilibili QoL Core";
   var SCRIPT_NAME = PRODUCT_NAME;
   var AUTHOR_NAME = "Hush_";
-  var SCRIPT_VERSION = "0.3.10".trim().length > 0 ? "0.3.10" : "0.3.10";
+  var SCRIPT_VERSION = "0.3.11".trim().length > 0 ? "0.3.11" : "0.3.11";
   var CONFIG_STORAGE_KEY = "bsb_tm_config_v1";
   var STATS_STORAGE_KEY = "bsb_tm_stats_v1";
   var CACHE_STORAGE_KEY = "bsb_tm_cache_v1";
@@ -348,7 +348,7 @@
     commentAdColor: "#ff6b66",
     mbgaEnabled: true,
     mbgaBlockTracking: true,
-    mbgaDisablePcdn: true,
+    mbgaDisablePcdn: false,
     mbgaCleanUrl: true,
     mbgaSimplifyUi: true
   };
@@ -1080,165 +1080,6 @@
     }
   };
 
-  // src/utils/diagnostics.ts
-  var MAX_DIAGNOSTIC_EVENTS = 40;
-  var SENSITIVE_KEY_PATTERN = /user.?id|token|cookie|authorization|comment.?text|reply.?text|raw.?text|feedback.?token/iu;
-  var diagnosticEvents = [];
-  var listeners = /* @__PURE__ */ new Set();
-  var nextDiagnosticId = 1;
-  var diagnosticDebugOverride = null;
-  function isNodeRuntime() {
-    var _a;
-    return typeof process !== "undefined" && ((_a = process.release) == null ? void 0 : _a.name) === "node";
-  }
-  function cleanString(input) {
-    return input.replace(/<[^>]*>/gu, "").replace(/\s+/gu, " ").trim().slice(0, 1200);
-  }
-  function sanitizeDiagnosticPageUrl(input) {
-    var _a;
-    try {
-      const url = new URL(input);
-      if (url.protocol !== "http:" && url.protocol !== "https:") {
-        throw new Error("unsupported diagnostic URL protocol");
-      }
-      return cleanString(`${url.origin}${url.pathname}`);
-    } catch (_error) {
-      const withoutQueryOrHash = (_a = input.split(/[?#]/u, 1)[0]) != null ? _a : "";
-      return cleanString(withoutQueryOrHash);
-    }
-  }
-  function sanitizeValue(key, value) {
-    if (SENSITIVE_KEY_PATTERN.test(key)) {
-      return "[redacted]";
-    }
-    if (value instanceof Error) {
-      return `${value.name}: ${cleanString(value.message)}`;
-    }
-    if (typeof value === "string") {
-      return cleanString(value);
-    }
-    return value;
-  }
-  function sanitizeDiagnosticDetail(input) {
-    if (input === null || typeof input === "undefined") {
-      return void 0;
-    }
-    if (input instanceof Error) {
-      return `${input.name}: ${cleanString(input.message)}`;
-    }
-    if (typeof input === "string") {
-      return cleanString(input);
-    }
-    try {
-      return cleanString(
-        JSON.stringify(input, (key, value) => sanitizeValue(key, value))
-      );
-    } catch (_error) {
-      return "[unserializable diagnostic detail]";
-    }
-  }
-  function getDiagnosticEvents() {
-    return diagnosticEvents.map((event) => __spreadValues({}, event));
-  }
-  function notifyDiagnosticsChanged() {
-    const snapshot = getDiagnosticEvents();
-    for (const listener of listeners) {
-      listener(snapshot);
-    }
-  }
-  function subscribeDiagnostics(listener) {
-    listeners.add(listener);
-    return () => {
-      listeners.delete(listener);
-    };
-  }
-  function clearDiagnostics() {
-    diagnosticEvents.splice(0, diagnosticEvents.length);
-    notifyDiagnosticsChanged();
-  }
-  function isDiagnosticDebugEnabled() {
-    if (diagnosticDebugOverride !== null) {
-      return diagnosticDebugOverride;
-    }
-    if (isNodeRuntime()) {
-      return false;
-    }
-    try {
-      const stored = window.localStorage.getItem("qol_core_debug");
-      if (stored === "1" || stored === "true") {
-        return true;
-      }
-    } catch (_error) {
-    }
-    try {
-      const locationText = `${window.location.search}${window.location.hash}`;
-      return /(?:[?&#])qol_core_debug(?:=1|=true|(?=&|$))/iu.test(locationText);
-    } catch (_error) {
-      return false;
-    }
-  }
-  function setDiagnosticDebugEnabled(enabled) {
-    diagnosticDebugOverride = enabled;
-    if (!isNodeRuntime()) {
-      try {
-        if (enabled) {
-          window.localStorage.setItem("qol_core_debug", "1");
-        } else {
-          window.localStorage.removeItem("qol_core_debug");
-        }
-      } catch (error) {
-        reportDiagnostic({
-          severity: "warn",
-          area: "storage",
-          message: "\u8BCA\u65AD\u8C03\u8BD5\u5F00\u5173\u6301\u4E45\u5316\u5931\u8D25\uFF0C\u4EC5\u5728\u5F53\u524D\u9875\u9762\u751F\u6548",
-          detail: error
-        });
-      }
-    }
-    return isDiagnosticDebugEnabled();
-  }
-  function reportDiagnostic(input) {
-    var _a, _b;
-    const event = {
-      id: `diag-${nextDiagnosticId}`,
-      at: Date.now(),
-      severity: input.severity,
-      area: input.area,
-      message: cleanString(input.message),
-      detail: sanitizeDiagnosticDetail(input.detail)
-    };
-    nextDiagnosticId += 1;
-    diagnosticEvents.push(event);
-    while (diagnosticEvents.length > MAX_DIAGNOSTIC_EVENTS) {
-      diagnosticEvents.shift();
-    }
-    notifyDiagnosticsChanged();
-    const prefix = `[${PRODUCT_NAME}] ${event.message}`;
-    if (event.severity === "error") {
-      console.error(prefix, (_a = event.detail) != null ? _a : "");
-    } else if (isDiagnosticDebugEnabled()) {
-      console.warn(prefix, (_b = event.detail) != null ? _b : "");
-    }
-    return __spreadValues({}, event);
-  }
-  function formatDiagnosticReport() {
-    const lines = [
-      `${PRODUCT_NAME} diagnostics`,
-      `Version: ${SCRIPT_VERSION}`,
-      `Generated: ${(/* @__PURE__ */ new Date()).toISOString()}`,
-      `Debug: ${isDiagnosticDebugEnabled() ? "enabled" : "disabled"}`,
-      `Page: ${sanitizeDiagnosticPageUrl(window.location.href)}`,
-      `UserAgent: ${cleanString(navigator.userAgent)}`,
-      `Events: ${diagnosticEvents.length}`
-    ];
-    for (const event of diagnosticEvents) {
-      lines.push(
-        `- ${new Date(event.at).toISOString()} [${event.severity}/${event.area}] ${event.message}${event.detail ? ` | ${event.detail}` : ""}`
-      );
-    }
-    return lines.join("\n");
-  }
-
   // src/utils/page.ts
   var SUPPORTED_HOSTS = /* @__PURE__ */ new Set([
     "www.bilibili.com",
@@ -1416,6 +1257,1617 @@
     if (isDiagnosticDebugEnabled()) {
       console.debug(`[${SCRIPT_NAME}] ${message}`, ...extra);
     }
+  }
+
+  // src/features/mbga/core.ts
+  var MBGA_MARKS = {
+    urlCleaner: "__BSB_MBGA_URL_CLEANER__",
+    blockTracking: "__BSB_MBGA_BLOCK_TRACKING__",
+    pcdnDisabler: "__BSB_MBGA_PCDN_DISABLER__",
+    dynamicWideSwitch: "__BSB_MBGA_DYNAMIC_WIDE_SWITCH__",
+    articleCopyUnlock: "__BSB_MBGA_ARTICLE_COPY_UNLOCK__",
+    videoFitMode: "__BSB_MBGA_VIDEO_FIT_MODE__",
+    grayscaleObserver: "__BSB_MBGA_GRAYSCALE_OBSERVER__"
+  };
+  var ARTICLE_COPY_UNLOCKED_ATTR = "data-bsb-mbga-copy-unlocked";
+  var ARTICLE_COPY_UNLOCK_TIMEOUT_MS = 1e4;
+  var MAX_MBGA_DECISION_RECORDS = 80;
+  var MAX_MBGA_RECORD_URL_LENGTH = 160;
+  var OPAQUE_RESOURCE_LABEL = "[opaque-resource]";
+  var mbgaDecisionRecords = [];
+  var mbgaTelemetryEnabled = true;
+  var USELESS_URL_PARAMS = [
+    "buvid",
+    "is_story_h5",
+    "launch_id",
+    "live_from",
+    "mid",
+    "session_id",
+    "timestamp",
+    "up_id",
+    "vd_source",
+    /^share/u,
+    /^spm/u
+  ];
+  var TELEMETRY_HOST_RULES = [
+    { host: "cm.bilibili.com", reason: "cm telemetry" },
+    { host: "data.bilibili.com", reason: "data telemetry" }
+  ];
+  function getMbgaRecordRawUrl(input) {
+    if (!input) {
+      return "";
+    }
+    if (typeof input === "string") {
+      return input.trim();
+    }
+    if (input instanceof URL) {
+      return input.toString();
+    }
+    if (typeof input.url === "string") {
+      return input.url.trim();
+    }
+    return String(input).trim();
+  }
+  function clampMbgaRecordUrl(value) {
+    return value.length <= MAX_MBGA_RECORD_URL_LENGTH ? value : `${value.slice(0, MAX_MBGA_RECORD_URL_LENGTH - 3)}...`;
+  }
+  function isOpaqueMbgaResource(raw) {
+    const lower = raw.toLowerCase();
+    const likelyUrl = /^(?:https?:)?\/\//iu.test(raw) || raw.startsWith("/");
+    return !likelyUrl && (raw.length > MAX_MBGA_RECORD_URL_LENGTH || lower.includes("application/wasm") || lower.includes("base64,") || lower.startsWith("wasm:"));
+  }
+  function sanitizeMbgaRecordUrl(input, baseHref = window.location.href) {
+    var _a;
+    const raw = getMbgaRecordRawUrl(input);
+    if (!raw) {
+      return "";
+    }
+    const lower = raw.toLowerCase();
+    if (lower.startsWith("data:")) {
+      return "[data-url]";
+    }
+    if (lower.startsWith("blob:")) {
+      return "[blob-url]";
+    }
+    if (isOpaqueMbgaResource(raw)) {
+      return OPAQUE_RESOURCE_LABEL;
+    }
+    try {
+      const url = normalizeRequestUrl(raw, baseHref);
+      if (!url) {
+        throw new Error("invalid URL");
+      }
+      if (url.protocol !== "http:" && url.protocol !== "https:") {
+        if (url.protocol === "data:") {
+          return "[data-url]";
+        }
+        if (url.protocol === "blob:") {
+          return "[blob-url]";
+        }
+        return OPAQUE_RESOURCE_LABEL;
+      }
+      return clampMbgaRecordUrl(`${url.origin}${url.pathname}`);
+    } catch (_error) {
+      const withoutQueryOrHash = (_a = raw.split(/[?#]/u, 1)[0]) != null ? _a : "";
+      return isOpaqueMbgaResource(withoutQueryOrHash) ? OPAQUE_RESOURCE_LABEL : clampMbgaRecordUrl(withoutQueryOrHash);
+    }
+  }
+  function detectMbgaPageType(url) {
+    if (isVideoPage(url)) {
+      return url.pathname.startsWith("/bangumi/") ? "bangumi" : "video";
+    }
+    if (isArticlePage(url)) {
+      return "article";
+    }
+    if (isDynamicPage(url)) {
+      return "dynamic";
+    }
+    if (isLivePage(url)) {
+      return "live";
+    }
+    if (isMainFeedPage(url)) {
+      return "main";
+    }
+    return "other";
+  }
+  function rememberMbgaDecision(ctx, ruleId, action, input, reason, source) {
+    if (!mbgaTelemetryEnabled) {
+      return;
+    }
+    try {
+      mbgaDecisionRecords.push({
+        at: Date.now(),
+        ruleId,
+        action,
+        url: sanitizeMbgaRecordUrl(input, ctx.url.href),
+        reason,
+        pageType: detectMbgaPageType(ctx.url),
+        source
+      });
+      while (mbgaDecisionRecords.length > MAX_MBGA_DECISION_RECORDS) {
+        mbgaDecisionRecords.shift();
+      }
+    } catch (_error) {
+    }
+  }
+  function getMbgaDecisionRecords() {
+    return mbgaDecisionRecords.map((record) => __spreadValues({}, record));
+  }
+  function getUnsafeWindow() {
+    return typeof window.unsafeWindow !== "undefined" ? window.unsafeWindow : window;
+  }
+  function createMbgaContext(config, win = getUnsafeWindow(), doc = document) {
+    const url = new URL(win.location.href);
+    return {
+      config,
+      doc,
+      win,
+      url
+    };
+  }
+  function isSameOrSubdomain(hostname, expectedHost) {
+    return hostname === expectedHost || hostname.endsWith(`.${expectedHost}`);
+  }
+  function normalizeRequestUrl(input, baseHref) {
+    try {
+      if (typeof input === "string") {
+        return new URL(input, baseHref);
+      }
+      if (input instanceof URL) {
+        return new URL(input.toString());
+      }
+      if (typeof input.url === "string") {
+        return new URL(input.url, baseHref);
+      }
+    } catch (_error) {
+      return null;
+    }
+    return null;
+  }
+  function defineWritableValue(target, key, value) {
+    try {
+      Object.defineProperty(target, key, {
+        configurable: true,
+        enumerable: false,
+        writable: true,
+        value
+      });
+    } catch (_error) {
+    }
+  }
+  function createNoopCallable() {
+    const callable = (() => void 0);
+    return new Proxy(callable, {
+      get(target, property) {
+        var _a;
+        if (property === Symbol.toPrimitive) {
+          return () => "";
+        }
+        if (property === "then") {
+          return void 0;
+        }
+        return (_a = Reflect.get(target, property)) != null ? _a : createNoopCallable();
+      },
+      apply() {
+        return void 0;
+      },
+      construct() {
+        return createNoopCallable();
+      }
+    });
+  }
+  function installGlobalValue(win, key, value) {
+    const current = Reflect.get(win, key);
+    if (typeof current !== "undefined") {
+      return false;
+    }
+    try {
+      Object.defineProperty(win, key, {
+        configurable: true,
+        enumerable: false,
+        writable: true,
+        value
+      });
+    } catch (_error) {
+      Reflect.set(win, key, value);
+    }
+    return true;
+  }
+  function installSentryShim(win) {
+    var _a, _b, _c, _d, _e;
+    const hub = { bindClient() {
+    } };
+    const noop = () => void 0;
+    const sentry = typeof win.Sentry === "object" && win.Sentry ? win.Sentry : {};
+    (_a = sentry.BrowserClient) != null ? _a : sentry.BrowserClient = class {
+    };
+    (_b = sentry.Hub) != null ? _b : sentry.Hub = class {
+      bindClient() {
+      }
+    };
+    (_c = sentry.Integrations) != null ? _c : sentry.Integrations = {
+      Vue: class {
+      },
+      GlobalHandlers: class {
+      },
+      InboundFilters: class {
+      }
+    };
+    for (const method of [
+      "init",
+      "configureScope",
+      "captureException",
+      "captureMessage",
+      "captureEvent",
+      "setContext",
+      "setExtra",
+      "setExtras",
+      "setTag",
+      "setTags",
+      "setUser",
+      "wrap"
+    ]) {
+      sentry[method] = noop;
+    }
+    (_d = sentry.SDK_NAME) != null ? _d : sentry.SDK_NAME = "sentry.javascript.browser";
+    (_e = sentry.SDK_VERSION) != null ? _e : sentry.SDK_VERSION = "0.0.0-bsb";
+    sentry.getCurrentHub = () => hub;
+    win.Sentry = sentry;
+  }
+  function installWebRtcStubs(ctx, win) {
+    try {
+      class StubPeerConnection {
+        addEventListener() {
+        }
+        createDataChannel() {
+        }
+      }
+      class StubDataChannel {
+      }
+      for (const [key, value] of [
+        ["RTCPeerConnection", StubPeerConnection],
+        ["RTCDataChannel", StubDataChannel],
+        ["webkitRTCPeerConnection", StubPeerConnection],
+        ["webkitRTCDataChannel", StubDataChannel]
+      ]) {
+        rememberMbgaDecision(
+          ctx,
+          "disable-pcdn",
+          installGlobalValue(win, key, value) ? "stubbed" : "skipped",
+          win.location.href,
+          `${key} ${typeof Reflect.get(win, key) === "undefined" ? "unavailable" : "present"}`,
+          "webrtc-stub"
+        );
+      }
+    } catch (_error) {
+      rememberMbgaDecision(ctx, "disable-pcdn", "error", win.location.href, "WebRTC stub install failed", "webrtc-stub");
+    }
+  }
+  function findHeadBilivideoDomain(doc) {
+    var _a, _b, _c;
+    const domainPattern = /up[\w-]+\.bilivideo\.com/u;
+    const attributeCandidates = doc.head.querySelectorAll("[src], [href], [content]");
+    for (const node of attributeCandidates) {
+      for (const attributeName of ["src", "href", "content"]) {
+        const value = node.getAttribute(attributeName);
+        const match = (_a = value == null ? void 0 : value.match(domainPattern)) == null ? void 0 : _a[0];
+        if (match) {
+          return match;
+        }
+      }
+    }
+    return (_c = (_b = doc.head.textContent) == null ? void 0 : _b.match(domainPattern)) == null ? void 0 : _c[0];
+  }
+  function completeBlockedXhr(xhr, win, url, decision) {
+    var _a, _b;
+    const status = (_a = decision.syntheticStatus) != null ? _a : 204;
+    const body = (_b = decision.syntheticBody) != null ? _b : "";
+    defineWritableValue(xhr, "readyState", 4);
+    defineWritableValue(xhr, "status", status);
+    defineWritableValue(xhr, "statusText", "No Content");
+    defineWritableValue(xhr, "responseText", body);
+    defineWritableValue(xhr, "response", body);
+    defineWritableValue(xhr, "responseURL", url);
+    const fire = (type, handlerKey) => {
+      const event = typeof win.Event === "function" ? new win.Event(type) : void 0;
+      const handler = xhr[handlerKey];
+      if (typeof handler === "function") {
+        handler.call(xhr, event);
+      }
+      if (typeof xhr.dispatchEvent === "function" && event) {
+        xhr.dispatchEvent(event);
+      }
+    };
+    fire("readystatechange", "onreadystatechange");
+    fire("load", "onload");
+    fire("loadend", "onloadend");
+  }
+  function createSyntheticFetchResponse(win, decision) {
+    var _a, _b;
+    const status = (_a = decision.syntheticStatus) != null ? _a : 204;
+    const body = status === 204 || status === 205 || status === 304 ? null : (_b = decision.syntheticBody) != null ? _b : "";
+    if (typeof win.Response === "function") {
+      return new win.Response(body, {
+        status,
+        statusText: "No Content",
+        headers: {
+          "content-type": "text/plain;charset=UTF-8",
+          "x-bsb-mbga": decision.reason
+        }
+      });
+    }
+    return new Response(body, {
+      status,
+      statusText: "No Content",
+      headers: {
+        "content-type": "text/plain;charset=UTF-8",
+        "x-bsb-mbga": decision.reason
+      }
+    });
+  }
+  function ensureScopedStyle(doc, id, css) {
+    if (doc.querySelector(`style[data-bsb-mbga-style="${id}"]`)) {
+      return;
+    }
+    const style = doc.createElement("style");
+    style.setAttribute("data-bsb-mbga-style", id);
+    style.textContent = css;
+    (doc.head || doc.documentElement).appendChild(style);
+  }
+  function isVideoPage(url) {
+    return url.hostname === "www.bilibili.com" && (url.pathname.startsWith("/video/") || url.pathname.startsWith("/bangumi/play/"));
+  }
+  function isArticlePage(url) {
+    return url.hostname === "www.bilibili.com" && url.pathname.startsWith("/read/cv");
+  }
+  function isDynamicPage(url) {
+    return url.hostname === "t.bilibili.com";
+  }
+  function isLivePage(url) {
+    return url.hostname === "live.bilibili.com";
+  }
+  function isMainFeedPage(url) {
+    return url.hostname === "www.bilibili.com" && (url.pathname === "/" || url.pathname.startsWith("/?"));
+  }
+  function ensurePageFilterNeutralized(doc) {
+    for (const element of [doc.documentElement, doc.body]) {
+      if (!(element instanceof HTMLElement)) {
+        continue;
+      }
+      const inlineFilter = [element.style.filter, element.style.webkitFilter].join(" ");
+      const computedStyle = typeof getComputedStyle === "function" ? getComputedStyle(element) : null;
+      const computedFilter = computedStyle ? computedStyle.filter : "";
+      if (!/grayscale/iu.test(`${inlineFilter} ${computedFilter}`)) {
+        continue;
+      }
+      element.style.setProperty("filter", "none", "important");
+      element.style.setProperty("-webkit-filter", "none", "important");
+    }
+  }
+  function mountGrayscaleCleanup(ctx) {
+    const win = ctx.win;
+    ensurePageFilterNeutralized(ctx.doc);
+    if (win[MBGA_MARKS.grayscaleObserver]) {
+      return;
+    }
+    const observer = new MutationObserver(() => {
+      ensurePageFilterNeutralized(ctx.doc);
+    });
+    observer.observe(ctx.doc.documentElement, {
+      attributes: true,
+      attributeFilter: ["class", "style"],
+      subtree: false
+    });
+    if (ctx.doc.body) {
+      observer.observe(ctx.doc.body, {
+        attributes: true,
+        attributeFilter: ["class", "style"],
+        subtree: false
+      });
+    }
+    win[MBGA_MARKS.grayscaleObserver] = observer;
+  }
+  function removeTracking(url, baseHref = window.location.href) {
+    if (!url) {
+      return url != null ? url : "";
+    }
+    try {
+      const urlObj = new URL(url, baseHref);
+      if (!urlObj.search) {
+        return url;
+      }
+      const searchParams = urlObj.searchParams;
+      for (const key of [...searchParams.keys()]) {
+        for (const matcher of USELESS_URL_PARAMS) {
+          const matched = typeof matcher === "string" ? matcher === key : matcher.test(key);
+          if (matched) {
+            searchParams.delete(key);
+            break;
+          }
+        }
+      }
+      urlObj.search = searchParams.toString();
+      return urlObj.toString();
+    } catch (_error) {
+      return url;
+    }
+  }
+  function resolveMbgaNetworkDecision(input, baseHref = window.location.href) {
+    const url = normalizeRequestUrl(input, baseHref);
+    if (!url) {
+      return {
+        action: "allow",
+        reason: "invalid-url"
+      };
+    }
+    for (const rule of TELEMETRY_HOST_RULES) {
+      if (isSameOrSubdomain(url.hostname, rule.host)) {
+        return {
+          action: "block",
+          reason: rule.reason,
+          matchedUrl: url.toString(),
+          syntheticStatus: 204,
+          syntheticBody: ""
+        };
+      }
+    }
+    return {
+      action: "allow",
+      reason: "not-matched",
+      matchedUrl: url.toString()
+    };
+  }
+  function mountUrlCleaner(ctx) {
+    const win = ctx.win;
+    if (win[MBGA_MARKS.urlCleaner] || typeof win.history === "undefined") {
+      return;
+    }
+    win[MBGA_MARKS.urlCleaner] = true;
+    const cleanedInitialUrl = removeTracking(win.location.href, win.location.href);
+    if (cleanedInitialUrl !== win.location.href) {
+      rememberMbgaDecision(ctx, "clean-url-params", "rewritten", win.location.href, "tracking params removed", "history");
+    }
+    win.history.replaceState(void 0, "", cleanedInitialUrl);
+    const originalPushState = win.history.pushState;
+    win.history.pushState = function(state, unused, url) {
+      const nextUrl = typeof url === "undefined" || url === null ? url : removeTracking(String(url), win.location.href);
+      if (typeof url !== "undefined" && url !== null && String(nextUrl) !== String(url)) {
+        rememberMbgaDecision(ctx, "clean-url-params", "rewritten", String(url), "tracking params removed", "history.pushState");
+      }
+      return originalPushState.call(this, state, unused, nextUrl);
+    };
+    const originalReplaceState = win.history.replaceState;
+    win.history.replaceState = function(state, unused, url) {
+      const nextUrl = typeof url === "undefined" || url === null ? url : removeTracking(String(url), win.location.href);
+      if (typeof url !== "undefined" && url !== null && String(nextUrl) !== String(url)) {
+        rememberMbgaDecision(
+          ctx,
+          "clean-url-params",
+          "rewritten",
+          String(url),
+          "tracking params removed",
+          "history.replaceState"
+        );
+      }
+      return originalReplaceState.call(this, state, unused, nextUrl);
+    };
+  }
+  function mountBlockTracking(ctx) {
+    var _a;
+    const win = ctx.win;
+    if (win[MBGA_MARKS.blockTracking]) {
+      return;
+    }
+    win[MBGA_MARKS.blockTracking] = true;
+    if (typeof win.fetch === "function") {
+      const originalFetch = win.fetch.bind(win);
+      win.fetch = function(input, init) {
+        const decision = resolveMbgaNetworkDecision(input, win.location.href);
+        if (decision.action === "block") {
+          rememberMbgaDecision(ctx, "block-telemetry-reporters", "synthetic", input, decision.reason, "fetch");
+          return Promise.resolve(createSyntheticFetchResponse(win, decision));
+        }
+        rememberMbgaDecision(ctx, "block-telemetry-reporters", "observed", input, decision.reason, "fetch");
+        return originalFetch(input, init);
+      };
+    }
+    if ((_a = win.XMLHttpRequest) == null ? void 0 : _a.prototype) {
+      const originalOpen = win.XMLHttpRequest.prototype.open;
+      const originalSend = win.XMLHttpRequest.prototype.send;
+      const decisionKey = "__bsbMbgaDecision";
+      const urlKey = "__bsbMbgaUrl";
+      win.XMLHttpRequest.prototype.open = function(method, url, async, username, password) {
+        const decision = resolveMbgaNetworkDecision(url, win.location.href);
+        rememberMbgaDecision(ctx, "block-telemetry-reporters", "observed", url, decision.reason, "xhr.open");
+        defineWritableValue(this, decisionKey, decision);
+        defineWritableValue(this, urlKey, String(url));
+        return originalOpen.call(this, method, String(url), async != null ? async : true, username != null ? username : null, password != null ? password : null);
+      };
+      win.XMLHttpRequest.prototype.send = function(body) {
+        var _a2;
+        const decision = Reflect.get(this, decisionKey);
+        if ((decision == null ? void 0 : decision.action) === "block") {
+          const requestUrl = String((_a2 = Reflect.get(this, urlKey)) != null ? _a2 : "");
+          rememberMbgaDecision(ctx, "block-telemetry-reporters", "synthetic", requestUrl, decision.reason, "xhr.send");
+          queueMicrotask(() => completeBlockedXhr(this, win, requestUrl, decision));
+          return;
+        }
+        return originalSend.call(this, body != null ? body : null);
+      };
+    }
+    if (win.navigator && typeof win.navigator.sendBeacon === "function") {
+      const originalSendBeacon = win.navigator.sendBeacon.bind(win.navigator);
+      win.navigator.sendBeacon = function(url, data) {
+        const decision = resolveMbgaNetworkDecision(url, win.location.href);
+        if (decision.action === "block") {
+          rememberMbgaDecision(ctx, "block-telemetry-reporters", "blocked", url, decision.reason, "sendBeacon");
+          return true;
+        }
+        rememberMbgaDecision(ctx, "block-telemetry-reporters", "observed", url, decision.reason, "sendBeacon");
+        return originalSendBeacon(url, data);
+      };
+    } else if (win.navigator) {
+      win.navigator.sendBeacon = function(url) {
+        const decision = resolveMbgaNetworkDecision(url, win.location.href);
+        rememberMbgaDecision(
+          ctx,
+          "block-telemetry-reporters",
+          decision.action === "block" ? "blocked" : "observed",
+          url,
+          decision.reason,
+          "sendBeacon"
+        );
+        return decision.action === "block" ? true : false;
+      };
+    }
+    installGlobalValue(win, "MReporterInstance", createNoopCallable());
+    installGlobalValue(win, "MReporter", createNoopCallable());
+    installGlobalValue(win, "ReporterPbInstance", createNoopCallable());
+    installGlobalValue(win, "ReporterPb", createNoopCallable());
+    installSentryShim(win);
+    try {
+      Object.defineProperty(win, "__biliUserFp__", {
+        configurable: true,
+        enumerable: false,
+        get() {
+          return {
+            init() {
+            },
+            queryUserLog() {
+              return [];
+            }
+          };
+        },
+        set() {
+        }
+      });
+      Object.defineProperty(win, "__USER_FP_CONFIG__", {
+        configurable: true,
+        enumerable: false,
+        get() {
+          return void 0;
+        },
+        set() {
+        }
+      });
+      Object.defineProperty(win, "__MIRROR_CONFIG__", {
+        configurable: true,
+        enumerable: false,
+        get() {
+          return void 0;
+        },
+        set() {
+        }
+      });
+    } catch (_error) {
+    }
+  }
+  function mountPcdnDisabler(ctx) {
+    var _a, _b;
+    const win = ctx.win;
+    if (win[MBGA_MARKS.pcdnDisabler]) {
+      return;
+    }
+    win[MBGA_MARKS.pcdnDisabler] = true;
+    installWebRtcStubs(ctx, win);
+    rememberMbgaDecision(
+      ctx,
+      "disable-pcdn",
+      installGlobalValue(win, "PCDNLoader", class {
+      }) ? "stubbed" : "skipped",
+      win.location.href,
+      "PCDNLoader",
+      "global-stub"
+    );
+    rememberMbgaDecision(
+      ctx,
+      "disable-pcdn",
+      installGlobalValue(
+        win,
+        "BPP2PSDK",
+        class {
+          on() {
+          }
+        }
+      ) ? "stubbed" : "skipped",
+      win.location.href,
+      "BPP2PSDK",
+      "global-stub"
+    );
+    rememberMbgaDecision(
+      ctx,
+      "disable-pcdn",
+      installGlobalValue(win, "SeederSDK", class {
+      }) ? "stubbed" : "skipped",
+      win.location.href,
+      "SeederSDK",
+      "global-stub"
+    );
+    if (isVideoPage(ctx.url)) {
+      let cdnDomain;
+      const replaceP2PUrl = (input) => {
+        cdnDomain || (cdnDomain = findHeadBilivideoDomain(ctx.doc));
+        try {
+          const url = new URL(input);
+          if (url.hostname.endsWith(".mcdn.bilivideo.cn")) {
+            url.host = cdnDomain || "upos-sz-mirrorcoso1.bilivideo.com";
+            url.port = "443";
+            rememberMbgaDecision(ctx, "disable-pcdn", "rewritten", input, "mcdn host rewritten", "video-url");
+            return url.toString();
+          }
+          if (url.hostname.endsWith(".szbdyd.com")) {
+            const source = url.searchParams.get("xy_usource");
+            if (source) {
+              url.host = source;
+              url.port = "443";
+              rememberMbgaDecision(ctx, "disable-pcdn", "rewritten", input, "szbdyd source rewritten", "video-url");
+            }
+            return url.toString();
+          }
+          return input;
+        } catch (_error) {
+          return input;
+        }
+      };
+      const replaceP2PUrlDeep = (value) => {
+        if (!value || typeof value !== "object") {
+          return;
+        }
+        for (const key of Object.keys(value)) {
+          const current = value[key];
+          if (typeof current === "string") {
+            value[key] = replaceP2PUrl(current);
+          } else if (current && typeof current === "object") {
+            replaceP2PUrlDeep(current);
+          }
+        }
+      };
+      if (win.__playinfo__) {
+        replaceP2PUrlDeep(win.__playinfo__);
+      }
+      if ((_a = win.HTMLMediaElement) == null ? void 0 : _a.prototype) {
+        const descriptor = Object.getOwnPropertyDescriptor(win.HTMLMediaElement.prototype, "src");
+        if (descriptor == null ? void 0 : descriptor.set) {
+          Object.defineProperty(win.HTMLMediaElement.prototype, "src", __spreadProps(__spreadValues({}, descriptor), {
+            set(value) {
+              var _a2;
+              (_a2 = descriptor.set) == null ? void 0 : _a2.call(this, replaceP2PUrl(value));
+            }
+          }));
+        }
+      }
+      if ((_b = win.XMLHttpRequest) == null ? void 0 : _b.prototype) {
+        const originalOpen = win.XMLHttpRequest.prototype.open;
+        win.XMLHttpRequest.prototype.open = function(...args) {
+          if (typeof args[1] === "string") {
+            args[1] = replaceP2PUrl(args[1]);
+          }
+          return originalOpen.apply(this, args);
+        };
+      }
+    }
+    if (isLivePage(ctx.url)) {
+      win.disableMcdn = true;
+      win.disableSmtcdns = true;
+      win.forceHighestQuality = true;
+      rememberMbgaDecision(ctx, "disable-pcdn", "stubbed", win.location.href, "live flags enabled", "live");
+      let recentErrors = 0;
+      win.setInterval(() => {
+        if (recentErrors > 0) {
+          recentErrors = Math.floor(recentErrors / 2);
+        }
+      }, 1e4);
+      if (typeof win.fetch === "function") {
+        const originalFetch = win.fetch.bind(win);
+        win.fetch = function(input, init) {
+          var _a2;
+          try {
+            const url = normalizeRequestUrl(input, ctx.win.location.href);
+            const urlString = (_a2 = url == null ? void 0 : url.toString()) != null ? _a2 : "";
+            const mcdnPattern = /[xy0-9]+\.mcdn\.bilivideo\.cn:\d+/u;
+            const smtcdnsPattern = /[\w.]+\.smtcdns\.net\/([\w-]+\.bilivideo\.com\/)/u;
+            const qualityPattern = /(live-bvc\/\d+\/live_\d+_\d+)_\w+/u;
+            let nextUrl = urlString;
+            let modified = false;
+            if (mcdnPattern.test(urlString) && win.disableMcdn) {
+              rememberMbgaDecision(ctx, "disable-pcdn", "blocked", urlString, "live mcdn disabled", "live-fetch");
+              return Promise.reject(new Error("MCDN Disabled by MBGA"));
+            }
+            if (smtcdnsPattern.test(urlString) && win.disableSmtcdns) {
+              nextUrl = nextUrl.replace(smtcdnsPattern, "$1");
+              modified = true;
+            }
+            if (qualityPattern.test(urlString) && win.forceHighestQuality) {
+              nextUrl = nextUrl.replace(qualityPattern, "$1").replace(/(\d+)_(mini|pro)hevc/gu, "$1");
+              modified = true;
+            }
+            if (modified) {
+              rememberMbgaDecision(ctx, "disable-pcdn", "rewritten", urlString, "live stream URL rewritten", "live-fetch");
+            }
+            const requestInput = modified ? nextUrl : input;
+            const promise = originalFetch(requestInput, init);
+            promise.then((response) => {
+              if (!urlString.match(/\.(m3u8|m4s)/u)) {
+                return;
+              }
+              if ([403, 404].includes(response.status)) {
+                recentErrors += 1;
+              }
+              if (recentErrors >= 5 && win.forceHighestQuality) {
+                recentErrors = 0;
+                win.forceHighestQuality = false;
+                debugLog("MBGA Live: Dropping forceHighestQuality due to multi-error.");
+                window.dispatchEvent(new CustomEvent("bsb_mbga_live_fallback"));
+              }
+            });
+            return promise;
+          } catch (_error) {
+            return originalFetch(input, init);
+          }
+        };
+      }
+    }
+  }
+  function mountMainFeedCleanup(ctx) {
+    ensureScopedStyle(
+      ctx.doc,
+      "main-feed-cleanup",
+      `
+.adblock-tips,
+.feed-card:has(.bili-video-card > div:empty),
+.feed2 .feed-card:has(a[href*="cm.bilibili.com"]),
+.feed2 .feed-card:has(.bili-video-card:empty) {
+  display: none !important;
+}
+
+.feed2 .container > * {
+  margin-top: 0 !important;
+}
+
+.ad-report,
+a[href*="cm.bilibili.com"] {
+  display: none !important;
+}
+`
+    );
+  }
+  function mountDynamicWideMode(ctx) {
+    const win = ctx.win;
+    ensureScopedStyle(
+      ctx.doc,
+      "dynamic-wide-mode",
+      `
+html[wide] #app { display: flex; }
+html[wide] .bili-dyn-home--member { box-sizing: border-box; padding: 0 10px; width: 100%; flex: 1; }
+html[wide] .bili-dyn-content { width: initial; }
+html[wide] main { margin: 0 8px; flex: 1; overflow: hidden; width: initial; }
+.bili-dyn-list__item:has(.bili-dyn-card-goods),
+.bili-dyn-list__item:has(.bili-rich-text-module.goods) {
+  display: none !important;
+}
+`
+    );
+    if (win[MBGA_MARKS.dynamicWideSwitch]) {
+      return;
+    }
+    win[MBGA_MARKS.dynamicWideSwitch] = true;
+    if (!win.localStorage.getItem("WIDE_OPT_OUT")) {
+      ctx.doc.documentElement.setAttribute("wide", "wide");
+    }
+    const injectWideSwitch = () => {
+      const tabContainer = ctx.doc.querySelector(".bili-dyn-list-tabs__list");
+      if (!(tabContainer instanceof HTMLElement) || ctx.doc.getElementById("wide-mode-switch")) {
+        return;
+      }
+      const spacer = ctx.doc.createElement("div");
+      spacer.style.flex = "1";
+      const switchButton = ctx.doc.createElement("a");
+      switchButton.id = "wide-mode-switch";
+      switchButton.className = "bili-dyn-list-tabs__item";
+      switchButton.textContent = "\u5BBD\u5C4F\u6A21\u5F0F";
+      switchButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        if (ctx.win.localStorage.getItem("WIDE_OPT_OUT")) {
+          win.localStorage.removeItem("WIDE_OPT_OUT");
+          ctx.doc.documentElement.setAttribute("wide", "wide");
+        } else {
+          win.localStorage.setItem("WIDE_OPT_OUT", "1");
+          ctx.doc.documentElement.removeAttribute("wide");
+        }
+      });
+      tabContainer.append(spacer, switchButton);
+    };
+    win.addEventListener("load", injectWideSwitch, { once: true });
+    win.setTimeout(injectWideSwitch, 2e3);
+  }
+  function mountArticleCopyUnlock(ctx) {
+    const win = ctx.win;
+    if (win[MBGA_MARKS.articleCopyUnlock]) {
+      return;
+    }
+    win[MBGA_MARKS.articleCopyUnlock] = true;
+    if (win.original) {
+      win.original.reprint = "1";
+    }
+    const unlockArticleHolder = (holder) => {
+      if (holder.getAttribute(ARTICLE_COPY_UNLOCKED_ATTR) === "true") {
+        return true;
+      }
+      holder.classList.remove("unable-reprint");
+      holder.setAttribute(ARTICLE_COPY_UNLOCKED_ATTR, "true");
+      holder.addEventListener(
+        "copy",
+        (event) => {
+          event.stopImmediatePropagation();
+        },
+        true
+      );
+      return true;
+    };
+    const existingHolder = ctx.doc.querySelector(".article-holder");
+    if (existingHolder instanceof HTMLElement) {
+      unlockArticleHolder(existingHolder);
+      return;
+    }
+    let timeoutId = null;
+    const observer = new MutationObserver(() => {
+      const holder = ctx.doc.querySelector(".article-holder");
+      if (!(holder instanceof HTMLElement)) {
+        return;
+      }
+      unlockArticleHolder(holder);
+      observer.disconnect();
+      if (timeoutId !== null) {
+        win.clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+    });
+    observer.observe(ctx.doc.documentElement, {
+      childList: true,
+      subtree: true
+    });
+    timeoutId = win.setTimeout(() => {
+      observer.disconnect();
+      timeoutId = null;
+    }, ARTICLE_COPY_UNLOCK_TIMEOUT_MS);
+  }
+  function mountLiveUiCleanup(ctx) {
+    ensureScopedStyle(
+      ctx.doc,
+      "live-room-cleanup",
+      `
+div[data-cy=EvaRenderer_LayerWrapper]:has(.player) { z-index: 999999 !important; }
+.fixedPageBackground_root { z-index: 999999 !important; }
+#welcome-area-bottom-vm,
+.web-player-icon-roomStatus { display: none !important; }
+`
+    );
+  }
+  function mountVideoFitMode(ctx) {
+    const win = ctx.win;
+    ensureScopedStyle(
+      ctx.doc,
+      "video-fit-mode",
+      `
+body[video-fit] #bilibili-player video { object-fit: cover !important; }
+.bpx-player-ctrl-setting-fit-mode { display: flex; width: 100%; height: 32px; line-height: 32px; }
+.bpx-player-ctrl-setting-box .bui-panel-wrap,
+.bpx-player-ctrl-setting-box .bui-panel-item { min-height: 172px !important; }
+`
+    );
+    if (win[MBGA_MARKS.videoFitMode]) {
+      return;
+    }
+    win[MBGA_MARKS.videoFitMode] = true;
+    const injectFitButton = () => {
+      if (ctx.doc.querySelector(".bpx-player-ctrl-setting-fit-mode")) {
+        return;
+      }
+      const parent = ctx.doc.querySelector(".bpx-player-ctrl-setting-menu-left");
+      if (!(parent instanceof HTMLElement)) {
+        return;
+      }
+      const item = ctx.doc.createElement("div");
+      item.className = "bpx-player-ctrl-setting-fit-mode bui bui-switch";
+      const input = ctx.doc.createElement("input");
+      input.className = "bui-switch-input";
+      input.type = "checkbox";
+      const label = ctx.doc.createElement("label");
+      label.className = "bui-switch-label";
+      const name = ctx.doc.createElement("span");
+      name.className = "bui-switch-name";
+      name.textContent = "\u88C1\u5207\u6A21\u5F0F";
+      const body = ctx.doc.createElement("span");
+      body.className = "bui-switch-body";
+      const dot = ctx.doc.createElement("span");
+      dot.className = "bui-switch-dot";
+      dot.appendChild(ctx.doc.createElement("span"));
+      body.appendChild(dot);
+      label.append(name, body);
+      item.append(input, label);
+      const moreLink = ctx.doc.querySelector(".bpx-player-ctrl-setting-more");
+      if (moreLink instanceof HTMLElement) {
+        parent.insertBefore(item, moreLink);
+      } else {
+        parent.appendChild(item);
+      }
+      input.addEventListener("change", (event) => {
+        const checked = event.currentTarget.checked;
+        if (checked) {
+          ctx.doc.body.setAttribute("video-fit", "");
+        } else {
+          ctx.doc.body.removeAttribute("video-fit");
+        }
+      });
+    };
+    const timer = win.setInterval(() => {
+      if (ctx.doc.querySelector(".bpx-player-ctrl-setting-menu-left")) {
+        injectFitButton();
+        win.clearInterval(timer);
+      }
+    }, 1e3);
+    win.setTimeout(() => win.clearInterval(timer), 1e4);
+  }
+  var MBGA_RULES = [
+    {
+      id: "clean-url-params",
+      kind: "behavior",
+      safetyNotes: "Only strips explicit tracking params and preserves unrelated query keys.",
+      enabled: (config) => config.mbgaEnabled && config.mbgaCleanUrl,
+      match: () => true,
+      apply: mountUrlCleaner
+    },
+    {
+      id: "block-telemetry-reporters",
+      kind: "network",
+      safetyNotes: "Blocks only explicit telemetry hosts and returns predictable success semantics to callers.",
+      enabled: (config) => config.mbgaEnabled && config.mbgaBlockTracking,
+      match: () => true,
+      apply: mountBlockTracking
+    },
+    {
+      id: "disable-pcdn",
+      kind: "network",
+      safetyNotes: "Only rewrites known P2P/CDN hosts and installs transport stubs on video and live pages.",
+      enabled: (config) => config.mbgaEnabled && config.mbgaDisablePcdn,
+      match: (ctx) => isVideoPage(ctx.url) || isLivePage(ctx.url),
+      apply: mountPcdnDisabler
+    },
+    {
+      id: "neutralize-page-grayscale",
+      kind: "ui",
+      safetyNotes: "Only removes page-level grayscale when such filters are actually present.",
+      enabled: (config) => config.mbgaEnabled && config.mbgaSimplifyUi,
+      match: () => true,
+      apply: mountGrayscaleCleanup
+    },
+    {
+      id: "main-feed-cleanup",
+      kind: "ui",
+      safetyNotes: "Only hides explicit ad affordances on the main feed.",
+      enabled: (config) => config.mbgaEnabled && config.mbgaSimplifyUi,
+      match: (ctx) => isMainFeedPage(ctx.url),
+      apply: mountMainFeedCleanup
+    },
+    {
+      id: "dynamic-wide-mode",
+      kind: "ui",
+      safetyNotes: "Only runs on dynamic pages and preserves user opt-out in localStorage.",
+      enabled: (config) => config.mbgaEnabled && config.mbgaSimplifyUi,
+      match: (ctx) => isDynamicPage(ctx.url),
+      apply: mountDynamicWideMode
+    },
+    {
+      id: "article-copy-unlock",
+      kind: "behavior",
+      safetyNotes: "Only unlocks copy behavior on article pages and leaves other pages untouched.",
+      enabled: (config) => config.mbgaEnabled && config.mbgaSimplifyUi,
+      match: (ctx) => isArticlePage(ctx.url),
+      apply: mountArticleCopyUnlock
+    },
+    {
+      id: "live-room-ui-cleanup",
+      kind: "ui",
+      safetyNotes: "Only applies targeted live-room overlay cleanup selectors on live pages.",
+      enabled: (config) => config.mbgaEnabled && config.mbgaSimplifyUi,
+      match: (ctx) => isLivePage(ctx.url),
+      apply: mountLiveUiCleanup
+    },
+    {
+      id: "video-fit-mode",
+      kind: "behavior",
+      safetyNotes: "Only injects the fit toggle on video and bangumi player pages.",
+      enabled: (config) => config.mbgaEnabled && config.mbgaSimplifyUi,
+      match: (ctx) => isVideoPage(ctx.url),
+      apply: mountVideoFitMode
+    }
+  ];
+  var MBGA_CORE_RULE_IDS = /* @__PURE__ */ new Set(["clean-url-params", "block-telemetry-reporters", "disable-pcdn"]);
+  var MBGA_UI_RULE_IDS = /* @__PURE__ */ new Set([
+    "neutralize-page-grayscale",
+    "main-feed-cleanup",
+    "dynamic-wide-mode",
+    "article-copy-unlock",
+    "live-room-ui-cleanup",
+    "video-fit-mode"
+  ]);
+  function applyMbgaRules(config, shouldApply) {
+    mbgaTelemetryEnabled = config.mbgaEnabled;
+    const ctx = createMbgaContext(config);
+    for (const rule of MBGA_RULES) {
+      if (!shouldApply(rule)) {
+        continue;
+      }
+      if (!rule.enabled(config) || !rule.match(ctx)) {
+        continue;
+      }
+      try {
+        rule.apply(ctx);
+      } catch (error) {
+        rememberMbgaDecision(ctx, rule.id, "error", ctx.url.href, error instanceof Error ? error.message : "rule failed", "rule");
+        debugLog(`MBGA rule failed: ${rule.id}`, error);
+      }
+    }
+  }
+  function mountMbga(config) {
+    applyMbgaRules(config, (rule) => MBGA_CORE_RULE_IDS.has(rule.id));
+  }
+  function mountMbgaUi(config) {
+    applyMbgaRules(config, (rule) => MBGA_UI_RULE_IDS.has(rule.id));
+  }
+
+  // src/platform/native-request-guard.ts
+  var GUARD_FLAG = "__BSB_NATIVE_REQUEST_GUARD__";
+  var CONFIG_EVENT = "bsb-tm:native-request-guard-config";
+  var SNAPSHOT_REQUEST_EVENT = "bsb-tm:native-request-guard-snapshot-request";
+  var SNAPSHOT_RESPONSE_EVENT = "bsb-tm:native-request-guard-snapshot-response";
+  var REDUNDANT_TOPBAR_PATHS = ["/x/msgfeed/unread", "/x/web-interface/nav/stat"];
+  var MAX_NATIVE_GUARD_RECORD_URL_LENGTH = 160;
+  var OPAQUE_RESOURCE_LABEL2 = "[opaque-resource]";
+  var bridgeInjected2 = false;
+  function getNativeRequestRawUrl(input) {
+    if (typeof input === "string") {
+      return input.trim();
+    }
+    if (input && typeof input.url === "string") {
+      return input.url.trim();
+    }
+    return String(input != null ? input : "").trim();
+  }
+  function clampNativeRequestUrl(value) {
+    return value.length <= MAX_NATIVE_GUARD_RECORD_URL_LENGTH ? value : `${value.slice(0, MAX_NATIVE_GUARD_RECORD_URL_LENGTH - 3)}...`;
+  }
+  function isOpaqueNativeRequestResource(raw) {
+    const lower = raw.toLowerCase();
+    const likelyUrl = /^(?:https?:)?\/\//iu.test(raw) || raw.startsWith("/");
+    return !likelyUrl && (raw.length > MAX_NATIVE_GUARD_RECORD_URL_LENGTH || lower.includes("application/wasm") || lower.includes("base64,") || lower.startsWith("wasm:"));
+  }
+  function sanitizeNativeRequestUrl(input, baseHref = window.location.href) {
+    var _a;
+    const raw = getNativeRequestRawUrl(input);
+    if (!raw) {
+      return "";
+    }
+    const lower = raw.toLowerCase();
+    if (lower.startsWith("data:")) {
+      return "[data-url]";
+    }
+    if (lower.startsWith("blob:")) {
+      return "[blob-url]";
+    }
+    if (isOpaqueNativeRequestResource(raw)) {
+      return OPAQUE_RESOURCE_LABEL2;
+    }
+    try {
+      const parsed = new URL(raw, baseHref);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        if (parsed.protocol === "data:") {
+          return "[data-url]";
+        }
+        if (parsed.protocol === "blob:") {
+          return "[blob-url]";
+        }
+        return OPAQUE_RESOURCE_LABEL2;
+      }
+      return clampNativeRequestUrl(`${parsed.origin}${parsed.pathname}`);
+    } catch (_error) {
+      const withoutQueryOrHash = (_a = raw.split(/[?#]/u, 1)[0]) != null ? _a : "";
+      return isOpaqueNativeRequestResource(withoutQueryOrHash) ? OPAQUE_RESOURCE_LABEL2 : clampNativeRequestUrl(withoutQueryOrHash);
+    }
+  }
+  function sanitizeNativeRequestGuardSnapshot(input) {
+    if (!input || typeof input !== "object") {
+      return null;
+    }
+    const snapshot = input;
+    const records = Array.isArray(snapshot.records) ? snapshot.records.map((record) => {
+      if (!record || typeof record !== "object") {
+        return null;
+      }
+      const item = record;
+      const action = item.action === "blocked-fetch" || item.action === "observed-fetch" || item.action === "would-block-xhr" || item.action === "observed-xhr" ? item.action : null;
+      if (!action) {
+        return null;
+      }
+      return {
+        action,
+        url: sanitizeNativeRequestUrl(item.url),
+        time: Number.isFinite(item.time) ? Number(item.time) : 0,
+        reason: typeof item.reason === "string" ? item.reason : "unknown"
+      };
+    }).filter((record) => Boolean(record)).slice(-80) : [];
+    return {
+      enabled: Boolean(snapshot.enabled),
+      supportedPage: Boolean(snapshot.supportedPage),
+      compactHeaderReady: Boolean(snapshot.compactHeaderReady),
+      reason: typeof snapshot.reason === "string" ? snapshot.reason : "unknown",
+      records
+    };
+  }
+  function buildNativeRequestGuardSource() {
+    return `
+(() => {
+  const flag = ${JSON.stringify(GUARD_FLAG)};
+  if (window[flag]) {
+    return;
+  }
+
+  const paths = ${JSON.stringify([...REDUNDANT_TOPBAR_PATHS])};
+  const state = {
+    enabled: false,
+    supportedPage: false,
+    compactHeaderReady: false,
+    reason: "initial",
+    records: []
+  };
+
+  const maxUrlLength = ${MAX_NATIVE_GUARD_RECORD_URL_LENGTH};
+  const opaqueResourceLabel = ${JSON.stringify(OPAQUE_RESOURCE_LABEL2)};
+
+  function clampUrl(value) {
+    return value.length <= maxUrlLength ? value : value.slice(0, maxUrlLength - 3) + "...";
+  }
+
+  function isOpaqueResource(raw) {
+    const lower = String(raw || "").toLowerCase();
+    const likelyUrl = /^(?:https?:)?\\/\\//i.test(raw) || String(raw || "").startsWith("/");
+    return !likelyUrl && (
+      String(raw || "").length > maxUrlLength ||
+      lower.includes("application/wasm") ||
+      lower.includes("base64,") ||
+      lower.startsWith("wasm:")
+    );
+  }
+
+  function sanitizeUrl(input) {
+    const raw = (typeof input === "string" ? input : input && typeof input.url === "string" ? input.url : "").trim();
+    if (!raw) {
+      return "";
+    }
+    const lower = raw.toLowerCase();
+    if (lower.startsWith("data:")) {
+      return "[data-url]";
+    }
+    if (lower.startsWith("blob:")) {
+      return "[blob-url]";
+    }
+    if (isOpaqueResource(raw)) {
+      return opaqueResourceLabel;
+    }
+    try {
+      const parsed = new URL(raw, window.location.href);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        if (parsed.protocol === "data:") {
+          return "[data-url]";
+        }
+        if (parsed.protocol === "blob:") {
+          return "[blob-url]";
+        }
+        return opaqueResourceLabel;
+      }
+      return clampUrl(parsed.origin + parsed.pathname);
+    } catch (_error) {
+      const withoutQueryOrHash = raw.split(/[?#]/, 1)[0] || "";
+      return isOpaqueResource(withoutQueryOrHash) ? opaqueResourceLabel : clampUrl(withoutQueryOrHash);
+    }
+  }
+
+  function remember(url, action) {
+    state.records.push({ url: sanitizeUrl(url), action, time: Date.now(), reason: state.reason });
+    if (state.records.length > 80) {
+      state.records.shift();
+    }
+  }
+
+  function shouldBlock(url) {
+    if (!state.enabled || !state.supportedPage || !state.compactHeaderReady) {
+      return false;
+    }
+    try {
+      const parsed = new URL(String(url), window.location.href);
+      return parsed.hostname === "api.bilibili.com" && paths.includes(parsed.pathname);
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  window[flag] = {
+    configure(next) {
+      state.enabled = Boolean(next && next.enabled);
+      state.supportedPage = Boolean(next && next.supportedPage);
+      state.compactHeaderReady = Boolean(next && next.compactHeaderReady);
+      state.reason = next && typeof next.reason === "string" ? next.reason : "runtime";
+    },
+    snapshot() {
+      return {
+        enabled: state.enabled,
+        supportedPage: state.supportedPage,
+        compactHeaderReady: state.compactHeaderReady,
+        reason: state.reason,
+        records: state.records.slice()
+      };
+    }
+  };
+
+  const originalFetch = window.fetch;
+  if (typeof originalFetch === "function") {
+    window.fetch = function(input, init) {
+      const url = typeof input === "string" ? input : input && typeof input.url === "string" ? input.url : "";
+      if (shouldBlock(url)) {
+        remember(url, "blocked-fetch");
+        return Promise.resolve(new Response("", { status: 204, statusText: "Blocked by Bilibili QoL Core" }));
+      }
+      remember(url, "observed-fetch");
+      return originalFetch.apply(this, arguments);
+    };
+  }
+
+  const originalOpen = window.XMLHttpRequest && window.XMLHttpRequest.prototype.open;
+  if (typeof originalOpen === "function") {
+    window.XMLHttpRequest.prototype.open = function(method, url) {
+      remember(url, shouldBlock(url) ? "would-block-xhr" : "observed-xhr");
+      return originalOpen.apply(this, arguments);
+    };
+  }
+
+  document.addEventListener(${JSON.stringify(CONFIG_EVENT)}, (event) => {
+    window[flag].configure(event.detail || {});
+  });
+
+  document.addEventListener(${JSON.stringify(SNAPSHOT_REQUEST_EVENT)}, (event) => {
+    document.dispatchEvent(new CustomEvent(${JSON.stringify(SNAPSHOT_RESPONSE_EVENT)}, {
+      detail: {
+        id: event && event.detail && event.detail.id,
+        snapshot: window[flag].snapshot()
+      }
+    }));
+  });
+})();`;
+  }
+  function installNativeRequestGuardBridge() {
+    if (bridgeInjected2) {
+      return;
+    }
+    const script = document.createElement("script");
+    script.id = "bsb-tm-native-request-guard";
+    script.textContent = buildNativeRequestGuardSource();
+    (document.head || document.documentElement).appendChild(script);
+    script.remove();
+    bridgeInjected2 = true;
+  }
+  function configureNativeRequestGuard(config) {
+    document.dispatchEvent(
+      new CustomEvent(CONFIG_EVENT, {
+        detail: config
+      })
+    );
+  }
+  function getNativeRequestGuardSnapshot() {
+    try {
+      const requestId = `native-guard-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      let snapshot = null;
+      const handleResponse = (event) => {
+        const detail = event.detail;
+        if ((detail == null ? void 0 : detail.id) !== requestId) {
+          return;
+        }
+        snapshot = sanitizeNativeRequestGuardSnapshot(detail.snapshot);
+      };
+      document.addEventListener(SNAPSHOT_RESPONSE_EVENT, handleResponse);
+      document.dispatchEvent(
+        new CustomEvent(SNAPSHOT_REQUEST_EVENT, {
+          detail: {
+            id: requestId
+          }
+        })
+      );
+      document.removeEventListener(SNAPSHOT_RESPONSE_EVENT, handleResponse);
+      return snapshot;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  // src/utils/diagnostics.ts
+  var MAX_DIAGNOSTIC_EVENTS = 40;
+  var MAX_DIAGNOSTIC_SAMPLE_URL_LENGTH = 160;
+  var OPAQUE_RESOURCE_LABEL3 = "[opaque-resource]";
+  var SENSITIVE_KEY_PATTERN = /user.?id|token|cookie|authorization|comment.?text|reply.?text|raw.?text|feedback.?token/iu;
+  var diagnosticEvents = [];
+  var listeners = /* @__PURE__ */ new Set();
+  var nextDiagnosticId = 1;
+  var diagnosticDebugOverride = null;
+  function isNodeRuntime() {
+    var _a;
+    return typeof process !== "undefined" && ((_a = process.release) == null ? void 0 : _a.name) === "node";
+  }
+  function cleanString(input) {
+    return input.replace(/<[^>]*>/gu, "").replace(/\s+/gu, " ").trim().slice(0, 1200);
+  }
+  function sanitizeDiagnosticPageUrl(input) {
+    var _a;
+    try {
+      const url = new URL(input);
+      if (url.protocol !== "http:" && url.protocol !== "https:") {
+        throw new Error("unsupported diagnostic URL protocol");
+      }
+      return cleanString(`${url.origin}${url.pathname}`);
+    } catch (_error) {
+      const withoutQueryOrHash = (_a = input.split(/[?#]/u, 1)[0]) != null ? _a : "";
+      return cleanString(withoutQueryOrHash);
+    }
+  }
+  function clampDiagnosticSampleUrl(value) {
+    return value.length <= MAX_DIAGNOSTIC_SAMPLE_URL_LENGTH ? value : `${value.slice(0, MAX_DIAGNOSTIC_SAMPLE_URL_LENGTH - 3)}...`;
+  }
+  function isOpaqueDiagnosticResource(raw) {
+    const lower = raw.toLowerCase();
+    const likelyUrl = /^(?:https?:)?\/\//iu.test(raw) || raw.startsWith("/");
+    return !likelyUrl && (raw.length > MAX_DIAGNOSTIC_SAMPLE_URL_LENGTH || lower.includes("application/wasm") || lower.includes("base64,") || lower.startsWith("wasm:"));
+  }
+  function sanitizeDiagnosticSampleUrl(input) {
+    var _a;
+    const raw = input.trim();
+    if (!raw) {
+      return "";
+    }
+    const lower = raw.toLowerCase();
+    if (lower.startsWith("data:")) {
+      return "[data-url]";
+    }
+    if (lower.startsWith("blob:")) {
+      return "[blob-url]";
+    }
+    if (isOpaqueDiagnosticResource(raw)) {
+      return OPAQUE_RESOURCE_LABEL3;
+    }
+    try {
+      const url = new URL(raw);
+      if (url.protocol !== "http:" && url.protocol !== "https:") {
+        if (url.protocol === "data:") {
+          return "[data-url]";
+        }
+        if (url.protocol === "blob:") {
+          return "[blob-url]";
+        }
+        return OPAQUE_RESOURCE_LABEL3;
+      }
+      return clampDiagnosticSampleUrl(`${url.origin}${url.pathname}`);
+    } catch (_error) {
+      const withoutQueryOrHash = (_a = raw.split(/[?#]/u, 1)[0]) != null ? _a : "";
+      return isOpaqueDiagnosticResource(withoutQueryOrHash) ? OPAQUE_RESOURCE_LABEL3 : clampDiagnosticSampleUrl(withoutQueryOrHash);
+    }
+  }
+  function sanitizeValue(key, value) {
+    if (SENSITIVE_KEY_PATTERN.test(key)) {
+      return "[redacted]";
+    }
+    if (value instanceof Error) {
+      return `${value.name}: ${cleanString(value.message)}`;
+    }
+    if (typeof value === "string") {
+      return cleanString(value);
+    }
+    return value;
+  }
+  function sanitizeDiagnosticDetail(input) {
+    if (input === null || typeof input === "undefined") {
+      return void 0;
+    }
+    if (input instanceof Error) {
+      return `${input.name}: ${cleanString(input.message)}`;
+    }
+    if (typeof input === "string") {
+      return cleanString(input);
+    }
+    try {
+      return cleanString(
+        JSON.stringify(input, (key, value) => sanitizeValue(key, value))
+      );
+    } catch (_error) {
+      return "[unserializable diagnostic detail]";
+    }
+  }
+  function getDiagnosticEvents() {
+    return diagnosticEvents.map((event) => __spreadValues({}, event));
+  }
+  function notifyDiagnosticsChanged() {
+    const snapshot = getDiagnosticEvents();
+    for (const listener of listeners) {
+      listener(snapshot);
+    }
+  }
+  function subscribeDiagnostics(listener) {
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+    };
+  }
+  function clearDiagnostics() {
+    diagnosticEvents.splice(0, diagnosticEvents.length);
+    notifyDiagnosticsChanged();
+  }
+  function isDiagnosticDebugEnabled() {
+    if (diagnosticDebugOverride !== null) {
+      return diagnosticDebugOverride;
+    }
+    if (isNodeRuntime()) {
+      return false;
+    }
+    try {
+      const stored = window.localStorage.getItem("qol_core_debug");
+      if (stored === "1" || stored === "true") {
+        return true;
+      }
+    } catch (_error) {
+    }
+    try {
+      const locationText = `${window.location.search}${window.location.hash}`;
+      return /(?:[?&#])qol_core_debug(?:=1|=true|(?=&|$))/iu.test(locationText);
+    } catch (_error) {
+      return false;
+    }
+  }
+  function setDiagnosticDebugEnabled(enabled) {
+    diagnosticDebugOverride = enabled;
+    if (!isNodeRuntime()) {
+      try {
+        if (enabled) {
+          window.localStorage.setItem("qol_core_debug", "1");
+        } else {
+          window.localStorage.removeItem("qol_core_debug");
+        }
+      } catch (error) {
+        reportDiagnostic({
+          severity: "warn",
+          area: "storage",
+          message: "\u8BCA\u65AD\u8C03\u8BD5\u5F00\u5173\u6301\u4E45\u5316\u5931\u8D25\uFF0C\u4EC5\u5728\u5F53\u524D\u9875\u9762\u751F\u6548",
+          detail: error
+        });
+      }
+    }
+    return isDiagnosticDebugEnabled();
+  }
+  function reportDiagnostic(input) {
+    var _a, _b;
+    const event = {
+      id: `diag-${nextDiagnosticId}`,
+      at: Date.now(),
+      severity: input.severity,
+      area: input.area,
+      message: cleanString(input.message),
+      detail: sanitizeDiagnosticDetail(input.detail)
+    };
+    nextDiagnosticId += 1;
+    diagnosticEvents.push(event);
+    while (diagnosticEvents.length > MAX_DIAGNOSTIC_EVENTS) {
+      diagnosticEvents.shift();
+    }
+    notifyDiagnosticsChanged();
+    const prefix = `[${PRODUCT_NAME}] ${event.message}`;
+    if (event.severity === "error") {
+      console.error(prefix, (_a = event.detail) != null ? _a : "");
+    } else if (isDiagnosticDebugEnabled()) {
+      console.warn(prefix, (_b = event.detail) != null ? _b : "");
+    }
+    return __spreadValues({}, event);
+  }
+  function countByAction(records) {
+    var _a;
+    if (records.length === 0) {
+      return "empty";
+    }
+    const counts = /* @__PURE__ */ new Map();
+    for (const record of records) {
+      counts.set(record.action, ((_a = counts.get(record.action)) != null ? _a : 0) + 1);
+    }
+    return [...counts.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([action, count]) => `${action}=${count}`).join(", ");
+  }
+  function summarizeMbgaRecords(records) {
+    if (records.length === 0) {
+      return ["MBGA: empty"];
+    }
+    const recent = records.slice(-10);
+    const recentRuleIds = [...new Set(recent.map((record) => record.ruleId))].join(", ") || "none";
+    const lines = [
+      `MBGA: total=${records.length}`,
+      `MBGA actions: ${countByAction(records)}`,
+      `MBGA recent rules: ${recentRuleIds}`,
+      "MBGA samples:"
+    ];
+    for (const record of recent) {
+      lines.push(
+        `  - ${new Date(record.at).toISOString()} ${record.action} ${record.ruleId} ${sanitizeDiagnosticSampleUrl(
+          record.url
+        )} (${cleanString(record.reason)} / ${cleanString(record.source)})`
+      );
+    }
+    return lines;
+  }
+  function summarizeNativeGuard(snapshot) {
+    var _a;
+    if (!snapshot) {
+      return ["Native guard: unavailable"];
+    }
+    const records = (_a = snapshot.records) != null ? _a : [];
+    const lines = [
+      `Native guard: enabled=${snapshot.enabled}, supportedPage=${snapshot.supportedPage}, compactHeaderReady=${snapshot.compactHeaderReady}, reason=${cleanString(
+        snapshot.reason
+      )}`,
+      `Native guard actions: ${countByAction(records)}`
+    ];
+    if (records.length === 0) {
+      lines.push("Native guard samples: empty");
+      return lines;
+    }
+    lines.push("Native guard samples:");
+    for (const record of records.slice(-10)) {
+      lines.push(
+        `  - ${new Date(record.time).toISOString()} ${record.action} ${sanitizeDiagnosticSampleUrl(record.url)} (${cleanString(
+          record.reason
+        )})`
+      );
+    }
+    return lines;
+  }
+  function formatDiagnosticReport() {
+    const lines = [
+      `${PRODUCT_NAME} diagnostics`,
+      `Version: ${SCRIPT_VERSION}`,
+      `Generated: ${(/* @__PURE__ */ new Date()).toISOString()}`,
+      `Debug: ${isDiagnosticDebugEnabled() ? "enabled" : "disabled"}`,
+      `Page: ${sanitizeDiagnosticPageUrl(window.location.href)}`,
+      `UserAgent: ${cleanString(navigator.userAgent)}`,
+      `Events: ${diagnosticEvents.length}`
+    ];
+    lines.push(...summarizeMbgaRecords(getMbgaDecisionRecords()));
+    lines.push(...summarizeNativeGuard(getNativeRequestGuardSnapshot()));
+    for (const event of diagnosticEvents) {
+      lines.push(
+        `- ${new Date(event.at).toISOString()} [${event.severity}/${event.area}] ${event.message}${event.detail ? ` | ${event.detail}` : ""}`
+      );
+    }
+    return lines.join("\n");
   }
 
   // src/core/cache.ts
@@ -1725,6 +3177,28 @@
       const record = this.records.get(videoId);
       return Boolean(record && record.category === null && record.source === "manual-dismiss");
     }
+    listRecords() {
+      return [...this.records.entries()].map(([videoId, record]) => __spreadValues({
+        videoId
+      }, record)).sort((left, right) => right.updatedAt - left.updatedAt);
+    }
+    deleteRecord(videoId) {
+      return __async(this, null, function* () {
+        if (!videoId.startsWith("BV") || !this.records.has(videoId)) {
+          return;
+        }
+        const previous = new Map(this.records);
+        this.records.delete(videoId);
+        yield this.persistWithRollback(previous);
+      });
+    }
+    clearRecords() {
+      return __async(this, null, function* () {
+        const previous = new Map(this.records);
+        this.records.clear();
+        yield this.persistWithRollback(previous);
+      });
+    }
     rememberSignal(videoId, signal) {
       return __async(this, null, function* () {
         if (!videoId.startsWith("BV")) {
@@ -1766,7 +3240,7 @@
     dismiss(videoId, reason = "\u624B\u52A8\u5FFD\u7565\u672C\u5730\u6807\u7B7E") {
       return __async(this, null, function* () {
         if (!videoId.startsWith("BV")) {
-          return;
+          throw new Error("invalid local video id");
         }
         const previous = new Map(this.records);
         this.records.set(videoId, {
@@ -2185,110 +3659,6 @@
   function resolveWholeVideoCategory(bvid, segments, labelCategory, config) {
     var _a, _b;
     return (_b = (_a = resolveWholeVideoLabels(bvid, segments, labelCategory, config)[0]) == null ? void 0 : _a.category) != null ? _b : null;
-  }
-
-  // src/platform/native-request-guard.ts
-  var GUARD_FLAG = "__BSB_NATIVE_REQUEST_GUARD__";
-  var CONFIG_EVENT = "bsb-tm:native-request-guard-config";
-  var REDUNDANT_TOPBAR_PATHS = ["/x/msgfeed/unread", "/x/web-interface/nav/stat"];
-  var bridgeInjected2 = false;
-  function buildNativeRequestGuardSource() {
-    return `
-(() => {
-  const flag = ${JSON.stringify(GUARD_FLAG)};
-  if (window[flag]) {
-    return;
-  }
-
-  const paths = ${JSON.stringify([...REDUNDANT_TOPBAR_PATHS])};
-  const state = {
-    enabled: false,
-    supportedPage: false,
-    compactHeaderReady: false,
-    reason: "initial",
-    records: []
-  };
-
-  function remember(url, action) {
-    state.records.push({ url: String(url), action, time: Date.now(), reason: state.reason });
-    if (state.records.length > 80) {
-      state.records.shift();
-    }
-  }
-
-  function shouldBlock(url) {
-    if (!state.enabled || !state.supportedPage || !state.compactHeaderReady) {
-      return false;
-    }
-    try {
-      const parsed = new URL(String(url), window.location.href);
-      return parsed.hostname === "api.bilibili.com" && paths.includes(parsed.pathname);
-    } catch (_error) {
-      return false;
-    }
-  }
-
-  window[flag] = {
-    configure(next) {
-      state.enabled = Boolean(next && next.enabled);
-      state.supportedPage = Boolean(next && next.supportedPage);
-      state.compactHeaderReady = Boolean(next && next.compactHeaderReady);
-      state.reason = next && typeof next.reason === "string" ? next.reason : "runtime";
-    },
-    snapshot() {
-      return {
-        enabled: state.enabled,
-        supportedPage: state.supportedPage,
-        compactHeaderReady: state.compactHeaderReady,
-        reason: state.reason,
-        records: state.records.slice()
-      };
-    }
-  };
-
-  const originalFetch = window.fetch;
-  if (typeof originalFetch === "function") {
-    window.fetch = function(input, init) {
-      const url = typeof input === "string" ? input : input && typeof input.url === "string" ? input.url : "";
-      if (shouldBlock(url)) {
-        remember(url, "blocked-fetch");
-        return Promise.resolve(new Response("", { status: 204, statusText: "Blocked by Bilibili QoL Core" }));
-      }
-      remember(url, "observed-fetch");
-      return originalFetch.apply(this, arguments);
-    };
-  }
-
-  const originalOpen = window.XMLHttpRequest && window.XMLHttpRequest.prototype.open;
-  if (typeof originalOpen === "function") {
-    window.XMLHttpRequest.prototype.open = function(method, url) {
-      remember(url, shouldBlock(url) ? "would-block-xhr" : "observed-xhr");
-      return originalOpen.apply(this, arguments);
-    };
-  }
-
-  document.addEventListener(${JSON.stringify(CONFIG_EVENT)}, (event) => {
-    window[flag].configure(event.detail || {});
-  });
-})();`;
-  }
-  function installNativeRequestGuardBridge() {
-    if (bridgeInjected2) {
-      return;
-    }
-    const script = document.createElement("script");
-    script.id = "bsb-tm-native-request-guard";
-    script.textContent = buildNativeRequestGuardSource();
-    (document.head || document.documentElement).appendChild(script);
-    script.remove();
-    bridgeInjected2 = true;
-  }
-  function configureNativeRequestGuard(config) {
-    document.dispatchEvent(
-      new CustomEvent(CONFIG_EVENT, {
-        detail: config
-      })
-    );
   }
 
   // src/ui/icons.ts
@@ -2891,12 +4261,25 @@ ${inlineSurfaceFrostedGlass.overlay}
   }
 
   // src/ui/panel.ts
+  var EMPTY_COMMENT_FEEDBACK_SUMMARY = {
+    count: 0,
+    maxRecords: 0,
+    latestUpdatedAt: null
+  };
+  var LOCAL_LEARNING_ITEM_REMOVE_MS = 180;
+  var LOCAL_LABEL_SOURCE_LABELS = {
+    "comment-goods": "\u81EA\u52A8\u4FE1\u53F7\uFF1A\u8BC4\u8BBA\u5546\u54C1\u5361",
+    "comment-suspicion": "\u81EA\u52A8\u4FE1\u53F7\uFF1A\u8BC4\u8BBA\u7EBF\u7D22",
+    "page-heuristic": "\u81EA\u52A8\u4FE1\u53F7\uFF1A\u9875\u9762\u7EBF\u7D22",
+    manual: "\u624B\u52A8\u4FDD\u7559",
+    "manual-dismiss": "\u624B\u52A8\u5FFD\u7565"
+  };
   var TAB_LABELS = {
     overview: "\u6982\u89C8",
     behavior: "\u7247\u6BB5\u4E0E\u6807\u7B7E",
     transparency: "\u6807\u7B7E\u900F\u660E\u5EA6",
     filters: "\u52A8\u6001 / \u8BC4\u8BBA",
-    mbga: "\u751F\u6001\u51C0\u5316 (MBGA)",
+    mbga: "\u751F\u6001\u566A\u97F3\u538B\u5236 (MBGA)",
     help: "\u5E2E\u52A9 / \u53CD\u9988"
   };
   var TAB_DESCRIPTIONS = {
@@ -2904,7 +4287,7 @@ ${inlineSurfaceFrostedGlass.overlay}
     behavior: "\u7247\u6BB5\u3001\u6807\u7B7E\u4E0E\u663E\u793A\u7B56\u7565",
     transparency: "\u80F6\u56CA\u900F\u660E\u5EA6\u4E0E\u964D\u566A\u7B56\u7565",
     filters: "\u52A8\u6001\u548C\u8BC4\u8BBA\u533A\u589E\u5F3A",
-    mbga: "\u5C4F\u853D\u8FFD\u8E2A\u3001\u539F\u753B\u9501\u5B9A\u4E0E\u6C89\u6D78\u5316",
+    mbga: "\u5DF2\u77E5\u89C4\u5219\u3001\u5B9E\u9A8C\u538B\u5236\u4E0E\u6C89\u6D78\u5316",
     help: "\u5E2E\u52A9\u94FE\u63A5\u4E0E\u4F7F\u7528\u8BF4\u660E"
   };
   var SettingsPanel = class {
@@ -2936,6 +4319,14 @@ ${inlineSurfaceFrostedGlass.overlay}
         bvid: null,
         segmentCount: null
       });
+      __publicField(this, "localLearningState", {
+        status: "idle",
+        videoRecords: [],
+        commentFeedback: EMPTY_COMMENT_FEEDBACK_SUMMARY,
+        errorMessage: null
+      });
+      __publicField(this, "localLearningRequestId", 0);
+      __publicField(this, "localLearningRefreshPending", false);
       __publicField(this, "activeFeedbacks", /* @__PURE__ */ new Map());
       // id -> originalText
       __publicField(this, "pendingConfirmations", /* @__PURE__ */ new Set());
@@ -3070,6 +4461,59 @@ ${inlineSurfaceFrostedGlass.overlay}
       this.fullVideoLabels = [...new Set(segments.map((segment) => CATEGORY_LABELS[segment.category]))];
       this.renderOverview();
       this.restoreActiveScroll();
+    }
+    refreshLocalLearningRecords() {
+      var _a, _b, _c, _d, _e, _f;
+      if (this.localLearningState.status === "loading") {
+        this.localLearningRefreshPending = true;
+        return;
+      }
+      const requestId = this.localLearningRequestId + 1;
+      this.localLearningRequestId = requestId;
+      this.localLearningRefreshPending = false;
+      this.localLearningState = __spreadProps(__spreadValues({}, this.localLearningState), {
+        status: "loading",
+        errorMessage: null
+      });
+      Promise.all([
+        (_c = (_b = (_a = this.callbacks).onListLocalVideoLabels) == null ? void 0 : _b.call(_a)) != null ? _c : Promise.resolve([]),
+        (_f = (_e = (_d = this.callbacks).onGetCommentFeedbackSummary) == null ? void 0 : _e.call(_d)) != null ? _f : Promise.resolve(EMPTY_COMMENT_FEEDBACK_SUMMARY)
+      ]).then(([videoRecords, commentFeedback]) => {
+        if (requestId !== this.localLearningRequestId) {
+          return;
+        }
+        this.localLearningState = {
+          status: "ready",
+          videoRecords,
+          commentFeedback,
+          errorMessage: null
+        };
+      }).catch((error) => {
+        if (requestId !== this.localLearningRequestId) {
+          return;
+        }
+        this.localLearningState = __spreadProps(__spreadValues({}, this.localLearningState), {
+          status: "error",
+          errorMessage: "\u672C\u5730\u5B66\u4E60\u8BB0\u5F55\u8BFB\u53D6\u5931\u8D25"
+        });
+        reportDiagnostic({
+          severity: "warn",
+          area: "storage",
+          message: "\u672C\u5730\u5B66\u4E60\u8BB0\u5F55\u8BFB\u53D6\u5931\u8D25",
+          detail: error
+        });
+      }).finally(() => {
+        if (requestId !== this.localLearningRequestId) {
+          return;
+        }
+        if (this.activeTab === "help" && !this.backdrop.hidden) {
+          this.renderHelp();
+        }
+        if (this.localLearningRefreshPending) {
+          this.localLearningRefreshPending = false;
+          this.refreshLocalLearningRecords();
+        }
+      });
     }
     render(preserveScroll = false) {
       var _a;
@@ -3503,8 +4947,8 @@ ${inlineSurfaceFrostedGlass.overlay}
     renderMbga() {
       const mbgaFields = [
         this.createCheckbox(
-          "\u542F\u7528\u751F\u6001\u51C0\u5316 (MBGA)",
-          "\u603B\u5F00\u5173\u3002\u5F00\u542F\u540E\u5C06\u6CE8\u5165\u7F51\u7EDC\u62E6\u622A\u5C42\u53CA\u6837\u5F0F\u4F18\u5316\u8865\u4E01\uFF0C\u8FD8\u4F60\u4E00\u4E2A\u66F4\u5E72\u51C0\u3001\u9AD8\u6548\u7684 B \u7AD9\u3002",
+          "\u542F\u7528\u751F\u6001\u566A\u97F3\u538B\u5236 (MBGA)",
+          "\u603B\u5F00\u5173\u3002\u5F00\u542F\u540E\u6309\u5DF2\u77E5\u89C4\u5219\u5C1D\u8BD5\u51CF\u5C11\u90E8\u5206\u9875\u9762\u566A\u97F3\uFF0C\u5E76\u542F\u7528\u82E5\u5E72 best-effort \u9875\u9762\u5C0F\u4FEE\u3002",
           this.config.mbgaEnabled,
           (checked) => __async(this, null, function* () {
             yield this.callbacks.onPatchConfig({ mbgaEnabled: checked });
@@ -3512,8 +4956,8 @@ ${inlineSurfaceFrostedGlass.overlay}
           true
         ),
         this.createCheckbox(
-          "\u5C4F\u853D\u9690\u79C1\u8FFD\u8E2A\u4E0E\u884C\u4E3A\u4E0A\u62A5",
-          "\u62E6\u622A data.bilibili.com / cm.bilibili.com \u7B49\u9065\u6D4B\u8BF7\u6C42\uFF0C\u4FDD\u62A4\u4E2A\u4EBA\u9690\u79C1\u3002",
+          "\u51CF\u5C11\u5DF2\u77E5\u9065\u6D4B\u4E0E\u8FFD\u8E2A\u566A\u97F3",
+          "\u4EC5\u5904\u7406 data.bilibili.com / cm.bilibili.com \u7B49\u5C11\u91CF\u5DF2\u77E5 host\uFF0C\u4E0D\u662F\u5B8C\u6574\u9690\u79C1\u9632\u62A4\u6216\u5168\u9762\u9065\u6D4B\u963B\u65AD\u3002",
           this.config.mbgaBlockTracking,
           (checked) => __async(this, null, function* () {
             yield this.callbacks.onPatchConfig({ mbgaBlockTracking: checked });
@@ -3521,8 +4965,8 @@ ${inlineSurfaceFrostedGlass.overlay}
           true
         ),
         this.createCheckbox(
-          "\u9501\u5B9A\u6700\u9AD8\u753B\u8D28\u4E0E\u76F4\u8FDE\u5B98\u65B9\u6E90",
-          "\u5F3A\u5236\u76F4\u64AD\u539F\u753B\uFF0C\u5E76\u7981\u7528 Mcdn / P2P \u6280\u672F\uFF0C\u51CF\u5C11\u672C\u5730\u8D44\u6E90\u5360\u7528\u4E0E\u53D1\u70ED\u3002",
+          "\u5B9E\u9A8C\uFF1APCDN / WebRTC \u8DEF\u5F84\u538B\u5236",
+          "\u9ED8\u8BA4\u5173\u95ED\u3002\u4EC5\u5BF9\u90E8\u5206\u5DF2\u77E5 PCDN / WebRTC / CDN \u8DEF\u5F84\u505A best-effort \u538B\u5236\uFF0C\u53EF\u80FD\u5F71\u54CD\u64AD\u653E\u3001\u76F4\u64AD\u6216\u4E92\u52A8\u529F\u80FD\u3002",
           this.config.mbgaDisablePcdn,
           (checked) => __async(this, null, function* () {
             yield this.callbacks.onPatchConfig({ mbgaDisablePcdn: checked });
@@ -3539,8 +4983,8 @@ ${inlineSurfaceFrostedGlass.overlay}
           true
         ),
         this.createCheckbox(
-          "\u6DF1\u5EA6\u7F51\u9875\u51C0\u5316\u4E0E\u7B80\u5316",
-          "\u79FB\u9664\u5E7F\u544A\u63D0\u793A\u3001\u9ED1\u767D\u6EE4\u955C\u3001\u89E3\u9664\u590D\u5236\u9650\u5236\u3001\u52A8\u6001\u5BBD\u5C4F\u9002\u914D\u7B49 UI \u8865\u4E01\u3002",
+          "\u9875\u9762\u5C0F\u4FEE\u4E0E\u4F4E\u4FB5\u5165\u7B80\u5316",
+          "\u6309\u5DF2\u77E5 DOM \u89C4\u5219\u5904\u7406\u5E7F\u544A\u63D0\u793A\u3001\u9ED1\u767D\u6EE4\u955C\u3001\u590D\u5236\u9650\u5236\u3001\u52A8\u6001\u5BBD\u5C4F\u9002\u914D\u7B49 UI \u5C0F\u4FEE\uFF1B\u9875\u9762\u53D8\u5316\u65F6\u53EF\u80FD\u5931\u6548\u3002",
           this.config.mbgaSimplifyUi,
           (checked) => __async(this, null, function* () {
             yield this.callbacks.onPatchConfig({ mbgaSimplifyUi: checked });
@@ -3554,12 +4998,12 @@ ${inlineSurfaceFrostedGlass.overlay}
       }
       section.replaceChildren(
         this.createSectionHeading(
-          "\u751F\u6001\u51C0\u5316 (MBGA)",
-          "\u590D\u523B\u81EA\u7ECF\u5178\u7684 MBGA \u811A\u672C\uFF0C\u65E8\u5728\u901A\u8FC7\u7F51\u7EDC\u5C42\u52AB\u6301\u4E0E\u539F\u751F\u7F51\u9875\u91CD\u6784\uFF0C\u8FD8\u4F60\u4E00\u4E2A\u5E72\u51C0\u3001\u9AD8\u6548\u4E14\u79C1\u5BC6\u7684 B \u7AD9\u3002"
+          "\u751F\u6001\u566A\u97F3\u538B\u5236 (MBGA)",
+          "\u57FA\u4E8E\u5C11\u91CF\u5DF2\u77E5\u89C4\u5219\u7684 best-effort \u9875\u9762\u5C0F\u4FEE\u548C\u7F51\u7EDC\u566A\u97F3\u538B\u5236\u3002\u5B83\u4E0D\u662F\u5B8C\u6574\u9690\u79C1\u9632\u62A4\u3001\u5B8C\u6574\u9065\u6D4B\u963B\u65AD\u6216\u5B8C\u6574 PCDN \u7981\u7528\u5DE5\u5177\u3002"
         ),
         this.createFormGroup(
           "\u529F\u80FD\u5F00\u5173",
-          "\u6240\u6709\u6539\u52A8\u5747\u7ECF\u8FC7\u5B89\u5168\u5BA1\u8BA1\uFF0C\u65E8\u5728\u4FDD\u8BC1 QoL Core \u6838\u5FC3\u529F\u80FD\u4E0D\u88AB\u5E72\u6270\u7684\u524D\u63D0\u4E0B\uFF0C\u6700\u5927\u9650\u5EA6\u91CA\u653E\u672C\u5730\u7B97\u529B\u3002\u5F00\u542F\u540E\u8BF7\u5237\u65B0\u9875\u9762\u4EE5\u5B8C\u5168\u751F\u6548\u3002",
+          "\u7F51\u7EDC\u4E0E\u64AD\u653E\u5668\u76F8\u5173\u6539\u52A8\u9700\u8981\u5237\u65B0\u9875\u9762\u624D\u4F1A\u5B8C\u5168\u751F\u6548\uFF1B\u5B9E\u9A8C\u9879\u8BF7\u5728 Safari \u4E3B\u7A97\u53E3\u786E\u8BA4\u65E0\u64AD\u653E\u6216\u76F4\u64AD\u526F\u4F5C\u7528\u540E\u518D\u957F\u671F\u542F\u7528\u3002",
           this.createFieldGrid(mbgaFields)
         )
       );
@@ -3612,6 +5056,7 @@ ${inlineSurfaceFrostedGlass.overlay}
           }
         ])
       ];
+      children.push(this.createLocalLearningManagerCard());
       children.push(this.createDeveloperDiagnosticsCard());
       children.push(
         this.createInfoBox(
@@ -3620,6 +5065,305 @@ ${inlineSurfaceFrostedGlass.overlay}
         )
       );
       (_a = this.sections.get("help")) == null ? void 0 : _a.replaceChildren(...children);
+    }
+    createLocalLearningManagerCard() {
+      if (this.localLearningState.status === "idle") {
+        this.refreshLocalLearningRecords();
+      }
+      const card = document.createElement("div");
+      card.className = "bsb-tm-local-learning-card";
+      card.setAttribute("data-bsb-local-learning-manager", "true");
+      const heading = document.createElement("div");
+      heading.className = "bsb-tm-local-learning-heading";
+      const title = document.createElement("strong");
+      title.textContent = "\u672C\u5730\u5B66\u4E60\u8BB0\u5F55";
+      const badge = document.createElement("span");
+      badge.className = "bsb-tm-local-learning-count";
+      badge.textContent = this.localLearningState.status === "loading" ? "\u8BFB\u53D6\u4E2D" : `${this.localLearningState.videoRecords.length} \u6761\u89C6\u9891 \xB7 ${this.localLearningState.commentFeedback.count} \u6761\u8BC4\u8BBA\u53CD\u9988\u9501`;
+      heading.append(title, badge);
+      const description = document.createElement("p");
+      description.className = "bsb-tm-section-description";
+      description.textContent = "\u8FD9\u91CC\u53EA\u7BA1\u7406\u5F53\u524D\u6D4F\u89C8\u5668\u91CC\u7684\u672C\u5730\u5B66\u4E60\u8BB0\u5F55\u3002\u4E0A\u6E38 SponsorBlock / video label \u8BB0\u5F55\u4E0D\u5728\u8FD9\u91CC\uFF0C\u4E5F\u4E0D\u80FD\u901A\u8FC7\u8FD9\u91CC\u5220\u9664\u3002\u5220\u9664\u672C\u5730\u8BB0\u5F55\u540E\uFF0C\u540E\u7EED\u81EA\u52A8\u63A8\u7406\u4ECD\u53EF\u80FD\u518D\u6B21\u51FA\u73B0\u3002";
+      const videoSection = this.createLocalVideoLearningSection();
+      const commentSection = this.createCommentFeedbackLearningSection();
+      card.append(heading, description, videoSection, commentSection);
+      return card;
+    }
+    createLocalVideoLearningSection() {
+      var _a;
+      const section = document.createElement("section");
+      section.className = "bsb-tm-local-learning-section";
+      const heading = document.createElement("div");
+      heading.className = "bsb-tm-local-learning-subheading";
+      const title = document.createElement("strong");
+      title.textContent = "\u672C\u5730\u89C6\u9891\u6807\u7B7E";
+      const clearButton = this.createLocalLearningActionButton("\u6E05\u7A7A\u89C6\u9891\u8BB0\u5F55", "danger", () => __async(this, null, function* () {
+        if (!this.callbacks.onClearLocalVideoLabels) {
+          return;
+        }
+        yield this.callbacks.onClearLocalVideoLabels();
+        this.localLearningState = __spreadProps(__spreadValues({}, this.localLearningState), {
+          status: "ready",
+          videoRecords: [],
+          errorMessage: null
+        });
+        this.renderHelpIfOpen();
+        this.refreshLocalLearningRecords();
+      }), "\u786E\u8BA4\u6E05\u7A7A\u89C6\u9891\u8BB0\u5F55\uFF1F");
+      clearButton.setAttribute("data-bsb-local-label-clear", "true");
+      clearButton.disabled = this.localLearningState.status !== "ready" || this.localLearningState.videoRecords.length === 0 || !this.callbacks.onClearLocalVideoLabels;
+      heading.append(title, clearButton);
+      const body = document.createElement("div");
+      body.className = "bsb-tm-local-learning-list";
+      if (this.localLearningState.status === "loading" || this.localLearningState.status === "idle") {
+        body.appendChild(this.createLocalLearningEmpty("\u6B63\u5728\u8BFB\u53D6\u672C\u5730\u89C6\u9891\u5B66\u4E60\u8BB0\u5F55..."));
+      } else if (this.localLearningState.status === "error") {
+        body.appendChild(this.createLocalLearningEmpty((_a = this.localLearningState.errorMessage) != null ? _a : "\u672C\u5730\u5B66\u4E60\u8BB0\u5F55\u8BFB\u53D6\u5931\u8D25"));
+      } else if (this.localLearningState.videoRecords.length === 0) {
+        body.appendChild(this.createLocalLearningEmpty("\u6682\u65E0\u672C\u5730\u89C6\u9891\u5B66\u4E60\u8BB0\u5F55\u3002"));
+      } else {
+        for (const record of this.localLearningState.videoRecords) {
+          body.appendChild(this.createLocalVideoLearningItem(record));
+        }
+      }
+      section.append(heading, body);
+      return section;
+    }
+    createLocalVideoLearningItem(record) {
+      const item = document.createElement("article");
+      item.className = "bsb-tm-local-learning-item";
+      item.dataset.source = record.source;
+      const copy = document.createElement("div");
+      copy.className = "bsb-tm-local-learning-copy";
+      const title = document.createElement("strong");
+      title.textContent = record.videoId;
+      const meta = document.createElement("small");
+      const categoryText = record.category ? CATEGORY_LABELS[record.category] : "\u5DF2\u5FFD\u7565";
+      const confidenceText = `${Math.round(record.confidence * 100)}%`;
+      meta.textContent = `${categoryText} \xB7 ${LOCAL_LABEL_SOURCE_LABELS[record.source]} \xB7 \u7F6E\u4FE1\u5EA6 ${confidenceText}`;
+      const reason = document.createElement("p");
+      reason.className = "bsb-tm-section-description";
+      reason.textContent = record.reason ? `${record.reason}\u3002\u66F4\u65B0\u4E8E ${this.formatLocalLearningTime(record.updatedAt)}` : `\u66F4\u65B0\u4E8E ${this.formatLocalLearningTime(record.updatedAt)}`;
+      copy.append(title, meta, reason);
+      const deleteButton = this.createLocalVideoDeleteButton(record, item);
+      deleteButton.setAttribute("data-bsb-local-label-delete", record.videoId);
+      deleteButton.disabled = !this.callbacks.onDeleteLocalVideoLabel;
+      item.append(copy, deleteButton);
+      return item;
+    }
+    createLocalVideoDeleteButton(record, item) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "bsb-tm-button secondary compact";
+      button.textContent = "\u5220\u9664";
+      button.addEventListener("click", () => __async(this, null, function* () {
+        if (button.disabled || !this.callbacks.onDeleteLocalVideoLabel) {
+          return;
+        }
+        button.disabled = true;
+        button.textContent = "\u5220\u9664\u4E2D";
+        item.setAttribute("aria-busy", "true");
+        try {
+          yield this.callbacks.onDeleteLocalVideoLabel(record.videoId);
+          this.localLearningState = __spreadProps(__spreadValues({}, this.localLearningState), {
+            status: "ready",
+            videoRecords: this.localLearningState.videoRecords.filter((candidate) => candidate.videoId !== record.videoId),
+            errorMessage: null
+          });
+          this.markLocalLearningItemRemoving(item);
+          this.syncLocalLearningManagerCard();
+          this.refreshLocalLearningRecords();
+          this.finishLocalLearningItemRemoval(item, () => {
+            this.commitLocalLearningItemRemoval(item);
+          });
+        } catch (error) {
+          delete item.dataset.removing;
+          item.removeAttribute("aria-busy");
+          button.disabled = false;
+          button.textContent = "\u64CD\u4F5C\u5931\u8D25";
+          reportDiagnostic({
+            severity: "warn",
+            area: "storage",
+            message: "\u672C\u5730\u5B66\u4E60\u8BB0\u5F55\u64CD\u4F5C\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u539F\u8BB0\u5F55",
+            detail: error
+          });
+          window.setTimeout(() => {
+            button.textContent = "\u5220\u9664";
+          }, 1600);
+        }
+      }));
+      return button;
+    }
+    markLocalLearningItemRemoving(item) {
+      const measuredHeight = Math.ceil(Math.max(item.scrollHeight, item.getBoundingClientRect().height));
+      item.style.setProperty("--bsb-local-learning-item-height", `${Math.max(measuredHeight, 1)}px`);
+      void item.offsetHeight;
+      item.dataset.removing = "true";
+      item.setAttribute("aria-busy", "true");
+    }
+    syncLocalLearningManagerCard() {
+      var _a;
+      const card = (_a = this.sections.get("help")) == null ? void 0 : _a.querySelector("[data-bsb-local-learning-manager='true']");
+      if (!card) {
+        return;
+      }
+      const count = card.querySelector(".bsb-tm-local-learning-count");
+      if (count) {
+        count.textContent = this.localLearningState.status === "loading" ? "\u8BFB\u53D6\u4E2D" : `${this.localLearningState.videoRecords.length} \u6761\u89C6\u9891 \xB7 ${this.localLearningState.commentFeedback.count} \u6761\u8BC4\u8BBA\u53CD\u9988\u9501`;
+      }
+      const clearVideoButton = card.querySelector("[data-bsb-local-label-clear='true']");
+      if (clearVideoButton) {
+        clearVideoButton.disabled = this.localLearningState.status !== "ready" || this.localLearningState.videoRecords.length === 0 || !this.callbacks.onClearLocalVideoLabels;
+      }
+      const clearCommentButton = card.querySelector("[data-bsb-comment-feedback-clear='true']");
+      if (clearCommentButton) {
+        clearCommentButton.disabled = this.localLearningState.status !== "ready" || this.localLearningState.commentFeedback.count === 0 || !this.callbacks.onClearCommentFeedback;
+      }
+    }
+    createCommentFeedbackLearningSection() {
+      const section = document.createElement("section");
+      section.className = "bsb-tm-local-learning-section";
+      const heading = document.createElement("div");
+      heading.className = "bsb-tm-local-learning-subheading";
+      const title = document.createElement("strong");
+      title.textContent = "\u8BC4\u8BBA\u53CD\u9988\u9501";
+      const clearButton = this.createLocalLearningActionButton("\u6E05\u7A7A\u53CD\u9988\u9501", "danger", () => __async(this, null, function* () {
+        if (!this.callbacks.onClearCommentFeedback) {
+          return;
+        }
+        yield this.callbacks.onClearCommentFeedback();
+        this.localLearningState = __spreadProps(__spreadValues({}, this.localLearningState), {
+          status: "ready",
+          commentFeedback: __spreadProps(__spreadValues({}, this.localLearningState.commentFeedback), {
+            count: 0,
+            latestUpdatedAt: null
+          }),
+          errorMessage: null
+        });
+        this.renderHelpIfOpen();
+        this.refreshLocalLearningRecords();
+      }), "\u786E\u8BA4\u6E05\u7A7A\u53CD\u9988\u9501\uFF1F");
+      clearButton.setAttribute("data-bsb-comment-feedback-clear", "true");
+      clearButton.disabled = this.localLearningState.status !== "ready" || this.localLearningState.commentFeedback.count === 0 || !this.callbacks.onClearCommentFeedback;
+      heading.append(title, clearButton);
+      const body = document.createElement("div");
+      body.className = "bsb-tm-local-learning-comment-summary";
+      const summary = document.createElement("p");
+      summary.className = "bsb-tm-section-description";
+      if (this.localLearningState.status === "loading" || this.localLearningState.status === "idle") {
+        summary.textContent = "\u6B63\u5728\u8BFB\u53D6\u8BC4\u8BBA\u53CD\u9988\u9501...";
+      } else if (this.localLearningState.status === "error") {
+        summary.textContent = "\u8BC4\u8BBA\u53CD\u9988\u9501\u8BFB\u53D6\u5931\u8D25\u3002";
+      } else {
+        const latest = this.localLearningState.commentFeedback.latestUpdatedAt ? `\u6700\u8FD1\u66F4\u65B0\u4E8E ${this.formatLocalLearningTime(this.localLearningState.commentFeedback.latestUpdatedAt)}\u3002` : "";
+        summary.textContent = `\u5F53\u524D\u6709 ${this.localLearningState.commentFeedback.count} \u6761\u8BC4\u8BBA\u53CD\u9988\u9501\uFF0C\u6700\u591A\u4FDD\u7559 ${this.localLearningState.commentFeedback.maxRecords} \u6761\u3002${latest} \u4E0D\u5C55\u793A\u8BC4\u8BBA\u539F\u6587\u6216\u54C8\u5E0C\u660E\u7EC6\u3002`;
+      }
+      body.appendChild(summary);
+      section.append(heading, body);
+      return section;
+    }
+    renderHelpIfOpen() {
+      if (this.activeTab === "help" && !this.backdrop.hidden) {
+        this.renderHelp();
+      }
+    }
+    commitLocalLearningItemRemoval(item) {
+      item.removeAttribute("aria-busy");
+      if (!item.isConnected) {
+        return;
+      }
+      const list = item.parentElement;
+      item.remove();
+      if (!list || list.querySelector(".bsb-tm-local-learning-item")) {
+        return;
+      }
+      list.replaceChildren(this.createLocalLearningEmpty("\u6682\u65E0\u672C\u5730\u89C6\u9891\u5B66\u4E60\u8BB0\u5F55\u3002"));
+    }
+    finishLocalLearningItemRemoval(item, onDone) {
+      if (this.prefersReducedMotion()) {
+        onDone();
+        return;
+      }
+      let finished = false;
+      let timer = null;
+      const finish = () => {
+        if (finished) {
+          return;
+        }
+        finished = true;
+        if (timer !== null) {
+          window.clearTimeout(timer);
+        }
+        item.removeEventListener("transitionend", finish);
+        item.removeEventListener("transitioncancel", finish);
+        onDone();
+      };
+      item.addEventListener("transitionend", finish);
+      item.addEventListener("transitioncancel", finish);
+      timer = window.setTimeout(finish, LOCAL_LEARNING_ITEM_REMOVE_MS + 80);
+    }
+    prefersReducedMotion() {
+      return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    }
+    createLocalLearningActionButton(text, variant, onClick, confirmText) {
+      const button = document.createElement("button");
+      const originalText = text;
+      let confirming = false;
+      let resetTimer = null;
+      button.type = "button";
+      button.className = `bsb-tm-button ${variant} compact`;
+      button.textContent = text;
+      button.addEventListener("click", () => __async(null, null, function* () {
+        if (button.disabled) {
+          return;
+        }
+        if (confirmText && !confirming) {
+          confirming = true;
+          button.textContent = confirmText;
+          button.classList.add("confirming");
+          resetTimer = window.setTimeout(() => {
+            confirming = false;
+            button.textContent = originalText;
+            button.classList.remove("confirming");
+          }, 3e3);
+          return;
+        }
+        if (resetTimer !== null) {
+          window.clearTimeout(resetTimer);
+          resetTimer = null;
+        }
+        button.disabled = true;
+        try {
+          yield onClick();
+        } catch (error) {
+          button.disabled = false;
+          confirming = false;
+          button.textContent = "\u64CD\u4F5C\u5931\u8D25";
+          button.classList.remove("confirming");
+          reportDiagnostic({
+            severity: "warn",
+            area: "storage",
+            message: "\u672C\u5730\u5B66\u4E60\u8BB0\u5F55\u64CD\u4F5C\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u539F\u8BB0\u5F55",
+            detail: error
+          });
+          window.setTimeout(() => {
+            button.textContent = originalText;
+          }, 1600);
+        }
+      }));
+      return button;
+    }
+    createLocalLearningEmpty(text) {
+      const empty = document.createElement("p");
+      empty.className = "bsb-tm-local-learning-empty";
+      empty.textContent = text;
+      return empty;
+    }
+    formatLocalLearningTime(timestamp) {
+      if (!Number.isFinite(timestamp) || timestamp <= 0) {
+        return "\u672A\u77E5\u65F6\u95F4";
+      }
+      return new Date(timestamp).toLocaleString();
     }
     createDeveloperDiagnosticsCard() {
       const events = this.diagnosticEvents.slice(-8).reverse();
@@ -3753,6 +5497,9 @@ ${inlineSurfaceFrostedGlass.overlay}
         section.hidden = !active;
         section.setAttribute("aria-hidden", String(!active));
         section.dataset.active = String(active);
+      }
+      if (tab === "help") {
+        this.renderHelp();
       }
       this.content.scrollTop = (options == null ? void 0 : options.preserveScroll) ? (_b = (_a = options.scrollTop) != null ? _a : this.contentScrollByTab[tab]) != null ? _b : 0 : 0;
     }
@@ -5302,7 +7049,11 @@ ${inlineSurfaceFrostedGlass.overlay}
               this.applyAppearance(segment);
             }
           } else if (this.localActionsAvailable) {
-            yield this.callbacks.onLocalDecision(segment, type === 1 ? "confirm" : "dismiss");
+            try {
+              yield this.callbacks.onLocalDecision(segment, type === 1 ? "confirm" : "dismiss");
+            } catch (e) {
+              return;
+            }
             if (this.currentSegment === segment) {
               this.voteLocked = true;
               this.applyAppearance(segment);
@@ -6374,6 +8125,9 @@ ${inlineSurfaceFrostedGlass.overlay}
       })
     );
   }
+  function normalizeCommentFeedbackEntries(payload) {
+    return Object.entries(payload != null ? payload : {}).filter(([key, value]) => key.startsWith("BV") && Number.isFinite(value)).sort((left, right) => right[1] - left[1]).slice(0, COMMENT_FEEDBACK_MAX_RECORDS);
+  }
   function loadSubmittedCommentFeedbackKeys() {
     return __async(this, null, function* () {
       if (submittedCommentFeedbackLoaded) {
@@ -6384,7 +8138,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       }
       submittedCommentFeedbackLoadPromise = gmGetValue(COMMENT_FEEDBACK_STORAGE_KEY, null).then((payload) => {
         submittedCommentFeedbackKeys.clear();
-        const entries = Object.entries(payload != null ? payload : {}).filter(([key, value]) => key.startsWith("BV") && Number.isFinite(value)).sort((left, right) => right[1] - left[1]).slice(0, COMMENT_FEEDBACK_MAX_RECORDS);
+        const entries = normalizeCommentFeedbackEntries(payload);
         for (const [key] of entries) {
           submittedCommentFeedbackKeys.add(key);
         }
@@ -6414,9 +8168,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       submittedCommentFeedbackKeys.add(key);
       const existing = yield gmGetValue(COMMENT_FEEDBACK_STORAGE_KEY, null);
       const now = Date.now();
-      const payload = Object.fromEntries(
-        Object.entries(__spreadProps(__spreadValues({}, existing != null ? existing : {}), { [key]: now })).filter(([entryKey, value]) => entryKey.startsWith("BV") && Number.isFinite(value)).sort((left, right) => right[1] - left[1]).slice(0, COMMENT_FEEDBACK_MAX_RECORDS)
-      );
+      const payload = Object.fromEntries(normalizeCommentFeedbackEntries(__spreadProps(__spreadValues({}, existing != null ? existing : {}), { [key]: now })));
       submittedCommentFeedbackKeys.clear();
       for (const entryKey of Object.keys(payload)) {
         submittedCommentFeedbackKeys.add(entryKey);
@@ -6427,6 +8179,33 @@ ${inlineSurfaceFrostedGlass.overlay}
         submittedCommentFeedbackKeys.clear();
         for (const entryKey of previousKeys) {
           submittedCommentFeedbackKeys.add(entryKey);
+        }
+        throw error;
+      }
+    });
+  }
+  function getCommentFeedbackRecordsSummary() {
+    return __async(this, null, function* () {
+      var _a, _b;
+      const entries = normalizeCommentFeedbackEntries(yield gmGetValue(COMMENT_FEEDBACK_STORAGE_KEY, null));
+      return {
+        count: entries.length,
+        maxRecords: COMMENT_FEEDBACK_MAX_RECORDS,
+        latestUpdatedAt: (_b = (_a = entries[0]) == null ? void 0 : _a[1]) != null ? _b : null
+      };
+    });
+  }
+  function clearSubmittedCommentFeedbackRecords() {
+    return __async(this, null, function* () {
+      yield loadSubmittedCommentFeedbackKeys();
+      const previousKeys = new Set(submittedCommentFeedbackKeys);
+      submittedCommentFeedbackKeys.clear();
+      try {
+        yield gmSetValue(COMMENT_FEEDBACK_STORAGE_KEY, {});
+      } catch (error) {
+        submittedCommentFeedbackKeys.clear();
+        for (const key of previousKeys) {
+          submittedCommentFeedbackKeys.add(key);
         }
         throw error;
       }
@@ -7210,7 +8989,7 @@ ${inlineSurfaceFrostedGlass.overlay}
       }
     }
     shouldRenderDisabledFeedback() {
-      return this.localVideoFeedbackAvailability.disabledReason === "upstream-whole-video" || this.localVideoFeedbackAvailability.disabledReason === "pending-upstream";
+      return this.localVideoFeedbackAvailability.disabledReason === "manual-decision" || this.localVideoFeedbackAvailability.disabledReason === "upstream-whole-video" || this.localVideoFeedbackAvailability.disabledReason === "pending-upstream";
     }
     processVueComments() {
       if (!this.currentConfig.commentLocationEnabled) {
@@ -7717,17 +9496,12 @@ ${inlineSurfaceFrostedGlass.overlay}
           segmentCount: this.currentSegments.length
         });
         this.syncLocalFeedbackAvailability();
-        if (shouldPersistLocalVideoSignal(signal)) {
-          void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal).catch((error) => {
-            debugLog("Failed to persist runtime local video signal", error);
-            reportDiagnostic({
-              severity: "warn",
-              area: "storage",
-              message: "\u672C\u5730\u89C6\u9891\u63A8\u7406\u7ED3\u679C\u5199\u5165\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u5F53\u524D\u9875\u9762\u4E34\u65F6\u663E\u793A",
-              detail: error
-            });
-          });
-        }
+        this.persistAutomaticLocalVideoSignal(
+          this.currentContext.bvid,
+          signal,
+          "Failed to persist runtime local video signal",
+          "\u672C\u5730\u89C6\u9891\u63A8\u7406\u7ED3\u679C\u5199\u5165\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u5F53\u524D\u9875\u9762\u4E34\u65F6\u663E\u793A"
+        );
       });
       __publicField(this, "handleVideoSignalFeedback", (event) => {
         var _a, _b, _c, _d;
@@ -7778,17 +9552,12 @@ ${inlineSurfaceFrostedGlass.overlay}
           this.currentTitleLabel = segment;
           this.updateTitleBadge(segment);
           this.panel.setFullVideoLabels([segment]);
-          if (shouldPersistLocalVideoSignal(signal)) {
-            void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal).catch((error) => {
-              debugLog("Failed to persist comment local video signal", error);
-              reportDiagnostic({
-                severity: "warn",
-                area: "storage",
-                message: "\u8BC4\u8BBA\u89E6\u53D1\u7684\u672C\u5730\u89C6\u9891\u63A8\u7406\u5199\u5165\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u5F53\u524D\u9875\u9762\u4E34\u65F6\u663E\u793A",
-                detail: error
-              });
-            });
-          }
+          this.persistAutomaticLocalVideoSignal(
+            this.currentContext.bvid,
+            signal,
+            "Failed to persist comment local video signal",
+            "\u8BC4\u8BBA\u89E6\u53D1\u7684\u672C\u5730\u89C6\u9891\u63A8\u7406\u5199\u5165\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u5F53\u524D\u9875\u9762\u4E34\u65F6\u663E\u793A"
+          );
         }
         this.notices.show({
           id: `comment-feedback-confirm:${this.currentContext.bvid}:${String((_d = detail.feedbackKey) != null ? _d : Date.now())}`,
@@ -7843,6 +9612,24 @@ ${inlineSurfaceFrostedGlass.overlay}
             message: "\u6240\u6709\u811A\u672C\u8BBE\u7F6E\u5DF2\u6062\u590D\u4E3A\u521D\u59CB\u9ED8\u8BA4\u503C\u3002",
             durationMs: 4e3
           });
+        }),
+        onListLocalVideoLabels: () => __async(this, null, function* () {
+          return this.localVideoLabelStore.listRecords();
+        }),
+        onDeleteLocalVideoLabel: (videoId) => __async(this, null, function* () {
+          yield this.localVideoLabelStore.deleteRecord(videoId);
+          this.syncLocalFeedbackAvailability();
+        }),
+        onClearLocalVideoLabels: () => __async(this, null, function* () {
+          yield this.localVideoLabelStore.clearRecords();
+          this.syncLocalFeedbackAvailability();
+        }),
+        onGetCommentFeedbackSummary: () => __async(this, null, function* () {
+          return getCommentFeedbackRecordsSummary();
+        }),
+        onClearCommentFeedback: () => __async(this, null, function* () {
+          yield clearSubmittedCommentFeedbackRecords();
+          this.syncLocalFeedbackAvailability();
         }),
         onClose: (reason) => {
           if (reason === "user") {
@@ -8679,6 +10466,8 @@ ${inlineSurfaceFrostedGlass.overlay}
         disabledReason = "pending-upstream";
       } else if (this.currentFullVideoLabels.length > 0) {
         disabledReason = "upstream-whole-video";
+      } else if (bvid && this.hasLocalManualDecision(bvid)) {
+        disabledReason = "manual-decision";
       }
       return {
         enabled: baseEnabled && !disabledReason,
@@ -8754,37 +10543,123 @@ ${inlineSurfaceFrostedGlass.overlay}
           this.currentRuntimeLocalSignal = null;
           return null;
         }
-        if (shouldPersistLocalVideoSignal(localSignal)) {
-          yield this.localVideoLabelStore.rememberSignal(context.bvid, localSignal);
-        }
+        yield this.persistAutomaticLocalVideoSignalNow(
+          context.bvid,
+          localSignal,
+          "Failed to persist initial local video signal",
+          "\u521D\u59CB\u672C\u5730\u89C6\u9891\u63A8\u7406\u7ED3\u679C\u5199\u5165\u5931\u8D25"
+        );
         this.currentRuntimeLocalSignal = localSignal;
         return this.buildLocalSignalSegment(context.bvid, localSignal);
       });
     }
+    persistAutomaticLocalVideoSignal(videoId, signal, debugMessage, diagnosticMessage) {
+      if (!shouldPersistLocalVideoSignal(signal)) {
+        return;
+      }
+      void this.localVideoLabelStore.rememberSignal(videoId, signal).then(() => {
+        this.panel.refreshLocalLearningRecords();
+      }).catch((error) => {
+        debugLog(debugMessage, error);
+        reportDiagnostic({
+          severity: "warn",
+          area: "storage",
+          message: diagnosticMessage,
+          detail: error
+        });
+      });
+    }
+    persistAutomaticLocalVideoSignalNow(videoId, signal, debugMessage, diagnosticMessage) {
+      return __async(this, null, function* () {
+        if (!shouldPersistLocalVideoSignal(signal)) {
+          return;
+        }
+        try {
+          yield this.localVideoLabelStore.rememberSignal(videoId, signal);
+        } catch (error) {
+          debugLog(debugMessage, error);
+          reportDiagnostic({
+            severity: "warn",
+            area: "storage",
+            message: diagnosticMessage,
+            detail: error
+          });
+          throw error;
+        }
+        this.panel.refreshLocalLearningRecords();
+      });
+    }
     resolveAutomaticLocalSignalSource(source) {
       return source === "comment-goods" || source === "comment-suspicion" || source === "page-heuristic" ? source : null;
+    }
+    resolveLocalSignalVideoId(segment) {
+      var _a;
+      const match = /^local-signal:(BV[^:]+):/u.exec(segment.UUID);
+      return (_a = match == null ? void 0 : match[1]) != null ? _a : null;
+    }
+    showLocalFeedbackFailure(videoId, error) {
+      reportDiagnostic({
+        severity: "warn",
+        area: "storage",
+        message: "\u672C\u5730\u89C6\u9891\u53CD\u9988\u5199\u5165\u5931\u8D25",
+        detail: error
+      });
+      this.notices.show({
+        id: `local-feedback-failed:${videoId != null ? videoId : "unknown"}`,
+        title: "\u672C\u5730\u53CD\u9988\u4FDD\u5B58\u5931\u8D25",
+        message: "\u8FD9\u6B21\u672C\u5730\u53CD\u9988\u6CA1\u6709\u5199\u5165\u6210\u529F\uFF0C\u5F53\u524D\u63D0\u793A\u72B6\u6001\u4E0D\u4F1A\u88AB\u6807\u8BB0\u4E3A\u5DF2\u5904\u7406\u3002",
+        durationMs: 3600
+      });
     }
     handleLocalBadgeDecision(segment, decision) {
       return __async(this, null, function* () {
         if (!this.currentContext || !segment.UUID.startsWith("local-signal:")) {
           return;
         }
-        if (this.hasLocalManualDecision(this.currentContext.bvid)) {
-          this.showDuplicateLocalFeedbackNotice(this.currentContext.bvid);
+        const segmentVideoId = this.resolveLocalSignalVideoId(segment);
+        const currentVideoId = this.currentContext.bvid;
+        if (!segmentVideoId || segmentVideoId !== currentVideoId) {
+          const error = new Error("local signal video context mismatch");
+          reportDiagnostic({
+            severity: "warn",
+            area: "runtime",
+            message: "\u672C\u5730\u53CD\u9988\u89C6\u9891\u4E0A\u4E0B\u6587\u4E0D\u4E00\u81F4\uFF0C\u5DF2\u62D2\u7EDD\u5199\u5165",
+            detail: {
+              segmentUUID: segment.UUID,
+              segmentVideoId,
+              currentVideoId
+            }
+          });
+          this.notices.show({
+            id: `local-feedback-mismatch:${currentVideoId}`,
+            title: "\u672C\u5730\u53CD\u9988\u672A\u4FDD\u5B58",
+            message: "\u9875\u9762\u89C6\u9891\u4E0A\u4E0B\u6587\u5DF2\u7ECF\u53D8\u5316\uFF0C\u8FD9\u6B21\u53CD\u9988\u6CA1\u6709\u5199\u5165\uFF0C\u907F\u514D\u5199\u9519\u89C6\u9891\u3002",
+            durationMs: 3600
+          });
+          throw error;
+        }
+        if (this.hasLocalManualDecision(currentVideoId)) {
+          this.showDuplicateLocalFeedbackNotice(currentVideoId);
           return;
         }
         if (decision === "confirm") {
-          yield this.localVideoLabelStore.rememberManual(this.currentContext.bvid, segment.category, `\u624B\u52A8\u4FDD\u7559 ${CATEGORY_LABELS[segment.category]}`);
+          try {
+            yield this.localVideoLabelStore.rememberManual(currentVideoId, segment.category, `\u624B\u52A8\u4FDD\u7559 ${CATEGORY_LABELS[segment.category]}`);
+          } catch (error) {
+            this.showLocalFeedbackFailure(currentVideoId, error);
+            throw error;
+          }
           this.currentRuntimeLocalSignal = null;
-          this.currentTitleLabel = this.buildLocalSignalSegment(this.currentContext.bvid, {
+          this.currentTitleLabel = this.buildLocalSignalSegment(currentVideoId, {
             category: segment.category,
             source: "manual",
             reason: `\u624B\u52A8\u4FDD\u7559 ${CATEGORY_LABELS[segment.category]}`
           });
           this.updateTitleBadge(this.currentTitleLabel);
           this.panel.setFullVideoLabels([this.currentTitleLabel]);
+          this.panel.refreshLocalLearningRecords();
           this.notices.show({
-            id: `local-label-confirm:${this.currentContext.bvid}`,
+            id: `local-label-confirm:${currentVideoId}`,
             title: "\u5DF2\u4FDD\u7559\u672C\u5730\u6807\u7B7E",
             message: `\u5DF2\u8BB0\u5F55\u4E3A\u4F60\u7684\u672C\u5730\u5224\u65AD\u3002\u540E\u7EED\u8FDB\u5165\u5F53\u524D\u89C6\u9891\u65F6\u4F1A\u7EE7\u7EED\u663E\u793A\u201C${CATEGORY_LABELS[segment.category]}\u201D\uFF0C\u8BE5\u672C\u5730\u53CD\u9988\u4E0D\u53EF\u91CD\u590D\u63D0\u4EA4\u3002`,
             durationMs: 3600
@@ -8792,19 +10667,25 @@ ${inlineSurfaceFrostedGlass.overlay}
           this.syncLocalFeedbackAvailability();
           return;
         }
-        yield this.localVideoLabelStore.dismiss(this.currentContext.bvid, `\u624B\u52A8\u5FFD\u7565 ${CATEGORY_LABELS[segment.category]}`);
+        try {
+          yield this.localVideoLabelStore.dismiss(currentVideoId, `\u624B\u52A8\u5FFD\u7565 ${CATEGORY_LABELS[segment.category]}`);
+        } catch (error) {
+          this.showLocalFeedbackFailure(currentVideoId, error);
+          throw error;
+        }
         this.currentRuntimeLocalSignal = null;
         this.currentTitleLabel = null;
         this.titleBadge.clear();
         this.panel.setFullVideoLabels([]);
+        this.panel.refreshLocalLearningRecords();
         this.updateRuntimeStatus({
           kind: this.currentSegments.length > 0 ? "loaded" : "empty",
           message: this.currentSegments.length > 0 ? `\u5DF2\u52A0\u8F7D ${this.currentSegments.length} \u4E2A\u53EF\u5904\u7406\u7247\u6BB5` : "\u5F53\u524D\u89C6\u9891\u6682\u65E0\u53EF\u663E\u793A\u7684\u6574\u89C6\u9891\u6807\u7B7E",
-          bvid: this.currentContext.bvid,
+          bvid: currentVideoId,
           segmentCount: this.currentSegments.length
         });
         this.notices.show({
-          id: `local-label-dismiss:${this.currentContext.bvid}`,
+          id: `local-label-dismiss:${currentVideoId}`,
           title: "\u5DF2\u5FFD\u7565\u672C\u5730\u6807\u7B7E",
           message: "\u5DF2\u8BB0\u5F55\u4E3A\u4F60\u7684\u672C\u5730\u5224\u65AD\u3002\u540E\u7EED\u5F53\u524D\u89C6\u9891\u4E0D\u4F1A\u518D\u663E\u793A\u8FD9\u6761\u672C\u5730\u5546\u4E1A\u63D0\u793A\uFF0C\u8BE5\u672C\u5730\u53CD\u9988\u4E0D\u53EF\u91CD\u590D\u63D0\u4EA4\u3002",
           durationMs: 3600
@@ -9881,904 +11762,6 @@ ${inlineSurfaceFrostedGlass.overlay}
     registerMenuCommand(QOL_CORE_MENU_LABELS[2], () => {
       void controller.clearCache();
     });
-  }
-
-  // src/features/mbga/core.ts
-  var MBGA_MARKS = {
-    urlCleaner: "__BSB_MBGA_URL_CLEANER__",
-    blockTracking: "__BSB_MBGA_BLOCK_TRACKING__",
-    pcdnDisabler: "__BSB_MBGA_PCDN_DISABLER__",
-    dynamicWideSwitch: "__BSB_MBGA_DYNAMIC_WIDE_SWITCH__",
-    articleCopyUnlock: "__BSB_MBGA_ARTICLE_COPY_UNLOCK__",
-    videoFitMode: "__BSB_MBGA_VIDEO_FIT_MODE__",
-    grayscaleObserver: "__BSB_MBGA_GRAYSCALE_OBSERVER__"
-  };
-  var ARTICLE_COPY_UNLOCKED_ATTR = "data-bsb-mbga-copy-unlocked";
-  var ARTICLE_COPY_UNLOCK_TIMEOUT_MS = 1e4;
-  var USELESS_URL_PARAMS = [
-    "buvid",
-    "is_story_h5",
-    "launch_id",
-    "live_from",
-    "mid",
-    "session_id",
-    "timestamp",
-    "up_id",
-    "vd_source",
-    /^share/u,
-    /^spm/u
-  ];
-  var TELEMETRY_HOST_RULES = [
-    { host: "cm.bilibili.com", reason: "cm telemetry" },
-    { host: "data.bilibili.com", reason: "data telemetry" }
-  ];
-  function getUnsafeWindow() {
-    return typeof window.unsafeWindow !== "undefined" ? window.unsafeWindow : window;
-  }
-  function createMbgaContext(config, win = getUnsafeWindow(), doc = document) {
-    const url = new URL(win.location.href);
-    return {
-      config,
-      doc,
-      win,
-      url
-    };
-  }
-  function isSameOrSubdomain(hostname, expectedHost) {
-    return hostname === expectedHost || hostname.endsWith(`.${expectedHost}`);
-  }
-  function normalizeRequestUrl(input, baseHref) {
-    try {
-      if (typeof input === "string") {
-        return new URL(input, baseHref);
-      }
-      if (input instanceof URL) {
-        return new URL(input.toString());
-      }
-      if (typeof input.url === "string") {
-        return new URL(input.url, baseHref);
-      }
-    } catch (_error) {
-      return null;
-    }
-    return null;
-  }
-  function defineWritableValue(target, key, value) {
-    try {
-      Object.defineProperty(target, key, {
-        configurable: true,
-        enumerable: false,
-        writable: true,
-        value
-      });
-    } catch (_error) {
-    }
-  }
-  function createNoopCallable() {
-    const callable = (() => void 0);
-    return new Proxy(callable, {
-      get(target, property) {
-        var _a;
-        if (property === Symbol.toPrimitive) {
-          return () => "";
-        }
-        if (property === "then") {
-          return void 0;
-        }
-        return (_a = Reflect.get(target, property)) != null ? _a : createNoopCallable();
-      },
-      apply() {
-        return void 0;
-      },
-      construct() {
-        return createNoopCallable();
-      }
-    });
-  }
-  function installGlobalValue(win, key, value) {
-    const current = Reflect.get(win, key);
-    if (typeof current !== "undefined") {
-      return;
-    }
-    try {
-      Object.defineProperty(win, key, {
-        configurable: true,
-        enumerable: false,
-        writable: true,
-        value
-      });
-    } catch (_error) {
-      Reflect.set(win, key, value);
-    }
-  }
-  function installSentryShim(win) {
-    var _a, _b, _c, _d, _e;
-    const hub = { bindClient() {
-    } };
-    const noop = () => void 0;
-    const sentry = typeof win.Sentry === "object" && win.Sentry ? win.Sentry : {};
-    (_a = sentry.BrowserClient) != null ? _a : sentry.BrowserClient = class {
-    };
-    (_b = sentry.Hub) != null ? _b : sentry.Hub = class {
-      bindClient() {
-      }
-    };
-    (_c = sentry.Integrations) != null ? _c : sentry.Integrations = {
-      Vue: class {
-      },
-      GlobalHandlers: class {
-      },
-      InboundFilters: class {
-      }
-    };
-    for (const method of [
-      "init",
-      "configureScope",
-      "captureException",
-      "captureMessage",
-      "captureEvent",
-      "setContext",
-      "setExtra",
-      "setExtras",
-      "setTag",
-      "setTags",
-      "setUser",
-      "wrap"
-    ]) {
-      sentry[method] = noop;
-    }
-    (_d = sentry.SDK_NAME) != null ? _d : sentry.SDK_NAME = "sentry.javascript.browser";
-    (_e = sentry.SDK_VERSION) != null ? _e : sentry.SDK_VERSION = "0.0.0-bsb";
-    sentry.getCurrentHub = () => hub;
-    win.Sentry = sentry;
-  }
-  function installWebRtcStubs(win) {
-    try {
-      class StubPeerConnection {
-        addEventListener() {
-        }
-        createDataChannel() {
-        }
-      }
-      class StubDataChannel {
-      }
-      installGlobalValue(win, "RTCPeerConnection", StubPeerConnection);
-      installGlobalValue(win, "RTCDataChannel", StubDataChannel);
-      installGlobalValue(win, "webkitRTCPeerConnection", StubPeerConnection);
-      installGlobalValue(win, "webkitRTCDataChannel", StubDataChannel);
-    } catch (_error) {
-    }
-  }
-  function findHeadBilivideoDomain(doc) {
-    var _a, _b, _c;
-    const domainPattern = /up[\w-]+\.bilivideo\.com/u;
-    const attributeCandidates = doc.head.querySelectorAll("[src], [href], [content]");
-    for (const node of attributeCandidates) {
-      for (const attributeName of ["src", "href", "content"]) {
-        const value = node.getAttribute(attributeName);
-        const match = (_a = value == null ? void 0 : value.match(domainPattern)) == null ? void 0 : _a[0];
-        if (match) {
-          return match;
-        }
-      }
-    }
-    return (_c = (_b = doc.head.textContent) == null ? void 0 : _b.match(domainPattern)) == null ? void 0 : _c[0];
-  }
-  function completeBlockedXhr(xhr, win, url, decision) {
-    var _a, _b;
-    const status = (_a = decision.syntheticStatus) != null ? _a : 204;
-    const body = (_b = decision.syntheticBody) != null ? _b : "";
-    defineWritableValue(xhr, "readyState", 4);
-    defineWritableValue(xhr, "status", status);
-    defineWritableValue(xhr, "statusText", "No Content");
-    defineWritableValue(xhr, "responseText", body);
-    defineWritableValue(xhr, "response", body);
-    defineWritableValue(xhr, "responseURL", url);
-    const fire = (type, handlerKey) => {
-      const event = typeof win.Event === "function" ? new win.Event(type) : void 0;
-      const handler = xhr[handlerKey];
-      if (typeof handler === "function") {
-        handler.call(xhr, event);
-      }
-      if (typeof xhr.dispatchEvent === "function" && event) {
-        xhr.dispatchEvent(event);
-      }
-    };
-    fire("readystatechange", "onreadystatechange");
-    fire("load", "onload");
-    fire("loadend", "onloadend");
-  }
-  function createSyntheticFetchResponse(win, decision) {
-    var _a, _b;
-    const status = (_a = decision.syntheticStatus) != null ? _a : 204;
-    const body = status === 204 || status === 205 || status === 304 ? null : (_b = decision.syntheticBody) != null ? _b : "";
-    if (typeof win.Response === "function") {
-      return new win.Response(body, {
-        status,
-        statusText: "No Content",
-        headers: {
-          "content-type": "text/plain;charset=UTF-8",
-          "x-bsb-mbga": decision.reason
-        }
-      });
-    }
-    return new Response(body, {
-      status,
-      statusText: "No Content",
-      headers: {
-        "content-type": "text/plain;charset=UTF-8",
-        "x-bsb-mbga": decision.reason
-      }
-    });
-  }
-  function ensureScopedStyle(doc, id, css) {
-    if (doc.querySelector(`style[data-bsb-mbga-style="${id}"]`)) {
-      return;
-    }
-    const style = doc.createElement("style");
-    style.setAttribute("data-bsb-mbga-style", id);
-    style.textContent = css;
-    (doc.head || doc.documentElement).appendChild(style);
-  }
-  function isVideoPage(url) {
-    return url.hostname === "www.bilibili.com" && (url.pathname.startsWith("/video/") || url.pathname.startsWith("/bangumi/play/"));
-  }
-  function isArticlePage(url) {
-    return url.hostname === "www.bilibili.com" && url.pathname.startsWith("/read/cv");
-  }
-  function isDynamicPage(url) {
-    return url.hostname === "t.bilibili.com";
-  }
-  function isLivePage(url) {
-    return url.hostname === "live.bilibili.com";
-  }
-  function isMainFeedPage(url) {
-    return url.hostname === "www.bilibili.com" && (url.pathname === "/" || url.pathname.startsWith("/?"));
-  }
-  function ensurePageFilterNeutralized(doc) {
-    for (const element of [doc.documentElement, doc.body]) {
-      if (!(element instanceof HTMLElement)) {
-        continue;
-      }
-      const inlineFilter = [element.style.filter, element.style.webkitFilter].join(" ");
-      const computedStyle = typeof getComputedStyle === "function" ? getComputedStyle(element) : null;
-      const computedFilter = computedStyle ? computedStyle.filter : "";
-      if (!/grayscale/iu.test(`${inlineFilter} ${computedFilter}`)) {
-        continue;
-      }
-      element.style.setProperty("filter", "none", "important");
-      element.style.setProperty("-webkit-filter", "none", "important");
-    }
-  }
-  function mountGrayscaleCleanup(ctx) {
-    const win = ctx.win;
-    ensurePageFilterNeutralized(ctx.doc);
-    if (win[MBGA_MARKS.grayscaleObserver]) {
-      return;
-    }
-    const observer = new MutationObserver(() => {
-      ensurePageFilterNeutralized(ctx.doc);
-    });
-    observer.observe(ctx.doc.documentElement, {
-      attributes: true,
-      attributeFilter: ["class", "style"],
-      subtree: false
-    });
-    if (ctx.doc.body) {
-      observer.observe(ctx.doc.body, {
-        attributes: true,
-        attributeFilter: ["class", "style"],
-        subtree: false
-      });
-    }
-    win[MBGA_MARKS.grayscaleObserver] = observer;
-  }
-  function removeTracking(url, baseHref = window.location.href) {
-    if (!url) {
-      return url != null ? url : "";
-    }
-    try {
-      const urlObj = new URL(url, baseHref);
-      if (!urlObj.search) {
-        return url;
-      }
-      const searchParams = urlObj.searchParams;
-      for (const key of [...searchParams.keys()]) {
-        for (const matcher of USELESS_URL_PARAMS) {
-          const matched = typeof matcher === "string" ? matcher === key : matcher.test(key);
-          if (matched) {
-            searchParams.delete(key);
-            break;
-          }
-        }
-      }
-      urlObj.search = searchParams.toString();
-      return urlObj.toString();
-    } catch (_error) {
-      return url;
-    }
-  }
-  function resolveMbgaNetworkDecision(input, baseHref = window.location.href) {
-    const url = normalizeRequestUrl(input, baseHref);
-    if (!url) {
-      return {
-        action: "allow",
-        reason: "invalid-url"
-      };
-    }
-    for (const rule of TELEMETRY_HOST_RULES) {
-      if (isSameOrSubdomain(url.hostname, rule.host)) {
-        return {
-          action: "block",
-          reason: rule.reason,
-          matchedUrl: url.toString(),
-          syntheticStatus: 204,
-          syntheticBody: ""
-        };
-      }
-    }
-    return {
-      action: "allow",
-      reason: "not-matched",
-      matchedUrl: url.toString()
-    };
-  }
-  function mountUrlCleaner(ctx) {
-    const win = ctx.win;
-    if (win[MBGA_MARKS.urlCleaner] || typeof win.history === "undefined") {
-      return;
-    }
-    win[MBGA_MARKS.urlCleaner] = true;
-    win.history.replaceState(void 0, "", removeTracking(win.location.href, win.location.href));
-    const originalPushState = win.history.pushState;
-    win.history.pushState = function(state, unused, url) {
-      const nextUrl = typeof url === "undefined" || url === null ? url : removeTracking(String(url), win.location.href);
-      return originalPushState.call(this, state, unused, nextUrl);
-    };
-    const originalReplaceState = win.history.replaceState;
-    win.history.replaceState = function(state, unused, url) {
-      const nextUrl = typeof url === "undefined" || url === null ? url : removeTracking(String(url), win.location.href);
-      return originalReplaceState.call(this, state, unused, nextUrl);
-    };
-  }
-  function mountBlockTracking(ctx) {
-    var _a;
-    const win = ctx.win;
-    if (win[MBGA_MARKS.blockTracking]) {
-      return;
-    }
-    win[MBGA_MARKS.blockTracking] = true;
-    if (typeof win.fetch === "function") {
-      const originalFetch = win.fetch.bind(win);
-      win.fetch = function(input, init) {
-        const decision = resolveMbgaNetworkDecision(input, win.location.href);
-        if (decision.action === "block") {
-          return Promise.resolve(createSyntheticFetchResponse(win, decision));
-        }
-        return originalFetch(input, init);
-      };
-    }
-    if ((_a = win.XMLHttpRequest) == null ? void 0 : _a.prototype) {
-      const originalOpen = win.XMLHttpRequest.prototype.open;
-      const originalSend = win.XMLHttpRequest.prototype.send;
-      const decisionKey = "__bsbMbgaDecision";
-      const urlKey = "__bsbMbgaUrl";
-      win.XMLHttpRequest.prototype.open = function(method, url, async, username, password) {
-        const decision = resolveMbgaNetworkDecision(url, win.location.href);
-        defineWritableValue(this, decisionKey, decision);
-        defineWritableValue(this, urlKey, String(url));
-        return originalOpen.call(this, method, String(url), async != null ? async : true, username != null ? username : null, password != null ? password : null);
-      };
-      win.XMLHttpRequest.prototype.send = function(body) {
-        var _a2;
-        const decision = Reflect.get(this, decisionKey);
-        if ((decision == null ? void 0 : decision.action) === "block") {
-          const requestUrl = String((_a2 = Reflect.get(this, urlKey)) != null ? _a2 : "");
-          queueMicrotask(() => completeBlockedXhr(this, win, requestUrl, decision));
-          return;
-        }
-        return originalSend.call(this, body != null ? body : null);
-      };
-    }
-    if (win.navigator && typeof win.navigator.sendBeacon === "function") {
-      const originalSendBeacon = win.navigator.sendBeacon.bind(win.navigator);
-      win.navigator.sendBeacon = function(url, data) {
-        const decision = resolveMbgaNetworkDecision(url, win.location.href);
-        if (decision.action === "block") {
-          return true;
-        }
-        return originalSendBeacon(url, data);
-      };
-    } else if (win.navigator) {
-      win.navigator.sendBeacon = function(url) {
-        const decision = resolveMbgaNetworkDecision(url, win.location.href);
-        return decision.action === "block" ? true : false;
-      };
-    }
-    installGlobalValue(win, "MReporterInstance", createNoopCallable());
-    installGlobalValue(win, "MReporter", createNoopCallable());
-    installGlobalValue(win, "ReporterPbInstance", createNoopCallable());
-    installGlobalValue(win, "ReporterPb", createNoopCallable());
-    installSentryShim(win);
-    try {
-      Object.defineProperty(win, "__biliUserFp__", {
-        configurable: true,
-        enumerable: false,
-        get() {
-          return {
-            init() {
-            },
-            queryUserLog() {
-              return [];
-            }
-          };
-        },
-        set() {
-        }
-      });
-      Object.defineProperty(win, "__USER_FP_CONFIG__", {
-        configurable: true,
-        enumerable: false,
-        get() {
-          return void 0;
-        },
-        set() {
-        }
-      });
-      Object.defineProperty(win, "__MIRROR_CONFIG__", {
-        configurable: true,
-        enumerable: false,
-        get() {
-          return void 0;
-        },
-        set() {
-        }
-      });
-    } catch (_error) {
-    }
-  }
-  function mountPcdnDisabler(ctx) {
-    var _a, _b;
-    const win = ctx.win;
-    if (win[MBGA_MARKS.pcdnDisabler]) {
-      return;
-    }
-    win[MBGA_MARKS.pcdnDisabler] = true;
-    installWebRtcStubs(win);
-    installGlobalValue(win, "PCDNLoader", class {
-    });
-    installGlobalValue(
-      win,
-      "BPP2PSDK",
-      class {
-        on() {
-        }
-      }
-    );
-    installGlobalValue(win, "SeederSDK", class {
-    });
-    if (isVideoPage(ctx.url)) {
-      let cdnDomain;
-      const replaceP2PUrl = (input) => {
-        cdnDomain || (cdnDomain = findHeadBilivideoDomain(ctx.doc));
-        try {
-          const url = new URL(input);
-          if (url.hostname.endsWith(".mcdn.bilivideo.cn")) {
-            url.host = cdnDomain || "upos-sz-mirrorcoso1.bilivideo.com";
-            url.port = "443";
-            return url.toString();
-          }
-          if (url.hostname.endsWith(".szbdyd.com")) {
-            const source = url.searchParams.get("xy_usource");
-            if (source) {
-              url.host = source;
-              url.port = "443";
-            }
-            return url.toString();
-          }
-          return input;
-        } catch (_error) {
-          return input;
-        }
-      };
-      const replaceP2PUrlDeep = (value) => {
-        if (!value || typeof value !== "object") {
-          return;
-        }
-        for (const key of Object.keys(value)) {
-          const current = value[key];
-          if (typeof current === "string") {
-            value[key] = replaceP2PUrl(current);
-          } else if (current && typeof current === "object") {
-            replaceP2PUrlDeep(current);
-          }
-        }
-      };
-      if (win.__playinfo__) {
-        replaceP2PUrlDeep(win.__playinfo__);
-      }
-      if ((_a = win.HTMLMediaElement) == null ? void 0 : _a.prototype) {
-        const descriptor = Object.getOwnPropertyDescriptor(win.HTMLMediaElement.prototype, "src");
-        if (descriptor == null ? void 0 : descriptor.set) {
-          Object.defineProperty(win.HTMLMediaElement.prototype, "src", __spreadProps(__spreadValues({}, descriptor), {
-            set(value) {
-              var _a2;
-              (_a2 = descriptor.set) == null ? void 0 : _a2.call(this, replaceP2PUrl(value));
-            }
-          }));
-        }
-      }
-      if ((_b = win.XMLHttpRequest) == null ? void 0 : _b.prototype) {
-        const originalOpen = win.XMLHttpRequest.prototype.open;
-        win.XMLHttpRequest.prototype.open = function(...args) {
-          if (typeof args[1] === "string") {
-            args[1] = replaceP2PUrl(args[1]);
-          }
-          return originalOpen.apply(this, args);
-        };
-      }
-    }
-    if (isLivePage(ctx.url)) {
-      win.disableMcdn = true;
-      win.disableSmtcdns = true;
-      win.forceHighestQuality = true;
-      let recentErrors = 0;
-      win.setInterval(() => {
-        if (recentErrors > 0) {
-          recentErrors = Math.floor(recentErrors / 2);
-        }
-      }, 1e4);
-      if (typeof win.fetch === "function") {
-        const originalFetch = win.fetch.bind(win);
-        win.fetch = function(input, init) {
-          var _a2;
-          try {
-            const url = normalizeRequestUrl(input, ctx.win.location.href);
-            const urlString = (_a2 = url == null ? void 0 : url.toString()) != null ? _a2 : "";
-            const mcdnPattern = /[xy0-9]+\.mcdn\.bilivideo\.cn:\d+/u;
-            const smtcdnsPattern = /[\w.]+\.smtcdns\.net\/([\w-]+\.bilivideo\.com\/)/u;
-            const qualityPattern = /(live-bvc\/\d+\/live_\d+_\d+)_\w+/u;
-            let nextUrl = urlString;
-            let modified = false;
-            if (mcdnPattern.test(urlString) && win.disableMcdn) {
-              return Promise.reject(new Error("MCDN Disabled by MBGA"));
-            }
-            if (smtcdnsPattern.test(urlString) && win.disableSmtcdns) {
-              nextUrl = nextUrl.replace(smtcdnsPattern, "$1");
-              modified = true;
-            }
-            if (qualityPattern.test(urlString) && win.forceHighestQuality) {
-              nextUrl = nextUrl.replace(qualityPattern, "$1").replace(/(\d+)_(mini|pro)hevc/gu, "$1");
-              modified = true;
-            }
-            const requestInput = modified ? nextUrl : input;
-            const promise = originalFetch(requestInput, init);
-            promise.then((response) => {
-              if (!urlString.match(/\.(m3u8|m4s)/u)) {
-                return;
-              }
-              if ([403, 404].includes(response.status)) {
-                recentErrors += 1;
-              }
-              if (recentErrors >= 5 && win.forceHighestQuality) {
-                recentErrors = 0;
-                win.forceHighestQuality = false;
-                debugLog("MBGA Live: Dropping forceHighestQuality due to multi-error.");
-                window.dispatchEvent(new CustomEvent("bsb_mbga_live_fallback"));
-              }
-            });
-            return promise;
-          } catch (_error) {
-            return originalFetch(input, init);
-          }
-        };
-      }
-    }
-  }
-  function mountMainFeedCleanup(ctx) {
-    ensureScopedStyle(
-      ctx.doc,
-      "main-feed-cleanup",
-      `
-.adblock-tips,
-.feed-card:has(.bili-video-card > div:empty),
-.feed2 .feed-card:has(a[href*="cm.bilibili.com"]),
-.feed2 .feed-card:has(.bili-video-card:empty) {
-  display: none !important;
-}
-
-.feed2 .container > * {
-  margin-top: 0 !important;
-}
-
-.ad-report,
-a[href*="cm.bilibili.com"] {
-  display: none !important;
-}
-`
-    );
-  }
-  function mountDynamicWideMode(ctx) {
-    const win = ctx.win;
-    ensureScopedStyle(
-      ctx.doc,
-      "dynamic-wide-mode",
-      `
-html[wide] #app { display: flex; }
-html[wide] .bili-dyn-home--member { box-sizing: border-box; padding: 0 10px; width: 100%; flex: 1; }
-html[wide] .bili-dyn-content { width: initial; }
-html[wide] main { margin: 0 8px; flex: 1; overflow: hidden; width: initial; }
-.bili-dyn-list__item:has(.bili-dyn-card-goods),
-.bili-dyn-list__item:has(.bili-rich-text-module.goods) {
-  display: none !important;
-}
-`
-    );
-    if (win[MBGA_MARKS.dynamicWideSwitch]) {
-      return;
-    }
-    win[MBGA_MARKS.dynamicWideSwitch] = true;
-    if (!win.localStorage.getItem("WIDE_OPT_OUT")) {
-      ctx.doc.documentElement.setAttribute("wide", "wide");
-    }
-    const injectWideSwitch = () => {
-      const tabContainer = ctx.doc.querySelector(".bili-dyn-list-tabs__list");
-      if (!(tabContainer instanceof HTMLElement) || ctx.doc.getElementById("wide-mode-switch")) {
-        return;
-      }
-      const spacer = ctx.doc.createElement("div");
-      spacer.style.flex = "1";
-      const switchButton = ctx.doc.createElement("a");
-      switchButton.id = "wide-mode-switch";
-      switchButton.className = "bili-dyn-list-tabs__item";
-      switchButton.textContent = "\u5BBD\u5C4F\u6A21\u5F0F";
-      switchButton.addEventListener("click", (event) => {
-        event.preventDefault();
-        if (ctx.win.localStorage.getItem("WIDE_OPT_OUT")) {
-          win.localStorage.removeItem("WIDE_OPT_OUT");
-          ctx.doc.documentElement.setAttribute("wide", "wide");
-        } else {
-          win.localStorage.setItem("WIDE_OPT_OUT", "1");
-          ctx.doc.documentElement.removeAttribute("wide");
-        }
-      });
-      tabContainer.append(spacer, switchButton);
-    };
-    win.addEventListener("load", injectWideSwitch, { once: true });
-    win.setTimeout(injectWideSwitch, 2e3);
-  }
-  function mountArticleCopyUnlock(ctx) {
-    const win = ctx.win;
-    if (win[MBGA_MARKS.articleCopyUnlock]) {
-      return;
-    }
-    win[MBGA_MARKS.articleCopyUnlock] = true;
-    if (win.original) {
-      win.original.reprint = "1";
-    }
-    const unlockArticleHolder = (holder) => {
-      if (holder.getAttribute(ARTICLE_COPY_UNLOCKED_ATTR) === "true") {
-        return true;
-      }
-      holder.classList.remove("unable-reprint");
-      holder.setAttribute(ARTICLE_COPY_UNLOCKED_ATTR, "true");
-      holder.addEventListener(
-        "copy",
-        (event) => {
-          event.stopImmediatePropagation();
-        },
-        true
-      );
-      return true;
-    };
-    const existingHolder = ctx.doc.querySelector(".article-holder");
-    if (existingHolder instanceof HTMLElement) {
-      unlockArticleHolder(existingHolder);
-      return;
-    }
-    let timeoutId = null;
-    const observer = new MutationObserver(() => {
-      const holder = ctx.doc.querySelector(".article-holder");
-      if (!(holder instanceof HTMLElement)) {
-        return;
-      }
-      unlockArticleHolder(holder);
-      observer.disconnect();
-      if (timeoutId !== null) {
-        win.clearTimeout(timeoutId);
-        timeoutId = null;
-      }
-    });
-    observer.observe(ctx.doc.documentElement, {
-      childList: true,
-      subtree: true
-    });
-    timeoutId = win.setTimeout(() => {
-      observer.disconnect();
-      timeoutId = null;
-    }, ARTICLE_COPY_UNLOCK_TIMEOUT_MS);
-  }
-  function mountLiveUiCleanup(ctx) {
-    ensureScopedStyle(
-      ctx.doc,
-      "live-room-cleanup",
-      `
-div[data-cy=EvaRenderer_LayerWrapper]:has(.player) { z-index: 999999 !important; }
-.fixedPageBackground_root { z-index: 999999 !important; }
-#welcome-area-bottom-vm,
-.web-player-icon-roomStatus { display: none !important; }
-`
-    );
-  }
-  function mountVideoFitMode(ctx) {
-    const win = ctx.win;
-    ensureScopedStyle(
-      ctx.doc,
-      "video-fit-mode",
-      `
-body[video-fit] #bilibili-player video { object-fit: cover !important; }
-.bpx-player-ctrl-setting-fit-mode { display: flex; width: 100%; height: 32px; line-height: 32px; }
-.bpx-player-ctrl-setting-box .bui-panel-wrap,
-.bpx-player-ctrl-setting-box .bui-panel-item { min-height: 172px !important; }
-`
-    );
-    if (win[MBGA_MARKS.videoFitMode]) {
-      return;
-    }
-    win[MBGA_MARKS.videoFitMode] = true;
-    const injectFitButton = () => {
-      if (ctx.doc.querySelector(".bpx-player-ctrl-setting-fit-mode")) {
-        return;
-      }
-      const parent = ctx.doc.querySelector(".bpx-player-ctrl-setting-menu-left");
-      if (!(parent instanceof HTMLElement)) {
-        return;
-      }
-      const item = ctx.doc.createElement("div");
-      item.className = "bpx-player-ctrl-setting-fit-mode bui bui-switch";
-      const input = ctx.doc.createElement("input");
-      input.className = "bui-switch-input";
-      input.type = "checkbox";
-      const label = ctx.doc.createElement("label");
-      label.className = "bui-switch-label";
-      const name = ctx.doc.createElement("span");
-      name.className = "bui-switch-name";
-      name.textContent = "\u88C1\u5207\u6A21\u5F0F";
-      const body = ctx.doc.createElement("span");
-      body.className = "bui-switch-body";
-      const dot = ctx.doc.createElement("span");
-      dot.className = "bui-switch-dot";
-      dot.appendChild(ctx.doc.createElement("span"));
-      body.appendChild(dot);
-      label.append(name, body);
-      item.append(input, label);
-      const moreLink = ctx.doc.querySelector(".bpx-player-ctrl-setting-more");
-      if (moreLink instanceof HTMLElement) {
-        parent.insertBefore(item, moreLink);
-      } else {
-        parent.appendChild(item);
-      }
-      input.addEventListener("change", (event) => {
-        const checked = event.currentTarget.checked;
-        if (checked) {
-          ctx.doc.body.setAttribute("video-fit", "");
-        } else {
-          ctx.doc.body.removeAttribute("video-fit");
-        }
-      });
-    };
-    const timer = win.setInterval(() => {
-      if (ctx.doc.querySelector(".bpx-player-ctrl-setting-menu-left")) {
-        injectFitButton();
-        win.clearInterval(timer);
-      }
-    }, 1e3);
-    win.setTimeout(() => win.clearInterval(timer), 1e4);
-  }
-  var MBGA_RULES = [
-    {
-      id: "clean-url-params",
-      kind: "behavior",
-      safetyNotes: "Only strips explicit tracking params and preserves unrelated query keys.",
-      enabled: (config) => config.mbgaEnabled && config.mbgaCleanUrl,
-      match: () => true,
-      apply: mountUrlCleaner
-    },
-    {
-      id: "block-telemetry-reporters",
-      kind: "network",
-      safetyNotes: "Blocks only explicit telemetry hosts and returns predictable success semantics to callers.",
-      enabled: (config) => config.mbgaEnabled && config.mbgaBlockTracking,
-      match: () => true,
-      apply: mountBlockTracking
-    },
-    {
-      id: "disable-pcdn",
-      kind: "network",
-      safetyNotes: "Only rewrites known P2P/CDN hosts and installs transport stubs on video and live pages.",
-      enabled: (config) => config.mbgaEnabled && config.mbgaDisablePcdn,
-      match: (ctx) => isVideoPage(ctx.url) || isLivePage(ctx.url),
-      apply: mountPcdnDisabler
-    },
-    {
-      id: "neutralize-page-grayscale",
-      kind: "ui",
-      safetyNotes: "Only removes page-level grayscale when such filters are actually present.",
-      enabled: (config) => config.mbgaEnabled && config.mbgaSimplifyUi,
-      match: () => true,
-      apply: mountGrayscaleCleanup
-    },
-    {
-      id: "main-feed-cleanup",
-      kind: "ui",
-      safetyNotes: "Only hides explicit ad affordances on the main feed.",
-      enabled: (config) => config.mbgaEnabled && config.mbgaSimplifyUi,
-      match: (ctx) => isMainFeedPage(ctx.url),
-      apply: mountMainFeedCleanup
-    },
-    {
-      id: "dynamic-wide-mode",
-      kind: "ui",
-      safetyNotes: "Only runs on dynamic pages and preserves user opt-out in localStorage.",
-      enabled: (config) => config.mbgaEnabled && config.mbgaSimplifyUi,
-      match: (ctx) => isDynamicPage(ctx.url),
-      apply: mountDynamicWideMode
-    },
-    {
-      id: "article-copy-unlock",
-      kind: "behavior",
-      safetyNotes: "Only unlocks copy behavior on article pages and leaves other pages untouched.",
-      enabled: (config) => config.mbgaEnabled && config.mbgaSimplifyUi,
-      match: (ctx) => isArticlePage(ctx.url),
-      apply: mountArticleCopyUnlock
-    },
-    {
-      id: "live-room-ui-cleanup",
-      kind: "ui",
-      safetyNotes: "Only applies targeted live-room overlay cleanup selectors on live pages.",
-      enabled: (config) => config.mbgaEnabled && config.mbgaSimplifyUi,
-      match: (ctx) => isLivePage(ctx.url),
-      apply: mountLiveUiCleanup
-    },
-    {
-      id: "video-fit-mode",
-      kind: "behavior",
-      safetyNotes: "Only injects the fit toggle on video and bangumi player pages.",
-      enabled: (config) => config.mbgaEnabled && config.mbgaSimplifyUi,
-      match: (ctx) => isVideoPage(ctx.url),
-      apply: mountVideoFitMode
-    }
-  ];
-  var MBGA_CORE_RULE_IDS = /* @__PURE__ */ new Set(["clean-url-params", "block-telemetry-reporters", "disable-pcdn"]);
-  var MBGA_UI_RULE_IDS = /* @__PURE__ */ new Set([
-    "neutralize-page-grayscale",
-    "main-feed-cleanup",
-    "dynamic-wide-mode",
-    "article-copy-unlock",
-    "live-room-ui-cleanup",
-    "video-fit-mode"
-  ]);
-  function applyMbgaRules(config, shouldApply) {
-    const ctx = createMbgaContext(config);
-    for (const rule of MBGA_RULES) {
-      if (!shouldApply(rule)) {
-        continue;
-      }
-      if (!rule.enabled(config) || !rule.match(ctx)) {
-        continue;
-      }
-      try {
-        rule.apply(ctx);
-      } catch (error) {
-        debugLog(`MBGA rule failed: ${rule.id}`, error);
-      }
-    }
-  }
-  function mountMbga(config) {
-    applyMbgaRules(config, (rule) => MBGA_CORE_RULE_IDS.has(rule.id));
-  }
-  function mountMbgaUi(config) {
-    applyMbgaRules(config, (rule) => MBGA_UI_RULE_IDS.has(rule.id));
   }
 
   // src/runtime/lifecycle.ts
@@ -12765,6 +13748,128 @@ ${titleSurfaceFrostedGlass.overlay}
     inset 0 1px 0 rgba(255, 255, 255, 0.82),
     0 12px 26px rgba(var(--bsb-danger-rgb), 0.1),
     0 0 0 3px rgba(var(--bsb-danger-rgb), 0.08);
+}
+
+.bsb-tm-local-learning-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at top right, rgba(var(--bsb-brand-blue-rgb), 0.12), transparent 32%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(240, 247, 255, 0.76));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.84),
+    0 12px 28px rgba(15, 23, 42, 0.055);
+}
+
+.bsb-tm-local-learning-heading,
+.bsb-tm-local-learning-subheading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.bsb-tm-local-learning-count {
+  padding: 4px 9px;
+  border-radius: 999px;
+  color: var(--bsb-text-secondary);
+  background: rgba(var(--bsb-brand-blue-rgb), 0.1);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.bsb-tm-local-learning-section {
+  display: grid;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.bsb-tm-local-learning-list {
+  --bsb-local-learning-list-max-height: 296px;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  max-height: var(--bsb-local-learning-list-max-height);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.bsb-tm-local-learning-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  max-height: var(--bsb-local-learning-item-height, none);
+  overflow: visible;
+  padding: 10px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.62);
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity 160ms var(--bsb-ease-swift),
+    transform 180ms var(--bsb-ease-fluid),
+    max-height 180ms var(--bsb-ease-fluid),
+    padding 180ms var(--bsb-ease-fluid),
+    border-color 160ms var(--bsb-ease-swift);
+}
+
+.bsb-tm-local-learning-item[data-removing="true"] {
+  max-height: 0;
+  overflow: hidden;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-color: transparent;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+}
+
+.bsb-tm-local-learning-item[data-source="manual"],
+.bsb-tm-local-learning-item[data-source="manual-dismiss"] {
+  border-color: rgba(var(--bsb-brand-blue-rgb), 0.2);
+}
+
+.bsb-tm-local-learning-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.bsb-tm-local-learning-copy small {
+  color: var(--bsb-text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.bsb-tm-local-learning-empty,
+.bsb-tm-local-learning-comment-summary p {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px dashed rgba(148, 163, 184, 0.28);
+  border-radius: 14px;
+  color: var(--bsb-subtle);
+  background: rgba(255, 255, 255, 0.42);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bsb-tm-local-learning-item {
+    transition: none;
+  }
+
+  .bsb-tm-local-learning-item[data-removing="true"] {
+    transform: none;
+  }
 }
 
 .bsb-tm-diagnostics-card {

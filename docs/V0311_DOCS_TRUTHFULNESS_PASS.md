@@ -4,7 +4,7 @@
 
 This pass aligns public documentation with the v0.3.11 reality audit evidence. It does not change runtime code, tests, build output, package metadata, release tags, or the isolated `codex/panel-choice-menu-version` branch.
 
-QoL Core v0.3.10 remains the published baseline. v0.3.11 is still a planning, audit, and evidence-hardening phase.
+This pass was written while QoL Core v0.3.10 was the published baseline. The v0.3.11 release candidate keeps these conservative boundaries and turns the evidence-hardening work into release documentation.
 
 ## What Changed
 
@@ -49,5 +49,5 @@ When these documents mention "fixed" or older "净化" wording, read it as histo
 
 - `bsb_tm_*` remains the internal compatibility key prefix and does not need user-visible renaming.
 - `codex/panel-choice-menu-version` remains an isolated experiment branch, not part of the release mainline.
-- v0.3.10 remains the current published baseline; v0.3.11 has not shipped.
+- v0.3.11 release prep preserves the same conservative MBGA boundaries; publication still depends on final Safari acceptance and release validation.
 - QoL Core remains a low-intrusion userscript, not a complete privacy, anti-tracking, or anti-PCDN product.

@@ -20,7 +20,9 @@ import { PreviewBar } from "../ui/preview-bar";
 import { TitleBadge, type TitleBadgeVoteResult } from "../ui/title-badge";
 import { CompactVideoHeader } from "../ui/compact-header";
 import {
+  clearSubmittedCommentFeedbackRecords,
   consumeCommentFeedbackToken,
+  getCommentFeedbackRecordsSummary,
   LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT,
   scanCurrentPageCommentSignal,
   VIDEO_SIGNAL_EVENT,
@@ -182,17 +184,12 @@ export class ScriptController {
       segmentCount: this.currentSegments.length
     });
     this.syncLocalFeedbackAvailability();
-    if (shouldPersistLocalVideoSignal(signal)) {
-      void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal).catch((error) => {
-        debugLog("Failed to persist runtime local video signal", error);
-        reportDiagnostic({
-          severity: "warn",
-          area: "storage",
-          message: "本地视频推理结果写入失败，已保留当前页面临时显示",
-          detail: error
-        });
-      });
-    }
+    this.persistAutomaticLocalVideoSignal(
+      this.currentContext.bvid,
+      signal,
+      "Failed to persist runtime local video signal",
+      "本地视频推理结果写入失败，已保留当前页面临时显示"
+    );
   };
   private readonly handleVideoSignalFeedback = (event: Event) => {
     if (!(event instanceof CustomEvent) || !this.started || !this.currentConfig.enabled || !this.currentContext) {
@@ -259,17 +256,12 @@ export class ScriptController {
       this.currentTitleLabel = segment;
       this.updateTitleBadge(segment);
       this.panel.setFullVideoLabels([segment]);
-      if (shouldPersistLocalVideoSignal(signal)) {
-        void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal).catch((error) => {
-          debugLog("Failed to persist comment local video signal", error);
-          reportDiagnostic({
-            severity: "warn",
-            area: "storage",
-            message: "评论触发的本地视频推理写入失败，已保留当前页面临时显示",
-            detail: error
-          });
-        });
-      }
+      this.persistAutomaticLocalVideoSignal(
+        this.currentContext.bvid,
+        signal,
+        "Failed to persist comment local video signal",
+        "评论触发的本地视频推理写入失败，已保留当前页面临时显示"
+      );
     }
 
     this.notices.show({
@@ -338,6 +330,20 @@ export class ScriptController {
           message: "所有脚本设置已恢复为初始默认值。",
           durationMs: 4000
         });
+      },
+      onListLocalVideoLabels: async () => this.localVideoLabelStore.listRecords(),
+      onDeleteLocalVideoLabel: async (videoId) => {
+        await this.localVideoLabelStore.deleteRecord(videoId);
+        this.syncLocalFeedbackAvailability();
+      },
+      onClearLocalVideoLabels: async () => {
+        await this.localVideoLabelStore.clearRecords();
+        this.syncLocalFeedbackAvailability();
+      },
+      onGetCommentFeedbackSummary: async () => getCommentFeedbackRecordsSummary(),
+      onClearCommentFeedback: async () => {
+        await clearSubmittedCommentFeedbackRecords();
+        this.syncLocalFeedbackAvailability();
       },
       onClose: (reason) => {
         if (reason === "user") {
@@ -1288,6 +1294,8 @@ export class ScriptController {
       disabledReason = "pending-upstream";
     } else if (this.currentFullVideoLabels.length > 0) {
       disabledReason = "upstream-whole-video";
+    } else if (bvid && this.hasLocalManualDecision(bvid)) {
+      disabledReason = "manual-decision";
     }
 
     return {
@@ -1379,16 +1387,90 @@ export class ScriptController {
       return null;
     }
 
-    if (shouldPersistLocalVideoSignal(localSignal)) {
-      await this.localVideoLabelStore.rememberSignal(context.bvid, localSignal);
-    }
+    await this.persistAutomaticLocalVideoSignalNow(
+      context.bvid,
+      localSignal,
+      "Failed to persist initial local video signal",
+      "初始本地视频推理结果写入失败"
+    );
 
     this.currentRuntimeLocalSignal = localSignal;
     return this.buildLocalSignalSegment(context.bvid, localSignal);
   }
 
+  private persistAutomaticLocalVideoSignal(
+    videoId: string,
+    signal: LocalVideoSignal,
+    debugMessage: string,
+    diagnosticMessage: string
+  ): void {
+    if (!shouldPersistLocalVideoSignal(signal)) {
+      return;
+    }
+
+    void this.localVideoLabelStore
+      .rememberSignal(videoId, signal)
+      .then(() => {
+        this.panel.refreshLocalLearningRecords();
+      })
+      .catch((error) => {
+        debugLog(debugMessage, error);
+        reportDiagnostic({
+          severity: "warn",
+          area: "storage",
+          message: diagnosticMessage,
+          detail: error
+        });
+      });
+  }
+
+  private async persistAutomaticLocalVideoSignalNow(
+    videoId: string,
+    signal: LocalVideoSignal,
+    debugMessage: string,
+    diagnosticMessage: string
+  ): Promise<void> {
+    if (!shouldPersistLocalVideoSignal(signal)) {
+      return;
+    }
+
+    try {
+      await this.localVideoLabelStore.rememberSignal(videoId, signal);
+    } catch (error) {
+      debugLog(debugMessage, error);
+      reportDiagnostic({
+        severity: "warn",
+        area: "storage",
+        message: diagnosticMessage,
+        detail: error
+      });
+      throw error;
+    }
+    this.panel.refreshLocalLearningRecords();
+  }
+
   private resolveAutomaticLocalSignalSource(source: LocalVideoLabelRecord["source"]): LocalVideoSignal["source"] | null {
     return source === "comment-goods" || source === "comment-suspicion" || source === "page-heuristic" ? source : null;
+  }
+
+  private resolveLocalSignalVideoId(segment: SegmentRecord): string | null {
+    const match = /^local-signal:(BV[^:]+):/u.exec(segment.UUID);
+    return match?.[1] ?? null;
+  }
+
+  private showLocalFeedbackFailure(videoId: string | null, error: unknown): void {
+    reportDiagnostic({
+      severity: "warn",
+      area: "storage",
+      message: "本地视频反馈写入失败",
+      detail: error
+    });
+    this.notices.show({
+      id: `local-feedback-failed:${videoId ?? "unknown"}`,
+      title: "本地反馈保存失败",
+      message: "这次本地反馈没有写入成功，当前提示状态不会被标记为已处理。",
+      durationMs: 3600
+    });
   }
 
   private async handleLocalBadgeDecision(segment: SegmentRecord, decision: "confirm" | "dismiss"): Promise<void> {
@@ -1396,23 +1478,52 @@ export class ScriptController {
       return;
     }
 
-    if (this.hasLocalManualDecision(this.currentContext.bvid)) {
-      this.showDuplicateLocalFeedbackNotice(this.currentContext.bvid);
+    const segmentVideoId = this.resolveLocalSignalVideoId(segment);
+    const currentVideoId = this.currentContext.bvid;
+    if (!segmentVideoId || segmentVideoId !== currentVideoId) {
+      const error = new Error("local signal video context mismatch");
+      reportDiagnostic({
+        severity: "warn",
+        area: "runtime",
+        message: "本地反馈视频上下文不一致，已拒绝写入",
+        detail: {
+          segmentUUID: segment.UUID,
+          segmentVideoId,
+          currentVideoId
+        }
+      });
+      this.notices.show({
+        id: `local-feedback-mismatch:${currentVideoId}`,
+        title: "本地反馈未保存",
+        message: "页面视频上下文已经变化，这次反馈没有写入，避免写错视频。",
+        durationMs: 3600
+      });
+      throw error;
+    }
+
+    if (this.hasLocalManualDecision(currentVideoId)) {
+      this.showDuplicateLocalFeedbackNotice(currentVideoId);
       return;
     }
 
     if (decision === "confirm") {
-      await this.localVideoLabelStore.rememberManual(this.currentContext.bvid, segment.category, `手动保留 ${CATEGORY_LABELS[segment.category]}`);
+      try {
+        await this.localVideoLabelStore.rememberManual(currentVideoId, segment.category, `手动保留 ${CATEGORY_LABELS[segment.category]}`);
+      } catch (error) {
+        this.showLocalFeedbackFailure(currentVideoId, error);
+        throw error;
+      }
       this.currentRuntimeLocalSignal = null;
-      this.currentTitleLabel = this.buildLocalSignalSegment(this.currentContext.bvid, {
+      this.currentTitleLabel = this.buildLocalSignalSegment(currentVideoId, {
         category: segment.category,
         source: "manual",
         reason: `手动保留 ${CATEGORY_LABELS[segment.category]}`
       });
       this.updateTitleBadge(this.currentTitleLabel);
       this.panel.setFullVideoLabels([this.currentTitleLabel]);
+      this.panel.refreshLocalLearningRecords();
       this.notices.show({
-        id: `local-label-confirm:${this.currentContext.bvid}`,
+        id: `local-label-confirm:${currentVideoId}`,
         title: "已保留本地标签",
         message: `已记录为你的本地判断。后续进入当前视频时会继续显示“${CATEGORY_LABELS[segment.category]}”，该本地反馈不可重复提交。`,
         durationMs: 3600
@@ -1421,19 +1532,25 @@ export class ScriptController {
       return;
     }
 
-    await this.localVideoLabelStore.dismiss(this.currentContext.bvid, `手动忽略 ${CATEGORY_LABELS[segment.category]}`);
+    try {
+      await this.localVideoLabelStore.dismiss(currentVideoId, `手动忽略 ${CATEGORY_LABELS[segment.category]}`);
+    } catch (error) {
+      this.showLocalFeedbackFailure(currentVideoId, error);
+      throw error;
+    }
     this.currentRuntimeLocalSignal = null;
     this.currentTitleLabel = null;
     this.titleBadge.clear();
     this.panel.setFullVideoLabels([]);
+    this.panel.refreshLocalLearningRecords();
     this.updateRuntimeStatus({
       kind: this.currentSegments.length > 0 ? "loaded" : "empty",
       message: this.currentSegments.length > 0 ? `已加载 ${this.currentSegments.length} 个可处理片段` : "当前视频暂无可显示的整视频标签",
-      bvid: this.currentContext.bvid,
+      bvid: currentVideoId,
       segmentCount: this.currentSegments.length
     });
     this.notices.show({
-      id: `local-label-dismiss:${this.currentContext.bvid}`,
+      id: `local-label-dismiss:${currentVideoId}`,
       title: "已忽略本地标签",
       message: "已记录为你的本地判断。后续当前视频不会再显示这条本地商业提示，该本地反馈不可重复提交。",
       durationMs: 3600

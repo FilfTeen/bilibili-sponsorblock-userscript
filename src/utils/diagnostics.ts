@@ -1,4 +1,10 @@
 import { PRODUCT_NAME, SCRIPT_VERSION } from "../constants";
+import { getMbgaDecisionRecords, type MbgaDecisionRecord } from "../features/mbga/core";
+import {
+  getNativeRequestGuardSnapshot,
+  type NativeRequestGuardRecord,
+  type NativeRequestGuardSnapshot
+} from "../platform/native-request-guard";
 
 export type DiagnosticSeverity = "info" | "warn" | "error";
 export type DiagnosticArea = "storage" | "network" | "ui" | "lifecycle" | "upstream" | "runtime";
@@ -20,6 +26,8 @@ type DiagnosticInput = {
 };
 
 const MAX_DIAGNOSTIC_EVENTS = 40;
+const MAX_DIAGNOSTIC_SAMPLE_URL_LENGTH = 160;
+const OPAQUE_RESOURCE_LABEL = "[opaque-resource]";
 const SENSITIVE_KEY_PATTERN = /user.?id|token|cookie|authorization|comment.?text|reply.?text|raw.?text|feedback.?token/iu;
 const diagnosticEvents: DiagnosticEvent[] = [];
 const listeners = new Set<(events: DiagnosticEvent[]) => void>();
@@ -48,6 +56,59 @@ export function sanitizeDiagnosticPageUrl(input: string): string {
   } catch (_error) {
     const withoutQueryOrHash = input.split(/[?#]/u, 1)[0] ?? "";
     return cleanString(withoutQueryOrHash);
+  }
+}
+
+function clampDiagnosticSampleUrl(value: string): string {
+  return value.length <= MAX_DIAGNOSTIC_SAMPLE_URL_LENGTH
+    ? value
+    : `${value.slice(0, MAX_DIAGNOSTIC_SAMPLE_URL_LENGTH - 3)}...`;
+}
+
+function isOpaqueDiagnosticResource(raw: string): boolean {
+  const lower = raw.toLowerCase();
+  const likelyUrl = /^(?:https?:)?\/\//iu.test(raw) || raw.startsWith("/");
+  return (
+    !likelyUrl &&
+    (raw.length > MAX_DIAGNOSTIC_SAMPLE_URL_LENGTH ||
+      lower.includes("application/wasm") ||
+      lower.includes("base64,") ||
+      lower.startsWith("wasm:"))
+  );
+}
+
+export function sanitizeDiagnosticSampleUrl(input: string): string {
+  const raw = input.trim();
+  if (!raw) {
+    return "";
+  }
+  const lower = raw.toLowerCase();
+  if (lower.startsWith("data:")) {
+    return "[data-url]";
+  }
+  if (lower.startsWith("blob:")) {
+    return "[blob-url]";
+  }
+  if (isOpaqueDiagnosticResource(raw)) {
+    return OPAQUE_RESOURCE_LABEL;
+  }
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      if (url.protocol === "data:") {
+        return "[data-url]";
+      }
+      if (url.protocol === "blob:") {
+        return "[blob-url]";
+      }
+      return OPAQUE_RESOURCE_LABEL;
+    }
+    return clampDiagnosticSampleUrl(`${url.origin}${url.pathname}`);
+  } catch (_error) {
+    const withoutQueryOrHash = raw.split(/[?#]/u, 1)[0] ?? "";
+    return isOpaqueDiagnosticResource(withoutQueryOrHash)
+      ? OPAQUE_RESOURCE_LABEL
+      : clampDiagnosticSampleUrl(withoutQueryOrHash);
   }
 }
 
@@ -178,6 +239,68 @@ export function reportDiagnostic(input: DiagnosticInput): DiagnosticEvent {
   return { ...event };
 }
 
+function countByAction(records: Array<{ action: string }>): string {
+  if (records.length === 0) {
+    return "empty";
+  }
+  const counts = new Map<string, number>();
+  for (const record of records) {
+    counts.set(record.action, (counts.get(record.action) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([action, count]) => `${action}=${count}`)
+    .join(", ");
+}
+
+function summarizeMbgaRecords(records: MbgaDecisionRecord[]): string[] {
+  if (records.length === 0) {
+    return ["MBGA: empty"];
+  }
+  const recent = records.slice(-10);
+  const recentRuleIds = [...new Set(recent.map((record) => record.ruleId))].join(", ") || "none";
+  const lines = [
+    `MBGA: total=${records.length}`,
+    `MBGA actions: ${countByAction(records)}`,
+    `MBGA recent rules: ${recentRuleIds}`,
+    "MBGA samples:"
+  ];
+  for (const record of recent) {
+    lines.push(
+      `  - ${new Date(record.at).toISOString()} ${record.action} ${record.ruleId} ${sanitizeDiagnosticSampleUrl(
+        record.url
+      )} (${cleanString(record.reason)} / ${cleanString(record.source)})`
+    );
+  }
+  return lines;
+}
+
+function summarizeNativeGuard(snapshot: NativeRequestGuardSnapshot | null): string[] {
+  if (!snapshot) {
+    return ["Native guard: unavailable"];
+  }
+  const records: NativeRequestGuardRecord[] = snapshot.records ?? [];
+  const lines = [
+    `Native guard: enabled=${snapshot.enabled}, supportedPage=${snapshot.supportedPage}, compactHeaderReady=${snapshot.compactHeaderReady}, reason=${cleanString(
+      snapshot.reason
+    )}`,
+    `Native guard actions: ${countByAction(records)}`
+  ];
+  if (records.length === 0) {
+    lines.push("Native guard samples: empty");
+    return lines;
+  }
+  lines.push("Native guard samples:");
+  for (const record of records.slice(-10)) {
+    lines.push(
+      `  - ${new Date(record.time).toISOString()} ${record.action} ${sanitizeDiagnosticSampleUrl(record.url)} (${cleanString(
+        record.reason
+      )})`
+    );
+  }
+  return lines;
+}
+
 export function formatDiagnosticReport(): string {
   const lines = [
     `${PRODUCT_NAME} diagnostics`,
@@ -188,6 +311,8 @@ export function formatDiagnosticReport(): string {
     `UserAgent: ${cleanString(navigator.userAgent)}`,
     `Events: ${diagnosticEvents.length}`
   ];
+  lines.push(...summarizeMbgaRecords(getMbgaDecisionRecords()));
+  lines.push(...summarizeNativeGuard(getNativeRequestGuardSnapshot()));
   for (const event of diagnosticEvents) {
     lines.push(
       `- ${new Date(event.at).toISOString()} [${event.severity}/${event.area}] ${event.message}${

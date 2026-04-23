@@ -6,9 +6,11 @@ import {
   VIDEO_SIGNAL_FEEDBACK_EVENT,
   assessCommentRendererShill,
   classifyCommentRenderer,
+  clearSubmittedCommentFeedbackRecords,
   consumeCommentFeedbackToken,
   extractCommentAuthorMid,
   extractCommentLocation,
+  getCommentFeedbackRecordsSummary,
   commentMatchToVideoSignal,
   extractCommentText,
   hasSponsoredGoodsLink,
@@ -912,6 +914,38 @@ describe("comment filter", () => {
     expect(trigger?.title).toContain("不会覆盖上游判断");
   });
 
+  it("shows submitted feedback state when a manual local decision already exists", async () => {
+    history.replaceState({}, "", "https://www.bilibili.com/video/BV1xx411c7mL");
+
+    const root = document.createElement("bili-comments");
+    const rootShadow = root.attachShadow({ mode: "open" });
+    document.body.appendChild(root);
+    rootShadow.appendChild(createThread(createCommentRenderer(false, "点评论区置顶领取优惠券") as HTMLElement));
+
+    const controller = createStartedCommentController();
+    Reflect.get(controller, "handleFeedbackAvailability").call(
+      controller,
+      new CustomEvent(LOCAL_VIDEO_FEEDBACK_AVAILABILITY_EVENT, {
+        detail: {
+          enabled: false,
+          locked: true,
+          disabledReason: "manual-decision",
+          bvid: "BV1xx411c7mL"
+        }
+      })
+    );
+    Reflect.get(controller, "refresh").call(controller);
+
+    const actionRoot = getMainActionRoot(rootShadow);
+    const menu = actionRoot?.querySelector<HTMLElement>("[data-bsb-comment-feedback-menu='true']");
+    const trigger = actionRoot?.querySelector<HTMLButtonElement>("[data-bsb-comment-feedback-trigger='true']");
+    expect(menu?.dataset.disabled).toBe("true");
+    expect(menu?.dataset.submitted).toBe("true");
+    expect(trigger?.disabled).toBe(true);
+    expect(trigger?.textContent).toBe("已提交");
+    expect(trigger?.title).toContain("本地学习不会重复处理");
+  });
+
   it("keeps submitted comment feedback independent per comment after a re-render", async () => {
     history.replaceState({}, "", "https://www.bilibili.com/video/BV1xx411c7mS");
     const storedFeedback: Record<string, number> = {};
@@ -964,6 +998,47 @@ describe("comment filter", () => {
     expect(nextActionRoots[0]?.querySelector<HTMLButtonElement>("[data-bsb-comment-feedback-trigger='true']")?.disabled).toBe(true);
     expect(nextActionRoots[1]?.querySelector<HTMLButtonElement>("[data-bsb-comment-feedback-trigger='true']")?.textContent).toBe("反馈");
     expect(nextActionRoots[1]?.querySelector<HTMLButtonElement>("[data-bsb-comment-feedback-trigger='true']")?.disabled).toBe(false);
+  });
+
+  it("summarizes and clears stored comment feedback locks without exposing comment text", async () => {
+    let storedFeedback: Record<string, number> = {
+      "BV1xx411c7mS:private-hash": 2000,
+      "BV17x411w7KC:other-private-hash": 1000,
+      "not-a-video-key": 3000
+    };
+    vi.stubGlobal("GM_getValue", vi.fn(async () => storedFeedback));
+    vi.stubGlobal(
+      "GM_setValue",
+      vi.fn(async (_key, value) => {
+        storedFeedback = value;
+      })
+    );
+
+    const summary = await getCommentFeedbackRecordsSummary();
+    expect(summary).toMatchObject({
+      count: 2,
+      maxRecords: 1000,
+      latestUpdatedAt: 2000
+    });
+
+    await clearSubmittedCommentFeedbackRecords();
+
+    expect(storedFeedback).toEqual({});
+    expect(await getCommentFeedbackRecordsSummary()).toMatchObject({ count: 0, latestUpdatedAt: null });
+  });
+
+  it("keeps in-memory comment feedback locks when clearing storage fails", async () => {
+    const storedFeedback: Record<string, number> = {
+      "BV1xx411c7mS:private-hash": 2000
+    };
+    vi.stubGlobal("GM_getValue", vi.fn(async () => storedFeedback));
+    vi.stubGlobal("GM_setValue", vi.fn(async () => {
+      throw new Error("comment feedback clear failed");
+    }));
+
+    await expect(clearSubmittedCommentFeedbackRecords()).rejects.toThrow("comment feedback clear failed");
+
+    expect(await getCommentFeedbackRecordsSummary()).toMatchObject({ count: 1, latestUpdatedAt: 2000 });
   });
 
   it("dispatches structured feedback from the inserted comment actions", async () => {
