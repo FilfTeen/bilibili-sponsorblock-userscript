@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili QoL Core
 // @namespace    https://github.com/FilfTeen/bilibili-qol-core-userscript
-// @version      0.3.10
+// @version      0.3.11
 // @description  Local-first quality-of-life toolkit for Bilibili: SponsorBlock segments, labels, comment/dynamic signals, MBGA cleanup, and low-intrusion UI.
 // @author       Hush_
 // @license      GPL-3.0-only
@@ -213,7 +213,7 @@
   var PRODUCT_NAME = "Bilibili QoL Core";
   var SCRIPT_NAME = PRODUCT_NAME;
   var AUTHOR_NAME = "Hush_";
-  var SCRIPT_VERSION = "0.3.10".trim().length > 0 ? "0.3.10" : "0.3.10";
+  var SCRIPT_VERSION = "0.3.11".trim().length > 0 ? "0.3.11" : "0.3.11";
   var CONFIG_STORAGE_KEY = "bsb_tm_config_v1";
   var STATS_STORAGE_KEY = "bsb_tm_stats_v1";
   var CACHE_STORAGE_KEY = "bsb_tm_cache_v1";

@@ -1,6 +1,6 @@
 # 上游对接审计
 
-本报告记录 Bilibili QoL Core v0.3.10 与上游 BilibiliSponsorBlock / SponsorBlock API 的对接差异、已修复问题和保留边界。`v0.3.10` 没有改变上游 API 行为口径，只修复发布阻塞问题。
+本报告记录 Bilibili QoL Core v0.3.11 与上游 BilibiliSponsorBlock / SponsorBlock API 的对接差异、已修复问题和保留边界。`v0.3.11` 没有改变上游 API 行为口径；本地学习管理、MBGA 诊断和 Safari 证据增强均不扩大上游反馈能力。
 
 ## 结论
 

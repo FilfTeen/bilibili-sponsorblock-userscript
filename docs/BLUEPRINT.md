@@ -1,8 +1,8 @@
-# Bilibili QoL Core v0.3.10 工程蓝图
+# Bilibili QoL Core v0.3.11 工程蓝图
 
 本文件是后续开发、审计和派生线程接力的总索引。它描述当前真实能力、实现入口、数据边界、测试入口和验收重点。
 
-`v0.3.10` 是控制台交互补丁之后的发布阻塞修复，清理诊断报告页面 URL 中的 query/hash 敏感信息，并确保 tag 构建生成不带 `v` 前缀的 userscript 版本号；当前发布产物为 `dist/bilibili-qol-core.user.js`。
+`v0.3.11` 是以 Local Learning Management 为主功能的发布候选，同时补充 MBGA decision telemetry、native request guard 诊断快照、诊断样本 URL 归一化和 Safari 证据文档；当前发布产物为 `dist/bilibili-qol-core.user.js`。
 
 ## 1. 运行环境与启动
 
@@ -36,7 +36,7 @@
 | 评论识别 | 标记或折叠广告/托评 | `src/features/comment-filter.ts`、`src/utils/commercial-intent.ts` | `test/comment-filter.test.ts`、`test/commercial-intent.test.ts` | 商品卡、导流评论、回复层、恢复入口 |
 | 评论属地 | 显示 payload 自带 IP 属地 | `src/features/comment-filter.ts`、`src/ui/inline-feedback.ts` | `test/comment-filter.test.ts`、`test/inline-feedback.test.ts` | 标签颜色、透明模式、无属地时不伪造 |
 | 动态识别 | 标记或折叠商业动态 | `src/features/dynamic-filter.ts` | `test/dynamic-filter.test.ts` | 首页/动态页/空间页普通动态不误伤 |
-| 本地推理 | 上游未命中时补充判断 | `src/utils/local-video-signal.ts`、`src/utils/local-learning.ts`、`src/core/local-label-store.ts` | `test/local-video-signal.test.ts`、`test/local-learning.test.ts`、`npm run evaluate:recognition` | 上游存在时短路，本地保留/忽略可持续 |
+| 本地推理与学习管理 | 上游未命中时补充判断，并允许用户管理本地学习记录 | `src/utils/local-video-signal.ts`、`src/utils/local-learning.ts`、`src/core/local-label-store.ts`、`src/ui/panel.ts` | `test/local-video-signal.test.ts`、`test/local-learning.test.ts`、`test/local-label-store.test.ts`、`test/panel.test.ts`、`npm run evaluate:recognition` | 上游存在时短路，本地保留/忽略可持续；控制台可查看、删除、清空本地记录 |
 | QoL Core 控制台 | 配置和维护入口 | `src/ui/panel.ts`、`src/ui/styles.ts` | `test/panel.test.ts`、`test/styles.test.ts` | 颜色编辑、二阶段确认、滚动不跳动 |
 | 紧凑顶栏 | 视频页搜索和账号入口 | `src/ui/compact-header.ts`、`src/platform/native-request-guard.ts`、`src/utils/page.ts` | `test/compact-header.test.ts`、`test/native-request-guard.test.ts`、`test/page.test.ts` | 网页全屏隐藏，搜索框不被重建打断，请求 guard 不破坏登录态 |
 | 通知中心 | 低打扰提示和操作反馈 | `src/ui/notice-center.ts` | `test/notice-center.test.ts` | 出现/消失动画、播放器避让、无残留 |

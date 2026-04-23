@@ -1,6 +1,6 @@
 # 能力说明
 
-本文描述 Bilibili QoL Core v0.3.10 已实现的能力边界。`v0.3.10` 延续控制台交互补丁基线，并修复诊断报告 URL 脱敏和 tag 构建版本规范化问题。更细的实现索引见 [BLUEPRINT.md](./BLUEPRINT.md)。
+本文描述 Bilibili QoL Core v0.3.11 已实现的能力边界。`v0.3.11` 以 Local Learning Management 为主功能，并补充 MBGA / native request guard 诊断证据、诊断样本 URL 归一化和 Safari 证据文档。更细的实现索引见 [BLUEPRINT.md](./BLUEPRINT.md)。
 
 ## 1. SponsorBlock 片段能力
 

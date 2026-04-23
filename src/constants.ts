@@ -11,7 +11,7 @@ export const PRODUCT_NAME = "Bilibili QoL Core";
 export const SCRIPT_NAME = PRODUCT_NAME;
 export const AUTHOR_NAME = "Hush_";
 export const SCRIPT_VERSION =
-  typeof __BUILD_VERSION__ === "string" && __BUILD_VERSION__.trim().length > 0 ? __BUILD_VERSION__ : "0.3.10";
+  typeof __BUILD_VERSION__ === "string" && __BUILD_VERSION__.trim().length > 0 ? __BUILD_VERSION__ : "0.3.11";
 export const CONFIG_STORAGE_KEY = "bsb_tm_config_v1";
 export const STATS_STORAGE_KEY = "bsb_tm_stats_v1";
 export const CACHE_STORAGE_KEY = "bsb_tm_cache_v1";

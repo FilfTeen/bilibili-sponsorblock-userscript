@@ -2,7 +2,7 @@
 
 ## Summary
 
-v0.3.10 has automated and Safari WebDriver evidence, but it does not yet have a full logged-in Safari main-window acceptance pass for every major feature.
+v0.3.10 had automated and Safari WebDriver evidence, but the v0.3.11 release candidate still requires a final logged-in Safari main-window acceptance pass before publishing.
 
 This document separates real evidence from auxiliary evidence.
 
@@ -40,7 +40,7 @@ This document separates real evidence from auxiliary evidence.
 
 ## Minimum v0.3.11 Safari Main-Window Checklist
 
-1. Confirm Tampermonkey loads `Bilibili QoL Core` `0.3.10` or the v0.3.11 candidate dist.
+1. Confirm Tampermonkey loads the v0.3.11 candidate dist, and do not rely only on the `@version` metadata without behavior checks.
 2. Open normal `/video/` page while logged in.
 3. Verify title pill, popover, compact header, notice center, and comments.
 4. Use panel native select/input/color controls.
