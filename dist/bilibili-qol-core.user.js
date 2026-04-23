@@ -5171,9 +5171,10 @@ ${inlineSurfaceFrostedGlass.overlay}
             errorMessage: null
           });
           this.markLocalLearningItemRemoving(item);
+          this.syncLocalLearningManagerCard();
+          this.refreshLocalLearningRecords();
           this.finishLocalLearningItemRemoval(item, () => {
-            this.renderHelpIfOpen();
-            this.refreshLocalLearningRecords();
+            this.commitLocalLearningItemRemoval(item);
           });
         } catch (error) {
           delete item.dataset.removing;
@@ -5199,6 +5200,25 @@ ${inlineSurfaceFrostedGlass.overlay}
       void item.offsetHeight;
       item.dataset.removing = "true";
       item.setAttribute("aria-busy", "true");
+    }
+    syncLocalLearningManagerCard() {
+      var _a;
+      const card = (_a = this.sections.get("help")) == null ? void 0 : _a.querySelector("[data-bsb-local-learning-manager='true']");
+      if (!card) {
+        return;
+      }
+      const count = card.querySelector(".bsb-tm-local-learning-count");
+      if (count) {
+        count.textContent = this.localLearningState.status === "loading" ? "\u8BFB\u53D6\u4E2D" : `${this.localLearningState.videoRecords.length} \u6761\u89C6\u9891 \xB7 ${this.localLearningState.commentFeedback.count} \u6761\u8BC4\u8BBA\u53CD\u9988\u9501`;
+      }
+      const clearVideoButton = card.querySelector("[data-bsb-local-label-clear='true']");
+      if (clearVideoButton) {
+        clearVideoButton.disabled = this.localLearningState.status !== "ready" || this.localLearningState.videoRecords.length === 0 || !this.callbacks.onClearLocalVideoLabels;
+      }
+      const clearCommentButton = card.querySelector("[data-bsb-comment-feedback-clear='true']");
+      if (clearCommentButton) {
+        clearCommentButton.disabled = this.localLearningState.status !== "ready" || this.localLearningState.commentFeedback.count === 0 || !this.callbacks.onClearCommentFeedback;
+      }
     }
     createCommentFeedbackLearningSection() {
       const section = document.createElement("section");
@@ -5247,6 +5267,18 @@ ${inlineSurfaceFrostedGlass.overlay}
         this.renderHelp();
       }
     }
+    commitLocalLearningItemRemoval(item) {
+      item.removeAttribute("aria-busy");
+      if (!item.isConnected) {
+        return;
+      }
+      const list = item.parentElement;
+      item.remove();
+      if (!list || list.querySelector(".bsb-tm-local-learning-item")) {
+        return;
+      }
+      list.replaceChildren(this.createLocalLearningEmpty("\u6682\u65E0\u672C\u5730\u89C6\u9891\u5B66\u4E60\u8BB0\u5F55\u3002"));
+    }
     finishLocalLearningItemRemoval(item, onDone) {
       if (this.prefersReducedMotion()) {
         onDone();
@@ -5263,9 +5295,11 @@ ${inlineSurfaceFrostedGlass.overlay}
           window.clearTimeout(timer);
         }
         item.removeEventListener("transitionend", finish);
+        item.removeEventListener("transitioncancel", finish);
         onDone();
       };
       item.addEventListener("transitionend", finish);
+      item.addEventListener("transitioncancel", finish);
       timer = window.setTimeout(finish, LOCAL_LEARNING_ITEM_REMOVE_MS + 80);
     }
     prefersReducedMotion() {

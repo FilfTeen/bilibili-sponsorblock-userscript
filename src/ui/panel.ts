@@ -1061,9 +1061,10 @@ export class SettingsPanel {
           errorMessage: null
         };
         this.markLocalLearningItemRemoving(item);
+        this.syncLocalLearningManagerCard();
+        this.refreshLocalLearningRecords();
         this.finishLocalLearningItemRemoval(item, () => {
-          this.renderHelpIfOpen();
-          this.refreshLocalLearningRecords();
+          this.commitLocalLearningItemRemoval(item);
         });
       } catch (error) {
         delete item.dataset.removing;
@@ -1091,6 +1092,37 @@ export class SettingsPanel {
     void item.offsetHeight;
     item.dataset.removing = "true";
     item.setAttribute("aria-busy", "true");
+  }
+
+  private syncLocalLearningManagerCard(): void {
+    const card = this.sections.get("help")?.querySelector<HTMLElement>("[data-bsb-local-learning-manager='true']");
+    if (!card) {
+      return;
+    }
+
+    const count = card.querySelector<HTMLElement>(".bsb-tm-local-learning-count");
+    if (count) {
+      count.textContent =
+        this.localLearningState.status === "loading"
+          ? "读取中"
+          : `${this.localLearningState.videoRecords.length} 条视频 · ${this.localLearningState.commentFeedback.count} 条评论反馈锁`;
+    }
+
+    const clearVideoButton = card.querySelector<HTMLButtonElement>("[data-bsb-local-label-clear='true']");
+    if (clearVideoButton) {
+      clearVideoButton.disabled =
+        this.localLearningState.status !== "ready" ||
+        this.localLearningState.videoRecords.length === 0 ||
+        !this.callbacks.onClearLocalVideoLabels;
+    }
+
+    const clearCommentButton = card.querySelector<HTMLButtonElement>("[data-bsb-comment-feedback-clear='true']");
+    if (clearCommentButton) {
+      clearCommentButton.disabled =
+        this.localLearningState.status !== "ready" ||
+        this.localLearningState.commentFeedback.count === 0 ||
+        !this.callbacks.onClearCommentFeedback;
+    }
   }
 
   private createCommentFeedbackLearningSection(): HTMLElement {
@@ -1152,6 +1184,21 @@ export class SettingsPanel {
     }
   }
 
+  private commitLocalLearningItemRemoval(item: HTMLElement): void {
+    item.removeAttribute("aria-busy");
+    if (!item.isConnected) {
+      return;
+    }
+
+    const list = item.parentElement;
+    item.remove();
+    if (!list || list.querySelector(".bsb-tm-local-learning-item")) {
+      return;
+    }
+
+    list.replaceChildren(this.createLocalLearningEmpty("暂无本地视频学习记录。"));
+  }
+
   private finishLocalLearningItemRemoval(item: HTMLElement, onDone: () => void): void {
     if (this.prefersReducedMotion()) {
       onDone();
@@ -1169,10 +1216,12 @@ export class SettingsPanel {
         window.clearTimeout(timer);
       }
       item.removeEventListener("transitionend", finish);
+      item.removeEventListener("transitioncancel", finish);
       onDone();
     };
 
     item.addEventListener("transitionend", finish);
+    item.addEventListener("transitioncancel", finish);
     timer = window.setTimeout(finish, LOCAL_LEARNING_ITEM_REMOVE_MS + 80);
   }
 
