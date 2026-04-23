@@ -184,17 +184,12 @@ export class ScriptController {
       segmentCount: this.currentSegments.length
     });
     this.syncLocalFeedbackAvailability();
-    if (shouldPersistLocalVideoSignal(signal)) {
-      void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal).catch((error) => {
-        debugLog("Failed to persist runtime local video signal", error);
-        reportDiagnostic({
-          severity: "warn",
-          area: "storage",
-          message: "本地视频推理结果写入失败，已保留当前页面临时显示",
-          detail: error
-        });
-      });
-    }
+    this.persistAutomaticLocalVideoSignal(
+      this.currentContext.bvid,
+      signal,
+      "Failed to persist runtime local video signal",
+      "本地视频推理结果写入失败，已保留当前页面临时显示"
+    );
   };
   private readonly handleVideoSignalFeedback = (event: Event) => {
     if (!(event instanceof CustomEvent) || !this.started || !this.currentConfig.enabled || !this.currentContext) {
@@ -261,17 +256,12 @@ export class ScriptController {
       this.currentTitleLabel = segment;
       this.updateTitleBadge(segment);
       this.panel.setFullVideoLabels([segment]);
-      if (shouldPersistLocalVideoSignal(signal)) {
-        void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal).catch((error) => {
-          debugLog("Failed to persist comment local video signal", error);
-          reportDiagnostic({
-            severity: "warn",
-            area: "storage",
-            message: "评论触发的本地视频推理写入失败，已保留当前页面临时显示",
-            detail: error
-          });
-        });
-      }
+      this.persistAutomaticLocalVideoSignal(
+        this.currentContext.bvid,
+        signal,
+        "Failed to persist comment local video signal",
+        "评论触发的本地视频推理写入失败，已保留当前页面临时显示"
+      );
     }
 
     this.notices.show({
@@ -1397,12 +1387,66 @@ export class ScriptController {
       return null;
     }
 
-    if (shouldPersistLocalVideoSignal(localSignal)) {
-      await this.localVideoLabelStore.rememberSignal(context.bvid, localSignal);
-    }
+    await this.persistAutomaticLocalVideoSignalNow(
+      context.bvid,
+      localSignal,
+      "Failed to persist initial local video signal",
+      "初始本地视频推理结果写入失败"
+    );
 
     this.currentRuntimeLocalSignal = localSignal;
     return this.buildLocalSignalSegment(context.bvid, localSignal);
+  }
+
+  private persistAutomaticLocalVideoSignal(
+    videoId: string,
+    signal: LocalVideoSignal,
+    debugMessage: string,
+    diagnosticMessage: string
+  ): void {
+    if (!shouldPersistLocalVideoSignal(signal)) {
+      return;
+    }
+
+    void this.localVideoLabelStore
+      .rememberSignal(videoId, signal)
+      .then(() => {
+        this.panel.refreshLocalLearningRecords();
+      })
+      .catch((error) => {
+        debugLog(debugMessage, error);
+        reportDiagnostic({
+          severity: "warn",
+          area: "storage",
+          message: diagnosticMessage,
+          detail: error
+        });
+      });
+  }
+
+  private async persistAutomaticLocalVideoSignalNow(
+    videoId: string,
+    signal: LocalVideoSignal,
+    debugMessage: string,
+    diagnosticMessage: string
+  ): Promise<void> {
+    if (!shouldPersistLocalVideoSignal(signal)) {
+      return;
+    }
+
+    try {
+      await this.localVideoLabelStore.rememberSignal(videoId, signal);
+    } catch (error) {
+      debugLog(debugMessage, error);
+      reportDiagnostic({
+        severity: "warn",
+        area: "storage",
+        message: diagnosticMessage,
+        detail: error
+      });
+      throw error;
+    }
+    this.panel.refreshLocalLearningRecords();
   }
 
   private resolveAutomaticLocalSignalSource(source: LocalVideoLabelRecord["source"]): LocalVideoSignal["source"] | null {
