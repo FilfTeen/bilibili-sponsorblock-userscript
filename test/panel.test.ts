@@ -1731,6 +1731,11 @@ describe("settings panel", () => {
     expect(card?.textContent).toContain("1 条视频");
     expect(card?.textContent).toContain("BV1xx411c7mD");
     expect(card?.textContent).toContain("手动忽略");
+    expect(
+      document
+        .querySelector<HTMLButtonElement>("[data-bsb-local-label-delete='BV1xx411c7mD']")
+        ?.closest<HTMLElement>(".bsb-tm-local-learning-item")?.dataset.removing
+    ).toBeUndefined();
   });
 
   it("does not drop local learning refresh requests that arrive while a load is pending", async () => {
@@ -1780,6 +1785,11 @@ describe("settings panel", () => {
     const card = document.querySelector("[data-bsb-local-learning-manager='true']");
     expect(card?.textContent).toContain("BV1xx411c7mD");
     expect(card?.textContent).toContain("手动忽略");
+    expect(
+      document
+        .querySelector<HTMLButtonElement>("[data-bsb-local-label-delete='BV1xx411c7mD']")
+        ?.closest<HTMLElement>(".bsb-tm-local-learning-item")?.dataset.removing
+    ).toBeUndefined();
   });
 
   it("clears comment feedback locks only after confirmation", async () => {

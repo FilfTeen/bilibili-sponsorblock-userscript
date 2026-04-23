@@ -9462,17 +9462,12 @@ ${inlineSurfaceFrostedGlass.overlay}
           segmentCount: this.currentSegments.length
         });
         this.syncLocalFeedbackAvailability();
-        if (shouldPersistLocalVideoSignal(signal)) {
-          void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal).catch((error) => {
-            debugLog("Failed to persist runtime local video signal", error);
-            reportDiagnostic({
-              severity: "warn",
-              area: "storage",
-              message: "\u672C\u5730\u89C6\u9891\u63A8\u7406\u7ED3\u679C\u5199\u5165\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u5F53\u524D\u9875\u9762\u4E34\u65F6\u663E\u793A",
-              detail: error
-            });
-          });
-        }
+        this.persistAutomaticLocalVideoSignal(
+          this.currentContext.bvid,
+          signal,
+          "Failed to persist runtime local video signal",
+          "\u672C\u5730\u89C6\u9891\u63A8\u7406\u7ED3\u679C\u5199\u5165\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u5F53\u524D\u9875\u9762\u4E34\u65F6\u663E\u793A"
+        );
       });
       __publicField(this, "handleVideoSignalFeedback", (event) => {
         var _a, _b, _c, _d;
@@ -9523,17 +9518,12 @@ ${inlineSurfaceFrostedGlass.overlay}
           this.currentTitleLabel = segment;
           this.updateTitleBadge(segment);
           this.panel.setFullVideoLabels([segment]);
-          if (shouldPersistLocalVideoSignal(signal)) {
-            void this.localVideoLabelStore.rememberSignal(this.currentContext.bvid, signal).catch((error) => {
-              debugLog("Failed to persist comment local video signal", error);
-              reportDiagnostic({
-                severity: "warn",
-                area: "storage",
-                message: "\u8BC4\u8BBA\u89E6\u53D1\u7684\u672C\u5730\u89C6\u9891\u63A8\u7406\u5199\u5165\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u5F53\u524D\u9875\u9762\u4E34\u65F6\u663E\u793A",
-                detail: error
-              });
-            });
-          }
+          this.persistAutomaticLocalVideoSignal(
+            this.currentContext.bvid,
+            signal,
+            "Failed to persist comment local video signal",
+            "\u8BC4\u8BBA\u89E6\u53D1\u7684\u672C\u5730\u89C6\u9891\u63A8\u7406\u5199\u5165\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u5F53\u524D\u9875\u9762\u4E34\u65F6\u663E\u793A"
+          );
         }
         this.notices.show({
           id: `comment-feedback-confirm:${this.currentContext.bvid}:${String((_d = detail.feedbackKey) != null ? _d : Date.now())}`,
@@ -10519,11 +10509,50 @@ ${inlineSurfaceFrostedGlass.overlay}
           this.currentRuntimeLocalSignal = null;
           return null;
         }
-        if (shouldPersistLocalVideoSignal(localSignal)) {
-          yield this.localVideoLabelStore.rememberSignal(context.bvid, localSignal);
-        }
+        yield this.persistAutomaticLocalVideoSignalNow(
+          context.bvid,
+          localSignal,
+          "Failed to persist initial local video signal",
+          "\u521D\u59CB\u672C\u5730\u89C6\u9891\u63A8\u7406\u7ED3\u679C\u5199\u5165\u5931\u8D25"
+        );
         this.currentRuntimeLocalSignal = localSignal;
         return this.buildLocalSignalSegment(context.bvid, localSignal);
+      });
+    }
+    persistAutomaticLocalVideoSignal(videoId, signal, debugMessage, diagnosticMessage) {
+      if (!shouldPersistLocalVideoSignal(signal)) {
+        return;
+      }
+      void this.localVideoLabelStore.rememberSignal(videoId, signal).then(() => {
+        this.panel.refreshLocalLearningRecords();
+      }).catch((error) => {
+        debugLog(debugMessage, error);
+        reportDiagnostic({
+          severity: "warn",
+          area: "storage",
+          message: diagnosticMessage,
+          detail: error
+        });
+      });
+    }
+    persistAutomaticLocalVideoSignalNow(videoId, signal, debugMessage, diagnosticMessage) {
+      return __async(this, null, function* () {
+        if (!shouldPersistLocalVideoSignal(signal)) {
+          return;
+        }
+        try {
+          yield this.localVideoLabelStore.rememberSignal(videoId, signal);
+        } catch (error) {
+          debugLog(debugMessage, error);
+          reportDiagnostic({
+            severity: "warn",
+            area: "storage",
+            message: diagnosticMessage,
+            detail: error
+          });
+          throw error;
+        }
+        this.panel.refreshLocalLearningRecords();
       });
     }
     resolveAutomaticLocalSignalSource(source) {
