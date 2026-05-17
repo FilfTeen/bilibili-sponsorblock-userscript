@@ -1,8 +1,8 @@
 # Bilibili QoL Core v0.3.11 工程蓝图
 
-本文件是后续开发、审计和派生线程接力的总索引。它描述当前真实能力、实现入口、数据边界、测试入口和验收重点。
+本文件是后续开发、审计和派生线程接力的总索引。它描述当前真实能力、实现入口、数据边界、测试入口和验收重点。工程文件职责与当前性见 [ENGINEERING_FILE_INDEX.md](./ENGINEERING_FILE_INDEX.md)，主线程接力入口见 [MAIN_THREAD_HANDOFF_V0311.md](./MAIN_THREAD_HANDOFF_V0311.md)。
 
-`v0.3.11` 是以 Local Learning Management 为主功能的发布候选，同时补充 MBGA decision telemetry、native request guard 诊断快照、诊断样本 URL 归一化和 Safari 证据文档；当前发布产物为 `dist/bilibili-qol-core.user.js`。
+`v0.3.11` 是以 Local Learning Management 为主功能的当前主线版本，同时补充 MBGA decision telemetry、native request guard 诊断快照、诊断样本 URL 归一化和 Safari 证据文档；当前发布产物为 `dist/bilibili-qol-core.user.js`。
 
 ## 1. 运行环境与启动
 
@@ -36,11 +36,11 @@
 | 评论识别 | 标记或折叠广告/托评 | `src/features/comment-filter.ts`、`src/utils/commercial-intent.ts` | `test/comment-filter.test.ts`、`test/commercial-intent.test.ts` | 商品卡、导流评论、回复层、恢复入口 |
 | 评论属地 | 显示 payload 自带 IP 属地 | `src/features/comment-filter.ts`、`src/ui/inline-feedback.ts` | `test/comment-filter.test.ts`、`test/inline-feedback.test.ts` | 标签颜色、透明模式、无属地时不伪造 |
 | 动态识别 | 标记或折叠商业动态 | `src/features/dynamic-filter.ts` | `test/dynamic-filter.test.ts` | 首页/动态页/空间页普通动态不误伤 |
-| 本地推理与学习管理 | 上游未命中时补充判断，并允许用户管理本地学习记录 | `src/utils/local-video-signal.ts`、`src/utils/local-learning.ts`、`src/core/local-label-store.ts`、`src/ui/panel.ts` | `test/local-video-signal.test.ts`、`test/local-learning.test.ts`、`test/local-label-store.test.ts`、`test/panel.test.ts`、`npm run evaluate:recognition` | 上游存在时短路，本地保留/忽略可持续；控制台可查看、删除、清空本地记录 |
+| 本地推理与学习管理 | 上游未命中时补充判断，并允许用户管理本地学习记录 | `src/utils/local-video-signal.ts`、`src/utils/local-learning.ts`、`src/core/local-label-store.ts`、`src/ui/panel.ts` | `test/local-video-signal.test.ts`、`test/local-learning.test.ts`、`test/local-label-store.test.ts`、`test/panel.test.ts`、`npm run evaluate:recognition` | 上游存在时短路，本地保留/忽略可持续；控制台可查看、删除、清空本地记录；V0312 仅验证 isolated profile 下 page-heuristic/panel cleanup 窄闭环 |
 | QoL Core 控制台 | 配置和维护入口 | `src/ui/panel.ts`、`src/ui/styles.ts` | `test/panel.test.ts`、`test/styles.test.ts` | 颜色编辑、二阶段确认、滚动不跳动 |
 | 紧凑顶栏 | 视频页搜索和账号入口 | `src/ui/compact-header.ts`、`src/platform/native-request-guard.ts`、`src/utils/page.ts` | `test/compact-header.test.ts`、`test/native-request-guard.test.ts`、`test/page.test.ts` | 网页全屏隐藏，搜索框不被重建打断，请求 guard 不破坏登录态 |
 | 通知中心 | 低打扰提示和操作反馈 | `src/ui/notice-center.ts` | `test/notice-center.test.ts` | 出现/消失动画、播放器避让、无残留 |
-| MBGA | 生态噪音压制（best-effort）和页面小修 | `src/features/mbga/core.ts` | `test/mbga.test.ts` | 播放/动态/专栏/直播页面无明显副作用；网络效果需 A/B 证据 |
+| MBGA | 生态噪音压制（best-effort）和页面小修 | `src/features/mbga/core.ts` | `test/mbga.test.ts` | 播放/动态/专栏页面无明显副作用；V0312 Safari sampling 为 `PASS WITH CAVEAT`，证据 partial / below-HAR-grade，不升级 claim |
 
 ## 3. 页面范围
 
@@ -93,6 +93,7 @@
 - 紧凑顶栏启用后，原生请求 guard 只对当前窄名单内的顶部栏 badge 请求返回合成响应；这些请求是否始终冗余仍需随 B 站实验流复核。guard 不阻断头像、搜索、登录态、播放、评论、动态和风控请求。
 - 评论作者资料接口用于辅助托评判断，失败时无感回退。
 - MBGA 只对少量已知页面网络/行为路径做 best-effort 处理，不能当成完整隐私防护或完整 PCDN 禁用能力。
+- V0312 MBGA 现实证据只支持 sampled known-host best-effort / partial cleanup 边界，不授权默认策略、规则或公开 claim 扩张。
 
 安全边界：
 

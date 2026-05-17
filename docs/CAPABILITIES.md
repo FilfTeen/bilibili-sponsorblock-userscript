@@ -86,6 +86,7 @@ QoL Core 会基于当前视频上下文请求 SponsorBlock 片段，并按分类
 - 本地学习只影响当前浏览器和当前脚本实例。
 - 本地判断不代表 SponsorBlock 社区、Bilibili 官方或其他用户的结论。
 - 本地学习管理不展示评论原文，也不能删除上游 SponsorBlock 或 video label 记录。
+- V0312 Local Learning 证据只验证 isolated Safari/Tampermonkey profile 下的 page-heuristic 本地视频标签写入、控制台可见性、删除和 panel-derived refresh cleanup；current-profile restore、raw restore、organic comment scanning、comment feedback lock closure 和广泛误杀安全未验证。
 
 ## 6. 低侵入 UI
 
@@ -120,7 +121,7 @@ MBGA 是可选能力，用于基于少量已知规则减少部分 B 站页面噪
 - 视频裁切模式补充入口。
 - 页面灰度和复制限制的低侵入修正。
 
-MBGA 主能力当前默认启用，但 PCDN / WebRTC 路径压制不再对新用户默认开启。真实效果和副作用仍需以已登录 Safari 主窗口采样为准。`v0.3.11` 的现实审计建议继续补做 MBGA on/off 网络 A/B 证据，再决定是否进一步调整策略。
+MBGA 主能力当前默认启用，但 PCDN / WebRTC 路径压制不再对新用户默认开启。V0312 Safari sampling 已以 `PASS WITH CAVEAT` 收束 MBGA evidence target；证据仍是 partial / below-HAR-grade，只支持 sampled known-host best-effort / partial cleanup 表述，不升级 MBGA claim，也不授权默认策略或规则扩张。
 
 ## 8. 维护与安全交互
 

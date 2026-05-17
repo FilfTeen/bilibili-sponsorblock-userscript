@@ -69,7 +69,7 @@ npm run build
 npm run validate:safari
 ```
 
-然后按 [docs/SAFARI_ACCEPTANCE_V037.md](./docs/SAFARI_ACCEPTANCE_V037.md) 执行主窗口人工采样。
+然后按 [docs/SAFARI_ACCEPTANCE_V0311.md](./docs/SAFARI_ACCEPTANCE_V0311.md) 执行主窗口人工采样。`docs/SAFARI_ACCEPTANCE_V037.md` 只保留为历史清单。
 
 ## 测试要求
 

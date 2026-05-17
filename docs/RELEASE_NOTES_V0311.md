@@ -2,7 +2,7 @@
 
 ## Summary
 
-v0.3.11 is a release-candidate update focused on Local Learning Management and evidence quality. It does not expand SponsorBlock upstream behavior, MBGA blocking claims, or local inference aggressiveness.
+v0.3.11 is the current release line focused on Local Learning Management and evidence quality. It does not expand SponsorBlock upstream behavior, MBGA blocking claims, or local inference aggressiveness.
 
 ## Highlights
 
@@ -33,4 +33,4 @@ v0.3.11 is a release-candidate update focused on Local Learning Management and e
 
 ## Recommended Release Message
 
-QoL Core v0.3.11 adds Local Learning Management and improves MBGA diagnostics/evidence. The release keeps MBGA claims conservative: best-effort, partial, and experimental where appropriate. Safari main-window acceptance is still required before publishing.
+QoL Core v0.3.11 adds Local Learning Management and improves MBGA diagnostics/evidence. The release keeps MBGA claims conservative: best-effort, partial, and experimental where appropriate. Safari main-window acceptance remains the required standard for future release decisions.

@@ -4,7 +4,7 @@
 BLOCK
 
 ## Historical Status Note
-This report audited the v0.3.9 / `d4f62ec` release candidate. The two P1 blockers recorded below were fixed by the v0.3.10 release blocker fix. Current release decisions should use the v0.3.10 validation results, not this historical BLOCK verdict by itself.
+This report audited the v0.3.9 / `d4f62ec` release candidate. The two P1 blockers recorded below were fixed by the v0.3.10 release blocker fix. Current release decisions should use the current release documents and branch state; for the present baseline, see `docs/MAIN_THREAD_HANDOFF_V0311.md`, `docs/ENGINEERING_FILE_INDEX.md`, and `docs/RELEASE_NOTES_V0311.md`, not this historical BLOCK verdict by itself.
 
 ## Branch And Release State
 - main: local `main` points at `d4f62ec` and contains `codex/v0.3.7-integration`.

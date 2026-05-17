@@ -2,7 +2,9 @@
 
 ## Summary
 
-v0.3.10 had automated and Safari WebDriver evidence, but the v0.3.11 release candidate still requires a final logged-in Safari main-window acceptance pass before publishing.
+This document is a historical v0.3.11 gap analysis created before the final Local Learning Management acceptance and release preparation. It should be read as the evidence debt that guided the v0.3.11 work, not as the current release blocker list.
+
+Current status after v0.3.11 main promotion: Local Learning Management blockers were fixed and rechecked in Safari main window; MBGA remains best-effort / partial / experimental and still needs stronger A/B evidence before any stronger public claim.
 
 This document separates real evidence from auxiliary evidence.
 

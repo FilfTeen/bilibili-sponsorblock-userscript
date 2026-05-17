@@ -4,8 +4,11 @@
 
 ## 当前基线
 
-- `main` / `origin/main`：当前公开基线为 `v0.3.10`，指向提交 `35cca0a`。
-- `codex/qol-core-integration`：当前 v0.3.11 发布候选分支，包含 Local Learning Management、MBGA 诊断证据增强、Safari 证据文档和本次 release prep。
+- runtime release baseline：`v0.3.11` tag 指向提交 `2af59cb`；这是当前公开运行时发布基线。
+- docs-only mainline HEAD：后续线程必须运行 `git rev-parse main origin/main` 实时核对；这是 post-push governance / evidence 文档状态，不是新的 runtime release。
+- 发布授权：无新的 runtime release；不得据此 tag、release、version bump 或 rebuild dist。
+- `codex/qol-core-integration`：v0.3.11 集成分支，内容与 v0.3.11 发布代码无差异；保留为后续集成接力入口，不代表未合入状态。
+- `codex/panel-choice-menu-version`：自绘 choice menu 实验分支，指向 `69194bc`，仍不属于主线发布路径。
 - `v0.3.7`：功能版发布 tag，指向提交 `2847455`。
 - `v0.3.8`：仓库重命名和 Tampermonkey 更新链路迁移 tag，指向提交 `510717f`。
 - `v0.3.9`：控制台 pointer focus / 诊断交互补丁版本。
@@ -24,6 +27,18 @@
 - `codex/local-reasoning-phase1-eval-foundation`
 - `codex/mbga-audit-fix`
 - `codex/title-badge-long-title-stability`
+- `codex/qol-core-integration`
+- `codex/v0.3.11-local-learning-management`
+- `codex/v0.3.11-local-learning-dismiss-fix`
+- `codex/v0.3.11-local-learning-panel-refresh-fix`
+- `codex/v0.3.11-local-learning-list-layout-fix`
+- `codex/v0.3.11-local-learning-auto-refresh-fix`
+- `codex/v0.3.11-local-learning-single-delete-safari-fix`
+- `codex/v0.3.11-mbga-policy-instrumentation`
+- `codex/v0.3.11-diagnostics-sample-normalization`
+- `codex/v0.3.11-safari-diagnostics-sampling`
+- `codex/v0.3.11-docs-truthfulness-pass`
+- `codex/v0.3.11-mbga-ab-network-evidence`
 
 ## 历史说明
 
@@ -47,4 +62,4 @@
 
 - 保留 `bsb_tm_*` 存储键作为兼容前缀，不做破坏性迁移。
 - 保留 `V037` 文件名作为历史归档，不机械重命名。
-- 当前 release candidate 的工程说明、安装路径、发布路径和 userscript metadata 必须以 `v0.3.11` / `bilibili-qol-core-userscript` 为准。
+- 当前工程说明、安装路径、发布路径和 userscript metadata 必须以 `v0.3.11` / `bilibili-qol-core-userscript` 为准。

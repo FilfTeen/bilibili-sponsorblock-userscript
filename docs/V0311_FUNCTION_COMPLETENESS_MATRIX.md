@@ -1,5 +1,7 @@
 # QoL Core v0.3.11 Function Completeness Matrix
 
+Historical status note: this matrix was written before the final v0.3.11 Local Learning Management implementation, blocker fixes, Safari rechecks, and main promotion. It remains useful for capability gaps, especially MBGA reality gaps, but rows that say "add local learning manager" are now historical recommendations rather than current missing work.
+
 Evidence levels:
 
 - Verified: covered by automated tests and at least some current Safari evidence.
